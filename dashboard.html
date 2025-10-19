@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AICraft Cluster Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <h1>🧭 AICraft Cluster Dashboard</h1>
+
+  <div id="cluster-grid"></div>
+
+  <section id="charts">
+    <h2>📈 Cluster Analytics</h2>
+    <canvas id="cpuChart"></canvas>
+    <canvas id="memChart"></canvas>
+  </section>
+
+  <section id="fusion-sidebar">
+    <h2>🧠 Fusion Knowledge Summary</h2>
+    <ul>
+      <li><b>NPC Skills:</b> <span id="fusion-skills">0</span></li>
+      <li><b>Dialogues:</b> <span id="fusion-dialogues">0</span></li>
+      <li><b>Outcomes:</b> <span id="fusion-outcomes">0</span></li>
+      <li><b>Last Sync:</b> <span id="fusion-last">N/A</span></li>
+    </ul>
+    <canvas id="fusionBar" width="200" height="120"></canvas>
+    <a href="fusion.html" id="view-fusion">🔍 View Memory Details</a>
+  </section>
+
+  <section id="policy-panel">
+    <h2>⚙️ Policy Control Panel</h2>
+    <label>Learning Rate: <span id="lr-value">1.0</span></label>
+    <input type="range" id="learningRate" min="0.1" max="2" step="0.1" value="1.0">
+    <label>Delegation Bias: <span id="db-value">0.4</span></label>
+    <input type="range" id="delegationBias" min="0" max="1" step="0.05" value="0.4">
+    <label>Cooldown (ms): <span id="cd-value">10000</span></label>
+    <input type="range" id="cooldown" min="1000" max="30000" step="1000" value="10000">
+    <button id="apply-policy">Apply Policy</button>
+  </section>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

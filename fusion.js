@@ -25,13 +25,39 @@ function render(data) {
           Object.keys(data.dialogues || {}).length,
           (data.outcomes || []).length
         ],
-        backgroundColor: ["#58a6ff", "#3fb950", "#f85149"]
+        backgroundColor: ["#60a5fa", "#34d399", "#f87171"],
+        borderWidth: 2,
+        borderColor: "rgba(15, 23, 42, 0.85)",
+        hoverOffset: 10
       }]
     },
     options: { plugins: { legend: { position: "bottom" } } }
   });
 
   document.getElementById("fusionData").textContent = JSON.stringify(data, null, 2);
+
+  const skills = Object.keys(data.skills || {}).length;
+  const dialogues = Object.keys(data.dialogues || {}).length;
+  const outcomes = (data.outcomes || []).length;
+  const lastSync = data.lastSync || "N/A";
+
+  const map = [
+    ["fusion-skills", skills],
+    ["fusion-dialogues", dialogues],
+    ["fusion-outcomes", outcomes],
+    ["fusion-last", lastSync],
+    ["fusion-skills-detail", skills],
+    ["fusion-dialogues-detail", dialogues],
+    ["fusion-outcomes-detail", outcomes],
+    ["fusion-last-detail", lastSync]
+  ];
+
+  map.forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = value;
+    }
+  });
 }
 
 loadFusionData();

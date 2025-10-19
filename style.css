@@ -12,5 +12,8 @@ canvas { margin-top: 25px; background: #0d1117; border-radius: 6px; padding: 10p
 #fusion-sidebar canvas { margin-top: 10px; }
 #view-fusion { display: block; margin-top: 12px; text-align: center; color: #58a6ff; text-decoration: none; }
 #view-fusion:hover { text-decoration: underline; }
-@keyframes pulseGlow { 0%{box-shadow:0 0 0px #58a6ff;} 50%{box-shadow:0 0 15px #58a6ff;} 100%{box-shadow:0 0 0px #58a6ff;} }
+@keyframes pulseGlow { 0% { box-shadow: 0 0 0px #58a6ff; } 50% { box-shadow: 0 0 15px #58a6ff; } 100% { box-shadow: 0 0 0px #58a6ff; } }
 .fusion-pulse { animation: pulseGlow 1.2s ease-in-out; }
+
+#fusion-details { display: flex; flex-direction: column; gap: 20px; max-width: 640px; }
+#fusion-details pre { background: #161b22; padding: 16px; border-radius: 8px; overflow-x: auto; }

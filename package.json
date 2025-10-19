@@ -10,6 +10,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.0",
+    "rcon-client": "^5.0.5",
     "ws": "^8.17.0"
   }
 }

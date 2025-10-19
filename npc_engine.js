@@ -2,15 +2,21 @@
 // Core AI task manager for AICraft NPCs
 
 import { interpretCommand } from "./interpreter.js";
+import { validateTask } from "./task_schema.js";
 
 const TASK_TIMEOUT = 30000; // 30 seconds max per task
 const SIMULATED_TASK_DURATION = 3000;
 
 export class NPCEngine {
-  constructor() {
+  constructor(options = {}) {
     this.npcs = new Map(); // npcId -> state
     this.taskQueue = [];
     this.taskTimeouts = new Map(); // npcId -> timeoutId
+    this.bridge = options.bridge || null;
+  }
+
+  setBridge(bridge) {
+    this.bridge = bridge;
   }
 
   registerNPC(id, type = "builder") {
@@ -35,14 +41,20 @@ export class NPCEngine {
 
   async handleCommand(inputText, sender = "system") {
     const task = await interpretCommand(inputText);
-    
+
     if (!task || task.action === "none") {
       console.warn("⚠️  No interpretable task found.");
       return null;
     }
 
+    const validation = validateTask(task);
+    if (!validation.valid) {
+      console.warn(`⚠️  Task validation failed: ${validation.errors.join("; ")}`);
+      return null;
+    }
+
     const available = this.findIdleNPC();
-    
+
     if (!available) {
       this.taskQueue.push(task);
       console.warn(`⏸️  No idle NPCs available. Task queued (${this.taskQueue.length} in queue)`);
@@ -61,12 +73,10 @@ export class NPCEngine {
     npc.state = "working";
     console.log(`🪓 NPC ${npc.id} executing task: ${task.action} (${task.details})`);
 
-    // Clear any existing timeout for this NPC
     if (this.taskTimeouts.has(npc.id)) {
       clearTimeout(this.taskTimeouts.get(npc.id));
     }
 
-    // Set a safety timeout in case task never completes
     const safetyTimeout = setTimeout(() => {
       console.warn(`⚠️  Task timeout for NPC ${npc.id}, forcing idle state`);
       this.completeTask(npc.id, false);
@@ -74,19 +84,37 @@ export class NPCEngine {
 
     this.taskTimeouts.set(npc.id, safetyTimeout);
 
-    // Simulated task completion
-    setTimeout(() => {
-      this.completeTask(npc.id, true);
-    }, SIMULATED_TASK_DURATION);
+    this.dispatchTask(npc, task);
 
     return npc;
+  }
+
+  dispatchTask(npc, task) {
+    if (!this.bridge) {
+      setTimeout(() => {
+        this.completeTask(npc.id, true);
+      }, SIMULATED_TASK_DURATION);
+      return;
+    }
+
+    this.bridge
+      .dispatchTask({ ...task, npcId: npc.id })
+      .then(response => {
+        if (response) {
+          console.log(`🧭 Bridge response for ${npc.id}:`, response);
+        }
+        this.completeTask(npc.id, true);
+      })
+      .catch(err => {
+        console.error(`❌ Bridge dispatch failed for ${npc.id}:`, err.message);
+        this.completeTask(npc.id, false);
+      });
   }
 
   completeTask(npcId, success = true) {
     const npc = this.npcs.get(npcId);
     if (!npc) return;
 
-    // Clear the timeout
     if (this.taskTimeouts.has(npcId)) {
       clearTimeout(this.taskTimeouts.get(npcId));
       this.taskTimeouts.delete(npcId);
@@ -102,7 +130,6 @@ export class NPCEngine {
       console.log(`❌ NPC ${npcId} failed task: ${completedTask?.action}`);
     }
 
-    // Process next task in queue
     this.processQueue();
   }
 
@@ -123,7 +150,8 @@ export class NPCEngine {
       idle: 0,
       working: 0,
       queueLength: this.taskQueue.length,
-      npcs: []
+      npcs: [],
+      bridgeConnected: Boolean(this.bridge?.isConnected?.())
     };
 
     for (const npc of this.npcs.values()) {
@@ -141,16 +169,15 @@ export class NPCEngine {
   }
 }
 
-// Example usage
 if (process.argv[1].includes("npc_engine.js")) {
   const engine = new NPCEngine();
   engine.registerNPC("npc_1", "miner");
   engine.registerNPC("npc_2", "builder");
-  
+
   (async () => {
     await engine.handleCommand("build a small tower near spawn");
     await engine.handleCommand("mine some iron ore");
-    
+
     setTimeout(() => {
       console.log("\n📊 Engine Status:", engine.getStatus());
     }, 1000);

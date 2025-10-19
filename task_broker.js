@@ -2,6 +2,7 @@
 // Routes and delegates tasks across cognitive network nodes
 
 import { CognitiveLink } from "./cognitive_link.js";
+import { validateTask } from "./task_schema.js";
 import fs from "fs/promises";
 import fsSync from "fs";
 import EventEmitter from "events";
@@ -69,6 +70,14 @@ export class TaskBroker extends EventEmitter {
   }
 
   async delegateTask(task, options = {}) {
+    const validation = validateTask(task);
+    if (!validation.valid) {
+      this.metrics.tasksFailed++;
+      const error = `Invalid task payload: ${validation.errors.join("; ")}`;
+      this.emit("task_failed", { task, error });
+      return { error, from: "broker" };
+    }
+
     this.metrics.tasksReceived++;
     const startTime = Date.now();
 

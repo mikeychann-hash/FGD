@@ -217,6 +217,16 @@ export class CognitiveLink extends EventEmitter {
   }
 
   canHandle(taskAction) {
+    if (!this.enabled) return false;
+
+    if (!this.specialization || this.specialization.length === 0) {
+      return Boolean(taskAction);
+    }
+
+    if (!taskAction) {
+      return false;
+    }
+
     return this.specialization.includes(taskAction);
   }
 

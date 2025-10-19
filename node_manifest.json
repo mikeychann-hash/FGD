@@ -1,0 +1,49 @@
+{
+  "version": "1.0.0",
+  "nodeName": "Node_A",
+  "nodeId": "node-a-001",
+  "role": "general",
+  "specialization": ["mine", "build", "analyze"],
+  "capacity": {
+    "maxConcurrentTasks": 10,
+    "maxQueueSize": 50,
+    "cpuWeight": 1.0,
+    "memoryWeight": 1.0
+  },
+  "peers": [
+    {
+      "name": "Node_B",
+      "url": "ws://localhost:8901",
+      "specialization": ["dialogue", "explore"],
+      "priority": 1,
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "name": "Node_C",
+      "url": "ws://localhost:8902",
+      "specialization": ["gather", "logistics"],
+      "priority": 2,
+      "weight": 1.0,
+      "enabled": true
+    }
+  ],
+  "taskRouting": {
+    "strategy": "best-fit",
+    "fallbackToLocal": true,
+    "retryAttempts": 3,
+    "retryDelay": 1000,
+    "taskTimeout": 30000
+  },
+  "healthCheck": {
+    "enabled": true,
+    "interval": 15000,
+    "timeout": 5000,
+    "failureThreshold": 3
+  },
+  "loadBalancing": {
+    "algorithm": "least-connections",
+    "considerCapacity": true,
+    "considerSpecialization": true
+  }
+}

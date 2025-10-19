@@ -1,0 +1,8 @@
+{
+  "nodeName": "Node_A",
+  "port": 8800,
+  "peers": [
+    "ws://localhost:8801",
+    "ws://localhost:8802"
+  ]
+}

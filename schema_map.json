@@ -1,0 +1,83 @@
+{
+  "version": "2.0.0",
+  "description": "Knowledge fusion schema for distributed NPC learning",
+  "fields": {
+    "skills": {
+      "type": "object",
+      "description": "NPC skill records indexed by NPC name",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "mining": { "type": "number", "min": 0, "max": 100 },
+          "building": { "type": "number", "min": 0, "max": 100 },
+          "gathering": { "type": "number", "min": 0, "max": 100 },
+          "exploring": { "type": "number", "min": 0, "max": 100 },
+          "guard": { "type": "number", "min": 0, "max": 100 }
+        }
+      }
+    },
+    "dialogues": {
+      "type": "array",
+      "description": "NPC interactions and conversations",
+      "maxLength": 10000,
+      "itemSchema": {
+        "type": "object",
+        "required": ["id", "npc", "timestamp"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^dlg_[a-f0-9]{16}$" },
+          "npc": { "type": "string", "minLength": 1 },
+          "content": { "type": "string" },
+          "context": { "type": "object" },
+          "timestamp": { "type": "number" },
+          "nodeSource": { "type": "string" }
+        }
+      }
+    },
+    "outcomes": {
+      "type": "array",
+      "description": "Task execution results with timestamps",
+      "maxLength": 50000,
+      "itemSchema": {
+        "type": "object",
+        "required": ["npc", "task", "success", "timestamp"],
+        "properties": {
+          "npc": { "type": "string", "minLength": 1 },
+          "task": { "type": "string", "minLength": 1 },
+          "success": { "type": "boolean" },
+          "timestamp": { "type": "number" },
+          "duration": { "type": "number", "min": 0 },
+          "nodeSource": { "type": "string" },
+          "metadata": { "type": "object" }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Fusion metadata and versioning",
+      "properties": {
+        "version": { "type": "string" },
+        "lastMerge": { "type": "number" },
+        "mergeCount": { "type": "number" },
+        "sources": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "mergeStrategies": {
+    "skills": {
+      "algorithm": "weighted-average",
+      "weightByRecency": true,
+      "weightByVolume": true,
+      "decayFactor": 0.95
+    },
+    "dialogues": {
+      "algorithm": "append-unique",
+      "deduplication": "by-id",
+      "maxAge": 2592000000
+    },
+    "outcomes": {
+      "algorithm": "append-recent",
+      "retention": 1000000,
+      "pruneOlderThan": 7776000000
+    }
+  }
+}

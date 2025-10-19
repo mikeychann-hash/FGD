@@ -7,12 +7,53 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <h1>🧠 Fusion Memory Overview</h1>
-  <div id="fusion-details">
-    <canvas id="fusionPie"></canvas>
+  <header>
+    <div class="title-row">
+      <h1>🧠 Fusion Memory Overview</h1>
+      <a class="fusion-breadcrumb" href="dashboard.html">&lsaquo; Cluster Dashboard</a>
+    </div>
+    <p>Explore the aggregated knowledge distilled from NPC learning. Inspect proportions of skills, dialogues, and mission outcomes.</p>
+  </header>
+
+  <section class="card">
+    <h2>Knowledge Composition</h2>
+    <p class="section-subtitle">Distribution of memory artifacts synchronized across the collective.</p>
+    <div id="fusion-details">
+      <canvas id="fusionPie"></canvas>
+      <div class="fusion-stats">
+        <div class="stat">
+          <small>NPC Skills</small>
+          <span id="fusion-skills-detail">0</span>
+        </div>
+        <div class="stat">
+          <small>Dialogues</small>
+          <span id="fusion-dialogues-detail">0</span>
+        </div>
+        <div class="stat">
+          <small>Outcomes</small>
+          <span id="fusion-outcomes-detail">0</span>
+        </div>
+        <div class="stat">
+          <small>Last Sync</small>
+          <span id="fusion-last-detail" class="badge-warning">N/A</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Raw Fusion Payload</h2>
+    <p class="section-subtitle">Full JSON payload for debugging and deep dives.</p>
     <pre id="fusionData">Loading fusion data...</pre>
-  </div>
-  <a href="dashboard.html">⬅ Back to Dashboard</a>
+  </section>
+
+  <footer>
+    &copy; <span id="year"></span> AICraft Cluster Intelligence Network
+  </footer>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
   <script src="fusion.js"></script>
 </body>
 </html>

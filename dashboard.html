@@ -7,39 +7,80 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <h1>🧭 AICraft Cluster Dashboard</h1>
+  <header>
+    <div class="title-row">
+      <h1>🧭 AICraft Cluster Dashboard</h1>
+      <a class="fusion-breadcrumb" href="fusion.html">Fusion Memory &rsaquo;</a>
+    </div>
+    <p>Monitor the health, performance, and coordination of the AICraft collective. Tune policies, inspect fusion knowledge, and spot anomalies across the cluster at a glance.</p>
+  </header>
 
-  <div id="cluster-grid"></div>
+  <div class="dashboard-layout">
+    <main class="main-content">
+      <section class="card">
+        <h2>🌐 Cluster Nodes</h2>
+        <p class="section-subtitle">Live topology of connected cognitive nodes, updated in real time.</p>
+        <div id="cluster-grid"></div>
+      </section>
 
-  <section id="charts">
-    <h2>📈 Cluster Analytics</h2>
-    <canvas id="cpuChart"></canvas>
-    <canvas id="memChart"></canvas>
-  </section>
+      <section id="charts" class="card">
+        <div>
+          <h2>📈 CPU Utilization</h2>
+          <p class="section-subtitle">Rolling 15 minute window of aggregate CPU consumption.</p>
+          <canvas id="cpuChart"></canvas>
+        </div>
+        <div>
+          <h2>💾 Memory Allocation</h2>
+          <p class="section-subtitle">Active memory footprint per cluster node.</p>
+          <canvas id="memChart"></canvas>
+        </div>
+      </section>
 
-  <section id="fusion-sidebar">
-    <h2>🧠 Fusion Knowledge Summary</h2>
-    <ul>
-      <li><b>NPC Skills:</b> <span id="fusion-skills">0</span></li>
-      <li><b>Dialogues:</b> <span id="fusion-dialogues">0</span></li>
-      <li><b>Outcomes:</b> <span id="fusion-outcomes">0</span></li>
-      <li><b>Last Sync:</b> <span id="fusion-last">N/A</span></li>
-    </ul>
-    <canvas id="fusionBar" width="200" height="120"></canvas>
-    <a href="fusion.html" id="view-fusion">🔍 View Memory Details</a>
-  </section>
+      <section id="policy-panel" class="card">
+        <h2>⚙️ Policy Control Panel</h2>
+        <p class="section-subtitle">Adjust learning heuristics to steer delegation, training cadence, and adaptation.</p>
+        <label>Learning Rate <span id="lr-value">1.0</span></label>
+        <input type="range" id="learningRate" min="0.1" max="2" step="0.1" value="1.0">
+        <label>Delegation Bias <span id="db-value">0.4</span></label>
+        <input type="range" id="delegationBias" min="0" max="1" step="0.05" value="0.4">
+        <label>Cooldown (ms) <span id="cd-value">10000</span></label>
+        <input type="range" id="cooldown" min="1000" max="30000" step="1000" value="10000">
+        <button id="apply-policy">Apply Policy</button>
+      </section>
+    </main>
 
-  <section id="policy-panel">
-    <h2>⚙️ Policy Control Panel</h2>
-    <label>Learning Rate: <span id="lr-value">1.0</span></label>
-    <input type="range" id="learningRate" min="0.1" max="2" step="0.1" value="1.0">
-    <label>Delegation Bias: <span id="db-value">0.4</span></label>
-    <input type="range" id="delegationBias" min="0" max="1" step="0.05" value="0.4">
-    <label>Cooldown (ms): <span id="cd-value">10000</span></label>
-    <input type="range" id="cooldown" min="1000" max="30000" step="1000" value="10000">
-    <button id="apply-policy">Apply Policy</button>
-  </section>
+    <aside id="fusion-sidebar">
+      <h2>🧠 Fusion Knowledge Summary</h2>
+      <div class="fusion-stats">
+        <div class="stat">
+          <small>NPC Skills</small>
+          <span id="fusion-skills">0</span>
+        </div>
+        <div class="stat">
+          <small>Dialogues</small>
+          <span id="fusion-dialogues">0</span>
+        </div>
+        <div class="stat">
+          <small>Outcomes</small>
+          <span id="fusion-outcomes">0</span>
+        </div>
+        <div class="stat">
+          <small>Last Sync</small>
+          <span id="fusion-last" class="badge-warning">N/A</span>
+        </div>
+      </div>
+      <canvas id="fusionBar" width="200" height="120"></canvas>
+      <a href="fusion.html" id="view-fusion">🔍 View Memory Details</a>
+    </aside>
+  </div>
 
+  <footer>
+    &copy; <span id="year"></span> AICraft Cluster Intelligence Network
+  </footer>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
   <script src="dashboard.js"></script>
 </body>
 </html>

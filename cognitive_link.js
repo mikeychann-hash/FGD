@@ -4,6 +4,7 @@
 import WebSocket from "ws";
 import EventEmitter from "events";
 import crypto from "crypto";
+import { validateTask } from "./task_schema.js";
 
 const CONNECTION_TIMEOUT = 30000;
 const TASK_TIMEOUT = 30000;
@@ -192,6 +193,15 @@ export class CognitiveLink extends EventEmitter {
 
   async sendTask(task) {
     if (!this.isConnected) throw new Error(`Peer ${this.name} not connected`);
+
+    const validation = validateTask(task);
+    if (!validation.valid) {
+      throw new Error(`Invalid task payload: ${validation.errors.join("; ")}`);
+    }
+
+    if (!this.canHandle(task.action)) {
+      throw new Error(`Peer ${this.name} cannot handle action: ${task.action}`);
+    }
 
     const taskId = crypto.randomBytes(16).toString("hex");
     

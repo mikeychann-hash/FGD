@@ -56,6 +56,8 @@ export class NPCEngine extends EventEmitter {
     this.autoSpawn = options.autoSpawn ?? false;
     this.defaultSpawnPosition = options.defaultSpawnPosition || { x: 0, y: 64, z: 0 };
     this.requireFeedback = options.requireFeedback ?? true;
+    this.modelControlRatio = normalizeControlRatio(options.modelControlRatio);
+    this.interpreterOptions = { ...(options.interpreterOptions || {}) };
     this.bridgeHandlers = {
       npc_update: payload => this.handleBridgeUpdate(payload),
       task_feedback: payload => this.handleBridgeFeedback(payload),
@@ -130,7 +132,12 @@ export class NPCEngine extends EventEmitter {
   }
 
   async handleCommand(inputText, sender = "system") {
-    const task = await interpretCommand(inputText);
+    const interpreterOptions = { ...this.interpreterOptions };
+    if (typeof this.modelControlRatio === "number") {
+      interpreterOptions.controlRatio = this.modelControlRatio;
+    }
+
+    const task = await interpretCommand(inputText, interpreterOptions);
 
     if (!task || task.action === "none") {
       console.warn("⚠️  No interpretable task found.");
@@ -543,6 +550,21 @@ export class NPCEngine extends EventEmitter {
     const position = npc.position || this.defaultSpawnPosition;
     return this.bridge.spawnEntity({ npcId: id, npcType: npc.type, position });
   }
+
+  setModelControlRatio(ratio) {
+    this.modelControlRatio = normalizeControlRatio(ratio);
+  }
+}
+
+function normalizeControlRatio(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.min(1, Math.max(0, value));
+  }
+  const parsed = Number(value);
+  if (Number.isFinite(parsed)) {
+    return Math.min(1, Math.max(0, parsed));
+  }
+  return undefined;
 }
 
 if (process.argv[1].includes("npc_engine.js")) {

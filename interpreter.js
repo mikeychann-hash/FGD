@@ -6,6 +6,23 @@ import { NPC_TASK_RESPONSE_FORMAT, VALID_ACTIONS, actionsRequiringTarget, valida
 
 const DEFAULT_TARGET = { x: 0, y: 64, z: 0 };
 
+function clampRatio(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.min(1, Math.max(0, value));
+  }
+  const parsed = Number(value);
+  if (Number.isFinite(parsed)) {
+    return Math.min(1, Math.max(0, parsed));
+  }
+  return null;
+}
+
+const ENV_CONTROL_RATIO = clampRatio(
+  process.env.LLM_CONTROL_RATIO ?? process.env.MODEL_CONTROL_RATIO
+);
+const DEFAULT_MODEL_CONTROL_RATIO =
+  ENV_CONTROL_RATIO ?? 1;
+
 function extractFirstCoordinateTriplet(text) {
   const tripletMatch = text.match(/(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/);
   if (!tripletMatch) return null;
@@ -112,8 +129,16 @@ function fallbackInterpretation(inputText) {
   };
 }
 
-export async function interpretCommand(inputText) {
-  const useLLM = Boolean(process.env.OPENAI_API_KEY);
+export async function interpretCommand(inputText, options = {}) {
+  const {
+    controlRatio,
+    mockLLMResponse
+  } = options || {};
+
+  const ratio = clampRatio(controlRatio);
+  const effectiveRatio = typeof ratio === "number" ? ratio : DEFAULT_MODEL_CONTROL_RATIO;
+  const hasMockLLM = mockLLMResponse != null;
+  const useLLM = hasMockLLM || Boolean(process.env.OPENAI_API_KEY);
   const messages = [
     {
       role: "system",
@@ -146,12 +171,19 @@ export async function interpretCommand(inputText) {
   }
 
   try {
-    const raw = await queryLLM({
-      messages,
-      response_format: NPC_TASK_RESPONSE_FORMAT,
-      temperature: 0.2,
-      max_tokens: 350
-    });
+    let raw;
+    if (hasMockLLM) {
+      raw = typeof mockLLMResponse === "string"
+        ? mockLLMResponse
+        : JSON.stringify(mockLLMResponse);
+    } else {
+      raw = await queryLLM({
+        messages,
+        response_format: NPC_TASK_RESPONSE_FORMAT,
+        temperature: 0.2,
+        max_tokens: 350
+      });
+    }
 
     if (!raw) {
       throw new Error("LLM returned null response");
@@ -162,6 +194,26 @@ export async function interpretCommand(inputText) {
 
     if (!validation.valid) {
       throw new Error(validation.errors.join("; "));
+    }
+
+    if (effectiveRatio < 1) {
+      const fallback = fallbackInterpretation(inputText);
+      const fallbackValidation = validateTask(fallback);
+      if (fallbackValidation.valid) {
+        if (effectiveRatio <= 0) {
+          console.info(
+            `ℹ️  Using rule-based interpreter due to control ratio ${effectiveRatio}`
+          );
+          return fallback;
+        }
+        const roll = Math.random();
+        if (roll > effectiveRatio) {
+          console.info(
+            `ℹ️  Falling back to rule-based interpreter (roll ${roll.toFixed(3)} > ratio ${effectiveRatio}).`
+          );
+          return fallback;
+        }
+      }
     }
 
     return parsed;

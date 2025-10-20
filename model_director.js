@@ -8,7 +8,9 @@ const DEFAULT_AUTONOMY_PROMPT = [
   "You are the coordinator for a small Minecraft base.",
   "You receive snapshots of the NPC roster, their tasks, and the current queue.",
   "Reply ONLY with JSON following the provided schema so the engine can act on your instructions.",
-  "Do not include explanations or markdown."
+  "Do not include explanations or markdown.",
+  "NPCs can reason about elevation, liquids, and hazardous blocks when planning movement tasks.",
+  "Use the navigate action and populate navigationContext when instructing pathing so the bridge receives elevation, liquid, and hazard cues."
 ].join(" ");
 
 const AUTONOMY_RESPONSE_FORMAT = {

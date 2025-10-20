@@ -45,6 +45,43 @@ function deriveActionAndMetadata(text) {
   const normalized = text.toLowerCase();
   const metadata = {};
 
+  if (/(move|walk|travel|head|go to|navigate|run to|climb)/.test(normalized)) {
+    metadata.movementMode = /swim|water|river|lake|ocean/.test(normalized)
+      ? "swim"
+      : /sneak/.test(normalized)
+        ? "sneak"
+        : "walk";
+
+    metadata.allowWater = /swim|water|river|lake|ocean/.test(normalized);
+
+    const avoidHazards = [];
+    if (/avoid[^.,;]*lava|lava/.test(normalized)) avoidHazards.push("lava");
+    if (/avoid[^.,;]*cave|ravine/.test(normalized)) avoidHazards.push("ravine");
+    if (/avoid[^.,;]*mob|creeper|zombie|skeleton/.test(normalized)) avoidHazards.push("hostile_mobs");
+    if (/avoid[^.,;]*fall|cliff|void/.test(normalized)) avoidHazards.push("fall");
+
+    const directives = {};
+    if (avoidHazards.length > 0) {
+      directives.avoidHazards = [...new Set(avoidHazards)];
+    }
+
+    if (/uphill|higher|mountain|climb/.test(normalized)) {
+      directives.targetElevation = "higher";
+    } else if (/downhill|descend|valley|lower/.test(normalized)) {
+      directives.targetElevation = "lower";
+    }
+
+    if (/toward\s+water|to\s+the\s+river|to\s+the\s+lake/.test(normalized)) {
+      directives.seekLiquid = "water";
+    }
+
+    if (Object.keys(directives).length > 0) {
+      metadata.navigationDirectives = directives;
+    }
+
+    return { action: "navigate", metadata };
+  }
+
   if (/(craft|forge|make)/.test(normalized)) {
     const itemMatch = normalized.match(/craft(?:\s+an?|\s+the)?\s+([^,]+?)(?:\s+(?:at|in|for)\b|$)/);
     if (itemMatch) {
@@ -145,7 +182,9 @@ export async function interpretCommand(inputText, options = {}) {
       content: [
         "You translate player intentions into strict JSON tasks for Minecraft NPCs.",
         "Always return JSON that matches the provided schema.",
-        "Avoid explanations, extra keys, or commentary."
+        "Avoid explanations, extra keys, or commentary.",
+        "NPCs can plan precise navigation routes that account for elevation changes, liquids, and environmental hazards.",
+        "Use the \"navigate\" action for movement instructions and include metadata.navigationDirectives to describe elevation goals, water traversal, or hazards to avoid."
       ].join(" ")
     },
     {

@@ -1,5 +1,7 @@
 // bridges/minecraft_bridge.js
-// Provides a transport layer between the NPCEngine and a Minecraft server via RCON
+// Provides a transport layer between the NPCEngine and a Minecraft server via RCON.
+// Receives navigationContext payloads that describe elevation, liquid, and hazard reasoning for downstream automation.
+// Downstream automation can leverage the enriched context to execute sophisticated movement behaviors.
 
 import EventEmitter from "events";
 import express from "express";

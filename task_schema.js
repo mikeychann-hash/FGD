@@ -1,5 +1,7 @@
 // shared/task_schema.js
-// Defines the schema and validation helpers for NPC tasks
+// Defines the schema and validation helpers for NPC tasks.
+// NPCs cannot reason about elevation, liquids, or hazards with the current schema.
+// Enhancing those capabilities would require extending this schema to carry richer navigation context.
 
 export const VALID_ACTIONS = [
   "build",

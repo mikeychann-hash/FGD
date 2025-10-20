@@ -145,7 +145,9 @@ export async function interpretCommand(inputText, options = {}) {
       content: [
         "You translate player intentions into strict JSON tasks for Minecraft NPCs.",
         "Always return JSON that matches the provided schema.",
-        "Avoid explanations, extra keys, or commentary."
+        "Avoid explanations, extra keys, or commentary.",
+        "NPCs cannot reason about elevation, liquids, or other environmental hazards; never assume they can jump, swim, or pathfind around them.",
+        "Any behaviors like jumping, swimming, or hazard avoidance must be performed by the downstream Minecraft automation that receives the task payloads."
       ].join(" ")
     },
     {

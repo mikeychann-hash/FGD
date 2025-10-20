@@ -1,5 +1,6 @@
 // ai/npc_engine.js
-// Core AI task manager for AICraft NPCs
+// Core AI task manager for AICraft NPCs.
+// NPC state currently lacks awareness of elevation, liquids, or hazards; richer navigation would need state model extensions.
 
 import EventEmitter from "events";
 
@@ -50,7 +51,7 @@ function cloneTask(task) {
 export class NPCEngine extends EventEmitter {
   constructor(options = {}) {
     super();
-    this.npcs = new Map(); // npcId -> state
+    this.npcs = new Map(); // npcId -> state (does not yet track elevation/liquid awareness)
     this.taskQueue = []; // [{ task, enqueuedAt }]
     this.taskTimeouts = new Map(); // npcId -> timeoutId
     this.bridge = options.bridge || null;
@@ -90,7 +91,7 @@ export class NPCEngine extends EventEmitter {
       type,
       task: null,
       state: "idle",
-      position: { ...spawnPosition },
+      position: { ...spawnPosition }, // lacks richer navigation context like hazards or elevation data
       progress: 0,
       lastUpdate: null,
       awaitingFeedback: false

@@ -12,11 +12,57 @@ export class NPCEngine {
     this.npcs = new Map(); // npcId -> state
     this.taskQueue = [];
     this.taskTimeouts = new Map(); // npcId -> timeoutId
-    this.bridge = options.bridge || null;
+    this.bridge = null;
+    this.bridgeListeners = [];
+
+    if (options.bridge) {
+      this.setBridge(options.bridge);
+    }
   }
 
   setBridge(bridge) {
+    if (this.bridge === bridge) {
+      return;
+    }
+
+    if (this.bridge) {
+      this.detachBridgeListeners();
+    }
+
     this.bridge = bridge;
+
+    if (this.bridge) {
+      this.attachBridgeListeners();
+    }
+  }
+
+  attachBridgeListeners() {
+    if (!this.bridge?.on) return;
+
+    const runtimeEventHandler = event => this.handleRuntimeEvent(event);
+    const runtimePlanHandler = plan => this.handleRuntimePlan(plan);
+
+    this.bridge.on("runtime_event", runtimeEventHandler);
+    this.bridge.on("runtime_plan", runtimePlanHandler);
+
+    this.bridgeListeners = [
+      { event: "runtime_event", handler: runtimeEventHandler },
+      { event: "runtime_plan", handler: runtimePlanHandler }
+    ];
+  }
+
+  detachBridgeListeners() {
+    if (!this.bridge) return;
+
+    this.bridgeListeners.forEach(({ event, handler }) => {
+      if (typeof this.bridge.off === "function") {
+        this.bridge.off(event, handler);
+      } else if (typeof this.bridge.removeListener === "function") {
+        this.bridge.removeListener(event, handler);
+      }
+    });
+
+    this.bridgeListeners = [];
   }
 
   registerNPC(id, type = "builder") {
@@ -99,16 +145,129 @@ export class NPCEngine {
 
     this.bridge
       .dispatchTask({ ...task, npcId: npc.id })
-      .then(response => {
-        if (response) {
-          console.log(`🧭 Bridge response for ${npc.id}:`, response);
+      .then(result => {
+        if (result?.response) {
+          console.log(`🧭 Bridge response for ${npc.id}:`, result.response);
         }
+
+        if (result?.runtime?.deferCompletion) {
+          console.log(`⌛ Awaiting runtime completion for NPC ${npc.id}`);
+          return;
+        }
+
         this.completeTask(npc.id, true);
       })
       .catch(err => {
         console.error(`❌ Bridge dispatch failed for ${npc.id}:`, err.message);
         this.completeTask(npc.id, false);
       });
+  }
+
+  handleRuntimePlan(plan) {
+    if (!plan?.npcId) return;
+    const npc = this.npcs.get(plan.npcId);
+    if (!npc) return;
+
+    npc.activePlan = plan.plan || null;
+    if (plan.plan?.summary) {
+      console.log(`🗺️ Plan for ${plan.npcId}: ${plan.plan.summary}`);
+    }
+  }
+
+  handleRuntimeEvent(event) {
+    if (!event?.npcId) return;
+    const npc = this.npcs.get(event.npcId);
+    if (!npc) return;
+
+    switch (event.type) {
+      case "hazard_detected":
+        this.handleHazardEvent(npc, event);
+        break;
+      case "status":
+        this.handleStatusEvent(npc, event);
+        break;
+      case "support_request":
+        this.handleSupportRequest(npc, event);
+        break;
+      case "request_tools":
+        this.handleToolRequest(npc, event);
+        break;
+      case "task_complete":
+        this.completeTask(npc.id, event.success !== false);
+        break;
+      case "task_cancelled":
+        console.warn(`🛑 Task cancelled for ${npc.id}`);
+        this.completeTask(npc.id, false);
+        break;
+      default:
+        break;
+    }
+  }
+
+  handleHazardEvent(npc, event) {
+    npc.lastHazard = event;
+    const action = event.directive?.action;
+
+    if (action === "pause" || action === "reroute") {
+      this.pauseTask(npc.id, event);
+    }
+
+    if (action === "request_support") {
+      this.handleSupportRequest(npc, event);
+    }
+
+    if (action === "request_tools") {
+      this.handleToolRequest(npc, {
+        ...event,
+        request: event.directive?.request || event.request
+      });
+    }
+  }
+
+  handleStatusEvent(npc, event) {
+    const status = event.status;
+
+    if (status === "resume") {
+      this.resumeTask(npc.id, event);
+    } else if (status === "pause") {
+      this.pauseTask(npc.id, event);
+    } else if (status === "reroute") {
+      this.requestReroute(npc, event);
+    }
+  }
+
+  handleSupportRequest(npc, event) {
+    npc.pendingSupport = event;
+    console.log(`🆘 NPC ${npc.id} requested support: ${event.reason || "unspecified"}`);
+  }
+
+  handleToolRequest(npc, event) {
+    npc.pendingToolRequest = event;
+    const items = event.request?.items?.map(item => `${item.item}x${item.count}`).join(", ") || "unknown";
+    console.log(`🧰 NPC ${npc.id} requested tools: ${items}`);
+  }
+
+  pauseTask(npcId, reasonEvent) {
+    const npc = this.npcs.get(npcId);
+    if (!npc || npc.state === "paused") return;
+
+    npc.state = "paused";
+    npc.pauseReason = reasonEvent;
+    console.warn(`⏸️ NPC ${npcId} paused due to hazard or directive.`);
+  }
+
+  resumeTask(npcId, event) {
+    const npc = this.npcs.get(npcId);
+    if (!npc || npc.state !== "paused") return;
+
+    npc.state = "working";
+    npc.pauseReason = null;
+    console.log(`▶️ NPC ${npcId} resumed task: ${npc.task?.action}`);
+  }
+
+  requestReroute(npc, event) {
+    npc.reroute = event;
+    console.log(`🔁 NPC ${npc.id} rerouting due to ${event.reason || "directive"}`);
   }
 
   completeTask(npcId, success = true) {
@@ -123,6 +282,12 @@ export class NPCEngine {
     const completedTask = npc.task;
     npc.state = "idle";
     npc.task = null;
+    npc.pauseReason = null;
+    npc.lastHazard = null;
+    npc.pendingSupport = null;
+    npc.pendingToolRequest = null;
+    npc.activePlan = null;
+    npc.reroute = null;
 
     if (success) {
       console.log(`✅ NPC ${npcId} completed task: ${completedTask?.action}`);

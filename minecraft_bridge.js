@@ -22,9 +22,14 @@ export class MinecraftBridge extends EventEmitter {
     this.client = null;
     this.connected = false;
     this.commandBuilder = options.commandBuilder || null;
+    this.runtime = options.runtime || options.mindcraftCE?.runtime || null;
 
     if (!this.commandBuilder && this.options.useMindcraftCE) {
       this.commandBuilder = new MindcraftCEAdapter(options.mindcraftCE || {});
+    }
+
+    if (this.runtime) {
+      this.attachRuntime(this.runtime);
     }
 
     if (this.options.connectOnCreate) {
@@ -77,8 +82,22 @@ export class MinecraftBridge extends EventEmitter {
     return this.client.send(command);
   }
 
-  buildCommand(taskPayload) {
+  attachRuntime(runtime) {
+    if (!runtime) return;
+
+    this.runtime = runtime;
+
+    if (typeof runtime.on === "function") {
+      runtime.on("event", event => this.emit("runtime_event", event));
+      runtime.on("plan", plan => this.emit("runtime_plan", plan));
+    }
+  }
+
+  buildCommand(taskPayload, envelope = null) {
     if (this.commandBuilder?.buildCommand) {
+      if (envelope && this.commandBuilder.buildCommandFromEnvelope) {
+        return this.commandBuilder.buildCommandFromEnvelope(envelope);
+      }
       return this.commandBuilder.buildCommand(taskPayload);
     }
 
@@ -87,10 +106,60 @@ export class MinecraftBridge extends EventEmitter {
   }
 
   async dispatchTask(taskPayload) {
-    const command = this.buildCommand(taskPayload);
-    const response = await this.sendCommand(command);
-    this.emit("task_dispatched", { task: taskPayload, command, response });
-    return response;
+    let envelope = null;
+
+    if (this.commandBuilder?.buildEnvelope) {
+      envelope = this.commandBuilder.buildEnvelope(taskPayload);
+    }
+
+    let command = this.buildCommand(taskPayload, envelope);
+    let runtimeResult = null;
+
+    if (this.runtime?.execute && envelope) {
+      try {
+        runtimeResult = await this.runtime.execute(envelope);
+        if (runtimeResult?.commandOverride) {
+          command = runtimeResult.commandOverride;
+        }
+      } catch (err) {
+        console.error("❌ Mindcraft CE runtime error:", err.message);
+      }
+    }
+
+    let response = null;
+    if (command && !runtimeResult?.simulateOnly) {
+      response = await this.sendCommand(command);
+      this.processServerResponse(response, envelope);
+    }
+
+    const payload = { task: taskPayload, command, response, envelope, runtime: runtimeResult };
+    this.emit("task_dispatched", payload);
+    return payload;
+  }
+
+  processServerResponse(response, envelope) {
+    if (!response || typeof response !== "string") {
+      return;
+    }
+
+    const trimmed = response.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed?.events)) {
+        parsed.events.forEach(event => {
+          this.emit("runtime_event", {
+            ...event,
+            npcId: event?.npcId || envelope?.npc || null
+          });
+        });
+      }
+    } catch (err) {
+      // Not JSON, ignore.
+    }
   }
 
   async disconnect() {

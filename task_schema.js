@@ -34,6 +34,14 @@ const HAZARD_TYPES = [
   "unknown"
 ];
 const HAZARD_SEVERITIES = ["low", "moderate", "high", "critical"];
+const MINING_DIRECTIVE_ACTIONS = [
+  "pause",
+  "resume",
+  "reroute",
+  "request_support",
+  "request_tools",
+  "continue"
+];
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
@@ -176,6 +184,165 @@ function validateHazardDescriptor(descriptor, errors, context) {
   }
 }
 
+function validateDirectiveAction(action, errors, context) {
+  if (!isNonEmptyString(action)) {
+    errors.push(`${context}.action must be a non-empty string`);
+    return;
+  }
+
+  const normalized = action.toLowerCase();
+  if (!MINING_DIRECTIVE_ACTIONS.includes(normalized)) {
+    errors.push(
+      `${context}.action must be one of ${MINING_DIRECTIVE_ACTIONS.join(", ")}`
+    );
+  }
+}
+
+function validateDirectiveNotify(notify, errors, context) {
+  if (notify === undefined) {
+    return;
+  }
+
+  const list = Array.isArray(notify) ? notify : [notify];
+  list.forEach((entry, index) => {
+    if (!isNonEmptyString(entry)) {
+      errors.push(`${context}.notify[${index}] must be a non-empty string`);
+    }
+  });
+}
+
+function validateDirectiveRequest(request, errors, context) {
+  if (request === undefined) {
+    return;
+  }
+
+  if (typeof request === "string") {
+    if (!isNonEmptyString(request)) {
+      errors.push(`${context}.request must not be an empty string`);
+    }
+    return;
+  }
+
+  if (typeof request !== "object" || request === null) {
+    errors.push(`${context}.request must be a string or object when provided`);
+    return;
+  }
+
+  if (request.items !== undefined) {
+    const items = Array.isArray(request.items) ? request.items : [request.items];
+    items.forEach((item, index) =>
+      validateItemDescriptor(item, errors, `${context}.request.items[${index}]`)
+    );
+  }
+
+  if (request.message !== undefined && !isNonEmptyString(request.message)) {
+    errors.push(`${context}.request.message must be a non-empty string when provided`);
+  }
+
+  if (request.reason !== undefined && !isNonEmptyString(request.reason)) {
+    errors.push(`${context}.request.reason must be a non-empty string when provided`);
+  }
+}
+
+function validateHazardDirectiveEntry(entry, errors, context) {
+  if (typeof entry === "string") {
+    return;
+  }
+
+  if (typeof entry !== "object" || entry === null) {
+    errors.push(`${context} must be a string or object`);
+    return;
+  }
+
+  if (entry.type !== undefined && !isNonEmptyString(entry.type)) {
+    errors.push(`${context}.type must be a non-empty string when provided`);
+  }
+
+  if (entry.severity !== undefined && !HAZARD_SEVERITIES.includes(entry.severity)) {
+    errors.push(`${context}.severity must be one of ${HAZARD_SEVERITIES.join(", ")}`);
+  }
+
+  validateDirectiveAction(entry.action ?? "pause", errors, `${context}`);
+  validateDirectiveNotify(entry.notify, errors, context);
+  validateDirectiveRequest(entry.request, errors, context);
+
+  if (entry.escalate !== undefined) {
+    validateDirectiveAction(entry.escalate, errors, `${context}.escalate`);
+  }
+
+  if (entry.reroute !== undefined && !isNonEmptyString(entry.reroute)) {
+    errors.push(`${context}.reroute must be a non-empty string when provided`);
+  }
+
+  if (entry.resume !== undefined) {
+    validateDirectiveAction(entry.resume, errors, `${context}.resume`);
+  }
+}
+
+function validateDirectiveBlock(block, errors, context, defaultAction = "continue") {
+  if (block === undefined) {
+    return;
+  }
+
+  if (typeof block === "string") {
+    if (!isNonEmptyString(block)) {
+      errors.push(`${context} must not be an empty string`);
+      return;
+    }
+
+    validateDirectiveAction(block, errors, context);
+    return;
+  }
+
+  if (typeof block !== "object" || block === null) {
+    errors.push(`${context} must be a string or object`);
+    return;
+  }
+
+  validateDirectiveAction(block.action ?? defaultAction, errors, context);
+  validateDirectiveNotify(block.notify, errors, context);
+  validateDirectiveRequest(block.request, errors, context);
+
+  if (block.reroute !== undefined && !isNonEmptyString(block.reroute)) {
+    errors.push(`${context}.reroute must be a non-empty string when provided`);
+  }
+
+  if (block.priority !== undefined && !isNonEmptyString(block.priority)) {
+    errors.push(`${context}.priority must be a non-empty string when provided`);
+  }
+}
+
+function validateMiningStatusDirectives(directives, errors, context) {
+  if (directives === undefined) {
+    return;
+  }
+
+  if (typeof directives !== "object" || directives === null) {
+    errors.push(`${context} must be an object when provided`);
+    return;
+  }
+
+  if (directives.hazards !== undefined) {
+    if (!Array.isArray(directives.hazards) || directives.hazards.length === 0) {
+      errors.push(`${context}.hazards must be a non-empty array when provided`);
+    } else {
+      directives.hazards.forEach((entry, index) =>
+        validateHazardDirectiveEntry(entry, errors, `${context}.hazards[${index}]`)
+      );
+    }
+  }
+
+  validateDirectiveBlock(directives.depletion, errors, `${context}.depletion`, "continue");
+  validateDirectiveBlock(
+    directives.toolFailure,
+    errors,
+    `${context}.toolFailure`,
+    "request_tools"
+  );
+  validateDirectiveBlock(directives.resume, errors, `${context}.resume`, "resume");
+  validateDirectiveBlock(directives.fallback, errors, `${context}.fallback`, "pause");
+}
+
 export const NPC_TASK_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -261,7 +428,17 @@ export function validateTask(task) {
     if (typeof task.metadata !== "object" || task.metadata === null) {
       errors.push("mine tasks require metadata describing the resource and safety plan");
     } else {
-      const { resource, ore, block, targets, hazards, tools, priority, mitigations } = task.metadata;
+      const {
+        resource,
+        ore,
+        block,
+        targets,
+        hazards,
+        tools,
+        priority,
+        mitigations,
+        statusDirectives
+      } = task.metadata;
 
       const resourceDescriptor = resource ?? ore ?? block;
       if (!resourceDescriptor) {
@@ -315,6 +492,12 @@ export function validateTask(task) {
           });
         }
       }
+
+      validateMiningStatusDirectives(
+        statusDirectives,
+        errors,
+        "mine metadata.statusDirectives"
+      );
     }
   }
 

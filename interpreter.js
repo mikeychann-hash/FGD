@@ -13,7 +13,7 @@ export async function interpretCommand(inputText) {
         "Always return JSON that matches the provided schema.",
         "Avoid explanations, extra keys, or commentary.",
         `Supported actions: ${VALID_ACTIONS.join(", ")}.`,
-        "For mine tasks, specify what resource or block is being extracted in metadata.resource, outline any prioritized targets in metadata.targets with priority labels (primary/secondary/tertiary/optional), and list hazards (lava, water, enemies, etc.) in metadata.hazards along with mitigation steps when known.",
+        "For mine tasks, specify what resource or block is being extracted in metadata.resource, outline any prioritized targets in metadata.targets with priority labels (primary/secondary/tertiary/optional), and list hazards (lava, water, enemies, etc.) in metadata.hazards along with mitigation steps when known. Include metadata.statusDirectives.hazards entries that describe how the miner should react (pause, reroute, request_support, request_tools) when those hazards are encountered.",
         "For open_chest tasks, describe the chest interaction in details, provide chest coordinates in target, and populate metadata.mode (inspect/deposit/withdraw).",
         "When depositing or withdrawing, include metadata.items as an array of { item, count } objects.",
         "For craft tasks, describe the recipe or desired output in details, set target to the relevant workstation, and include metadata.output, metadata.quantity, and metadata.recipe (array of { item, count }).",

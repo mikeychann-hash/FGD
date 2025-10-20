@@ -13,6 +13,10 @@ export class MindcraftCEAdapter {
 
   buildCommand(taskPayload) {
     const envelope = this.buildEnvelope(taskPayload);
+    return this.buildCommandFromEnvelope(envelope);
+  }
+
+  buildCommandFromEnvelope(envelope) {
     return `${this.prefix} run ${JSON.stringify(envelope)}`;
   }
 
@@ -188,6 +192,20 @@ export class MindcraftCEAdapter {
           .filter(Boolean)
       : [];
 
+    const directives = this.normalizeMiningDirectives(metadata.statusDirectives);
+    const watchers = this.buildMiningWatchers(hazards, directives);
+    const plan = this.buildMiningPlan({
+      resource,
+      targets,
+      hazards,
+      mitigation,
+      tools,
+      directives,
+      strategy: metadata.strategy,
+      deposit: metadata.deposit || metadata.dropoff,
+      task: taskPayload
+    });
+
     return {
       resource: resource || undefined,
       targets,
@@ -200,8 +218,308 @@ export class MindcraftCEAdapter {
       lightLevel: metadata.lightLevel ?? undefined,
       tunnelPlan: metadata.tunnelPlan || undefined,
       scout: metadata.scout || undefined,
+      directives,
+      watchers,
+      plan,
       note: metadata.note || undefined
     };
+  }
+
+  buildMiningWatchers(hazards, directives) {
+    if (!hazards.length && !directives?.hazards?.length) {
+      return [];
+    }
+
+    const hazardDirectives = directives?.hazards || [];
+
+    return hazards.map(hazard => {
+      const response = this.resolveHazardDirective(hazard, hazardDirectives);
+      const type = typeof hazard === "string" ? hazard : hazard?.type || "unknown";
+
+      return {
+        hazard: type,
+        severity:
+          typeof hazard === "object" && hazard?.severity
+            ? hazard.severity
+            : "moderate",
+        mitigation:
+          typeof hazard === "object" && hazard?.mitigation
+            ? hazard.mitigation
+            : undefined,
+        response: response || undefined
+      };
+    });
+  }
+
+  resolveHazardDirective(hazard, directives = []) {
+    if (!Array.isArray(directives) || directives.length === 0) {
+      return null;
+    }
+
+    const type = typeof hazard === "string" ? hazard : hazard?.type || "unknown";
+    const severity = typeof hazard === "object" ? hazard?.severity : undefined;
+
+    const exact = directives.find(entry => {
+      const matchesType = !entry.type || entry.type === "any" || entry.type === type;
+      const matchesSeverity = !entry.severity || entry.severity === severity;
+      return matchesType && matchesSeverity;
+    });
+
+    if (exact) return exact;
+
+    return (
+      directives.find(entry => entry.type === "any" || !entry.type) || null
+    );
+  }
+
+  buildMiningPlan({
+    resource,
+    targets,
+    hazards,
+    mitigation,
+    tools,
+    directives,
+    strategy,
+    deposit,
+    task
+  }) {
+    const operations = [];
+    const targetSummary = targets
+      .map(target => this.describeMiningTarget(target))
+      .join(", ");
+
+    if (strategy) {
+      operations.push({
+        step: "strategy",
+        kind: "pattern",
+        description: `Use the ${this.normalizeMiningStrategy(strategy)} strategy`
+      });
+    }
+
+    operations.push({
+      step: "survey",
+      kind: "safety",
+      description: `Survey the area around (${task?.target?.x}, ${task?.target?.y}, ${task?.target?.z}) before mining ${this.describeResource(resource)}`,
+      hazards: hazards.map(hazard => this.describeHazard(hazard))
+    });
+
+    hazards.forEach(hazard => {
+      const response = this.resolveHazardDirective(hazard, directives?.hazards || []);
+      operations.push({
+        step: "mitigate",
+        kind: "safety",
+        hazard: this.describeHazard(hazard),
+        mitigation: this.describeMitigation(hazard, mitigation),
+        response: response || undefined
+      });
+    });
+
+    operations.push({
+      step: "extract",
+      kind: "mining",
+      description: `Prioritize ${targetSummary || this.describeResource(resource)}`,
+      tools: tools.map(item => item.item)
+    });
+
+    if (deposit) {
+      operations.push({
+        step: "deposit",
+        kind: "logistics",
+        description: `Deliver mined resources to ${deposit}`
+      });
+    }
+
+    return {
+      summary: `Mine ${this.describeResource(resource)} while following mitigation plans`,
+      operations,
+      directives,
+      hazards: hazards.map(hazard => this.describeHazard(hazard))
+    };
+  }
+
+  describeResource(resource) {
+    if (!resource) return "target resources";
+    if (typeof resource === "string") return resource;
+    return (
+      resource.block ||
+      resource.ore ||
+      resource.material ||
+      resource.id ||
+      resource.name ||
+      resource.tag ||
+      "target resources"
+    );
+  }
+
+  describeMiningTarget(target) {
+    if (!target) return "target";
+    if (typeof target === "string") return target;
+    const descriptor =
+      target.block || target.ore || target.material || target.id || target.name || target.tag;
+    const priority = target.priority ? `(${target.priority})` : "";
+    return `${descriptor}${priority}`;
+  }
+
+  describeHazard(hazard) {
+    if (!hazard) return "unknown hazard";
+    if (typeof hazard === "string") return hazard;
+    const type = hazard.type || "unknown";
+    const severity = hazard.severity ? ` (${hazard.severity})` : "";
+    return `${type}${severity}`;
+  }
+
+  describeMitigation(hazard, mitigation) {
+    if (typeof hazard === "object" && hazard?.mitigation) {
+      return hazard.mitigation;
+    }
+
+    if (!mitigation || mitigation.length === 0) {
+      return undefined;
+    }
+
+    return mitigation.map(step => (typeof step === "string" ? step : step?.action)).filter(Boolean);
+  }
+
+  normalizeMiningDirectives(directives) {
+    if (!directives || typeof directives !== "object") {
+      return { hazards: [] };
+    }
+
+    const normalized = {
+      hazards: Array.isArray(directives.hazards)
+        ? directives.hazards
+            .map(entry => this.normalizeHazardDirectiveEntry(entry))
+            .filter(Boolean)
+        : [],
+      depletion: this.normalizeDirectiveBlock(directives.depletion, "continue"),
+      toolFailure: this.normalizeDirectiveBlock(directives.toolFailure, "request_tools"),
+      resume: this.normalizeDirectiveBlock(directives.resume, "resume"),
+      fallback: this.normalizeDirectiveBlock(directives.fallback, "pause")
+    };
+
+    return normalized;
+  }
+
+  normalizeHazardDirectiveEntry(entry) {
+    if (!entry) return null;
+
+    if (typeof entry === "string") {
+      return {
+        type: entry,
+        action: "pause"
+      };
+    }
+
+    if (typeof entry !== "object") {
+      return null;
+    }
+
+    const directive = {
+      type: entry.type || entry.hazard || "any",
+      severity: entry.severity || undefined,
+      action: this.normalizeDirectiveAction(entry.action, "pause"),
+      notify: this.normalizeNotifyList(entry.notify),
+      request: this.normalizeDirectiveRequest(entry.request),
+      note: entry.note || undefined,
+      reroute: entry.reroute || undefined
+    };
+
+    if (entry.escalate) {
+      directive.escalate = this.normalizeDirectiveAction(entry.escalate, "request_support");
+    }
+
+    if (entry.resume) {
+      directive.resume = this.normalizeDirectiveAction(entry.resume, "resume");
+    }
+
+    return directive;
+  }
+
+  normalizeDirectiveBlock(block, defaultAction) {
+    if (!block) return undefined;
+
+    if (typeof block === "string") {
+      return { action: this.normalizeDirectiveAction(block, defaultAction) };
+    }
+
+    if (typeof block !== "object") {
+      return undefined;
+    }
+
+    const normalized = {
+      action: this.normalizeDirectiveAction(block.action, defaultAction),
+      notify: this.normalizeNotifyList(block.notify),
+      request: this.normalizeDirectiveRequest(block.request),
+      note: block.note || undefined,
+      reroute: block.reroute || undefined,
+      priority: block.priority || undefined
+    };
+
+    if (block.on) {
+      normalized.on = block.on;
+    }
+
+    return normalized;
+  }
+
+  normalizeDirectiveAction(action, fallback = "continue") {
+    const value = typeof action === "string" ? action.toLowerCase() : "";
+    const allowed = [
+      "pause",
+      "resume",
+      "reroute",
+      "request_support",
+      "request_tools",
+      "continue"
+    ];
+
+    if (allowed.includes(value)) {
+      return value;
+    }
+
+    return fallback;
+  }
+
+  normalizeNotifyList(list) {
+    if (!list) return undefined;
+
+    const array = Array.isArray(list) ? list : [list];
+    const normalized = array
+      .map(entry => (typeof entry === "string" ? entry.trim() : entry))
+      .filter(Boolean);
+
+    return normalized.length ? normalized : undefined;
+  }
+
+  normalizeDirectiveRequest(request) {
+    if (!request) return undefined;
+
+    if (typeof request === "string") {
+      return { message: request };
+    }
+
+    if (typeof request !== "object") {
+      return undefined;
+    }
+
+    const normalized = {};
+
+    if (request.message && typeof request.message === "string") {
+      normalized.message = request.message;
+    }
+
+    if (request.reason && typeof request.reason === "string") {
+      normalized.reason = request.reason;
+    }
+
+    if (request.items) {
+      const items = Array.isArray(request.items) ? request.items : [request.items];
+      normalized.items = items
+        .map(item => this.normalizeItemDescriptor(item))
+        .filter(Boolean);
+    }
+
+    return Object.keys(normalized).length ? normalized : undefined;
   }
 
   normalizeChestMode(mode) {

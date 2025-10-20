@@ -1,6 +1,22 @@
 // shared/task_schema.js
 // Defines the schema and validation helpers for NPC tasks
 
+import {
+  INVENTORY_VIEWS,
+  INVENTORY_PRIORITY_LEVELS,
+  INVENTORY_SCOPES,
+  INVENTORY_MODES,
+  COMBAT_STYLES,
+  ITEM_USAGE_TYPES,
+  EQUIP_SLOTS,
+  LOADOUT_PRIORITIES,
+  DIG_STRATEGIES,
+  SUPPORT_LEVELS,
+  SUPPLY_ACTIONS,
+  TASK_PRIORITIES,
+  STATUS_DIRECTIVE_ACTIONS
+} from "./mindcraft_ce_constants.js";
+
 export const VALID_ACTIONS = [
   "build",
   "mine",
@@ -16,47 +32,14 @@ export const VALID_ACTIONS = [
   "use_item",
   "equip_item",
   "dig",
-  "assess_equipment"
+  "assess_equipment",
+  "support",
+  "deliver_items"
 ];
 
 const CHEST_MODES = ["inspect", "deposit", "withdraw"];
-const COMBAT_STYLES = ["melee", "ranged", "defensive", "support", "balanced"];
-const INVENTORY_MODES = ["summary", "locate", "count", "missing"];
-const INVENTORY_SCOPES = ["self", "npc", "chest", "storage", "area"];
-const INVENTORY_VIEWS = ["overview", "hotbar", "equipment", "crafting", "materials"];
-const INVENTORY_PRIORITY_LEVELS = ["critical", "high", "medium", "low", "junk"];
 const EQUIPMENT_GOALS = ["best_defense", "best_attack", "balanced", "specialized"];
-const EQUIP_SLOTS = [
-  "main_hand",
-  "off_hand",
-  "head",
-  "chest",
-  "legs",
-  "feet",
-  "hotbar",
-  "accessory"
-];
-const ITEM_USAGE_TYPES = [
-  "heal",
-  "buff",
-  "attack",
-  "utility",
-  "tool",
-  "place",
-  "consume",
-  "equip",
-  "interact"
-];
 const MINING_PRIORITY_RANKS = ["primary", "secondary", "tertiary", "optional"];
-const LOADOUT_PRIORITIES = ["primary", "secondary", "backup"];
-const DIG_STRATEGIES = [
-  "clear",
-  "tunnel",
-  "staircase",
-  "quarry",
-  "strip",
-  "pillar"
-];
 const HAZARD_TYPES = [
   "lava",
   "water",
@@ -71,14 +54,7 @@ const HAZARD_TYPES = [
   "unknown"
 ];
 const HAZARD_SEVERITIES = ["low", "moderate", "high", "critical"];
-const MINING_DIRECTIVE_ACTIONS = [
-  "pause",
-  "resume",
-  "reroute",
-  "request_support",
-  "request_tools",
-  "continue"
-];
+const MINING_DIRECTIVE_ACTIONS = [...STATUS_DIRECTIVE_ACTIONS, "continue"];
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
@@ -390,6 +366,35 @@ function validateTargetDescriptor(descriptor, errors, context) {
   }
 }
 
+function parseStringList(value, errors, context, allowedValues = null) {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  const list = Array.isArray(value) ? value : [value];
+  const normalized = [];
+
+  list.forEach((entry, index) => {
+    if (!isNonEmptyString(entry)) {
+      errors.push(`${context}[${index}] must be a non-empty string`);
+      return;
+    }
+
+    const trimmed = entry.trim();
+    const lowered = trimmed.toLowerCase();
+
+    if (Array.isArray(allowedValues) && !allowedValues.includes(lowered)) {
+      errors.push(
+        `${context}[${index}] must be one of ${allowedValues.join(", ")}`
+      );
+    }
+
+    normalized.push(trimmed);
+  });
+
+  return normalized;
+}
+
 function validateUseItemMetadata(metadata, errors, context) {
   if (typeof metadata !== "object" || metadata === null) {
     errors.push(`${context} must be an object`);
@@ -632,6 +637,175 @@ function validateDirectiveAction(action, errors, context) {
     errors.push(
       `${context}.action must be one of ${MINING_DIRECTIVE_ACTIONS.join(", ")}`
     );
+  }
+}
+
+function validateSupportMetadata(metadata, errors, context) {
+  if (typeof metadata !== "object" || metadata === null) {
+    errors.push(`${context} must be an object`);
+    return;
+  }
+
+  const {
+    targetNpc,
+    hazard,
+    level,
+    assistance,
+    actions,
+    objectives,
+    requests,
+    priority,
+    target,
+    location,
+    position,
+    notes
+  } = metadata;
+
+  if (!isNonEmptyString(targetNpc)) {
+    errors.push(`${context}.targetNpc must identify the NPC that requested support`);
+  }
+
+  if (hazard !== undefined && !isNonEmptyString(hazard)) {
+    errors.push(`${context}.hazard must be a non-empty string when provided`);
+  }
+
+  if (level !== undefined) {
+    const normalized = level.toString().toLowerCase();
+    if (!SUPPORT_LEVELS.includes(normalized)) {
+      errors.push(`${context}.level must be one of ${SUPPORT_LEVELS.join(", ")}`);
+    }
+  }
+
+  const assistanceList = parseStringList(assistance, errors, `${context}.assistance`);
+  const actionList = parseStringList(actions, errors, `${context}.actions`);
+  const objectiveList = parseStringList(objectives, errors, `${context}.objectives`);
+
+  if (assistanceList.length + actionList.length + objectiveList.length === 0) {
+    errors.push(
+      `${context} must include assistance, actions, or objectives to describe the requested support`
+    );
+  }
+
+  if (priority !== undefined) {
+    const normalized = priority.toString().toLowerCase();
+    if (!TASK_PRIORITIES.includes(normalized)) {
+      errors.push(`${context}.priority must be one of ${TASK_PRIORITIES.join(", ")}`);
+    }
+  }
+
+  if (requests !== undefined) {
+    if (typeof requests !== "object" || requests === null) {
+      errors.push(`${context}.requests must be an object when provided`);
+    } else if (requests.items !== undefined) {
+      if (!Array.isArray(requests.items) || requests.items.length === 0) {
+        errors.push(`${context}.requests.items must be a non-empty array when provided`);
+      } else {
+        requests.items.forEach((item, index) =>
+          validateItemDescriptor(item, errors, `${context}.requests.items[${index}]`)
+        );
+      }
+    }
+  }
+
+  if (target !== undefined) {
+    validateTargetDescriptor(target, errors, `${context}.target`);
+  }
+
+  if (location !== undefined) {
+    validateTargetDescriptor(location, errors, `${context}.location`);
+  }
+
+  if (position !== undefined) {
+    if (typeof position !== "object" || position === null) {
+      errors.push(`${context}.position must be an object when provided`);
+    } else {
+      ["x", "y", "z"].forEach(axis => {
+        if (position[axis] !== undefined && typeof position[axis] !== "number") {
+          errors.push(`${context}.position.${axis} must be a number when provided`);
+        }
+      });
+    }
+  }
+
+  if (notes !== undefined && !isNonEmptyString(notes)) {
+    errors.push(`${context}.notes must be a non-empty string when provided`);
+  }
+}
+
+function validateDeliverItemsMetadata(metadata, errors, context) {
+  if (typeof metadata !== "object" || metadata === null) {
+    errors.push(`${context} must be an object`);
+    return;
+  }
+
+  const {
+    items,
+    targetNpc,
+    destination,
+    actions,
+    priority,
+    allowSubstitutions,
+    expedite,
+    confirmation,
+    requests,
+    note,
+    notes
+  } = metadata;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    errors.push(`${context}.items must be a non-empty array`);
+  } else {
+    items.forEach((item, index) =>
+      validateItemDescriptor(item, errors, `${context}.items[${index}]`)
+    );
+  }
+
+  if (targetNpc !== undefined && !isNonEmptyString(targetNpc)) {
+    errors.push(`${context}.targetNpc must be a non-empty string when provided`);
+  }
+
+  if (destination !== undefined) {
+    validateTargetDescriptor(destination, errors, `${context}.destination`);
+  }
+
+  const actionList = parseStringList(actions, errors, `${context}.actions`, SUPPLY_ACTIONS);
+
+  if (actions !== undefined && actionList.length === 0) {
+    errors.push(`${context}.actions must include at least one supply directive`);
+  }
+
+  if (priority !== undefined) {
+    const normalized = priority.toString().toLowerCase();
+    if (!TASK_PRIORITIES.includes(normalized)) {
+      errors.push(`${context}.priority must be one of ${TASK_PRIORITIES.join(", ")}`);
+    }
+  }
+
+  if (allowSubstitutions !== undefined && typeof allowSubstitutions !== "boolean") {
+    errors.push(`${context}.allowSubstitutions must be a boolean when provided`);
+  }
+
+  if (expedite !== undefined && typeof expedite !== "boolean") {
+    errors.push(`${context}.expedite must be a boolean when provided`);
+  }
+
+  if (confirmation !== undefined && !isNonEmptyString(confirmation)) {
+    errors.push(`${context}.confirmation must be a non-empty string when provided`);
+  }
+
+  if (requests !== undefined) {
+    if (!Array.isArray(requests)) {
+      errors.push(`${context}.requests must be an array when provided`);
+    } else {
+      requests.forEach((item, index) =>
+        validateItemDescriptor(item, errors, `${context}.requests[${index}]`)
+      );
+    }
+  }
+
+  const noteValue = note ?? notes;
+  if (noteValue !== undefined && !isNonEmptyString(noteValue)) {
+    errors.push(`${context}.note must be a non-empty string when provided`);
   }
 }
 
@@ -1326,6 +1500,14 @@ export function validateTask(task) {
         errors.push("assess_equipment metadata.minimumTier must be a non-empty string when provided");
       }
     }
+  }
+
+  if (task.action === "support") {
+    validateSupportMetadata(task.metadata, errors, "support metadata");
+  }
+
+  if (task.action === "deliver_items") {
+    validateDeliverItemsMetadata(task.metadata, errors, "deliver_items metadata");
   }
 
   return { valid: errors.length === 0, errors };

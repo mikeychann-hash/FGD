@@ -5,6 +5,7 @@ import EventEmitter from "events";
 import { Rcon } from "rcon-client";
 
 import { MindcraftCEAdapter } from "./mindcraft_ce_adapter.js";
+import { MindcraftCEClient } from "./mindcraft_ce_client.js";
 
 export class MinecraftBridge extends EventEmitter {
   constructor(options = {}) {
@@ -22,13 +23,33 @@ export class MinecraftBridge extends EventEmitter {
     this.client = null;
     this.connected = false;
     this.commandBuilder = options.commandBuilder || null;
+    this.runtimeHandlers = [];
+    this.eventClientHandlers = [];
     this.runtime = options.runtime || options.mindcraftCE?.runtime || null;
+    this.eventClient = options.eventClient || options.mindcraftCE?.eventClient || null;
 
     if (!this.commandBuilder && this.options.useMindcraftCE) {
       this.commandBuilder = new MindcraftCEAdapter(options.mindcraftCE || {});
     }
 
-    if (this.runtime) {
+    if (!this.eventClient && this.options.useMindcraftCE) {
+      const eventOptions = options.mindcraftCE?.events;
+      if (eventOptions || this.runtime) {
+        this.eventClient = new MindcraftCEClient({
+          ...(eventOptions || {}),
+          runtimeFallback: eventOptions?.runtimeFallback || this.runtime || null
+        });
+      }
+    }
+
+    if (this.eventClient && this.runtime && !this.eventClient.getRuntime?.()) {
+      this.eventClient.useRuntime(this.runtime);
+    }
+
+    if (this.eventClient) {
+      this.attachEventClient(this.eventClient);
+      this.runtime = this.eventClient.getRuntime?.() || this.runtime;
+    } else if (this.runtime) {
       this.attachRuntime(this.runtime);
     }
 
@@ -85,12 +106,71 @@ export class MinecraftBridge extends EventEmitter {
   attachRuntime(runtime) {
     if (!runtime) return;
 
+    if (this.runtime && this.runtimeHandlers.length) {
+      this.detachRuntime();
+    }
+
     this.runtime = runtime;
 
     if (typeof runtime.on === "function") {
-      runtime.on("event", event => this.emit("runtime_event", event));
-      runtime.on("plan", plan => this.emit("runtime_plan", plan));
+      const eventHandler = event => this.emit("runtime_event", event);
+      const planHandler = plan => this.emit("runtime_plan", plan);
+      runtime.on("event", eventHandler);
+      runtime.on("plan", planHandler);
+      this.runtimeHandlers = [
+        { event: "event", handler: eventHandler },
+        { event: "plan", handler: planHandler }
+      ];
     }
+  }
+
+  detachRuntime() {
+    if (!this.runtime) return;
+
+    this.runtimeHandlers.forEach(({ event, handler }) => {
+      if (typeof this.runtime.off === "function") {
+        this.runtime.off(event, handler);
+      } else if (typeof this.runtime.removeListener === "function") {
+        this.runtime.removeListener(event, handler);
+      }
+    });
+
+    this.runtimeHandlers = [];
+  }
+
+  attachEventClient(client) {
+    if (!client) return;
+
+    if (this.eventClient && this.eventClientHandlers.length) {
+      this.detachEventClient();
+    }
+
+    this.eventClient = client;
+
+    if (typeof client.on === "function") {
+      const eventHandler = event => this.emit("runtime_event", event);
+      const planHandler = plan => this.emit("runtime_plan", plan);
+      client.on("event", eventHandler);
+      client.on("plan", planHandler);
+      this.eventClientHandlers = [
+        { event: "event", handler: eventHandler },
+        { event: "plan", handler: planHandler }
+      ];
+    }
+  }
+
+  detachEventClient() {
+    if (!this.eventClient) return;
+
+    this.eventClientHandlers.forEach(({ event, handler }) => {
+      if (typeof this.eventClient.off === "function") {
+        this.eventClient.off(event, handler);
+      } else if (typeof this.eventClient.removeListener === "function") {
+        this.eventClient.removeListener(event, handler);
+      }
+    });
+
+    this.eventClientHandlers = [];
   }
 
   buildCommand(taskPayload, envelope = null) {
@@ -115,14 +195,23 @@ export class MinecraftBridge extends EventEmitter {
     let command = this.buildCommand(taskPayload, envelope);
     let runtimeResult = null;
 
-    if (this.runtime?.execute && envelope) {
+    if (envelope && this.eventClient?.observeEnvelope) {
+      this.eventClient.observeEnvelope(envelope);
+    }
+
+    if (envelope) {
       try {
-        runtimeResult = await this.runtime.execute(envelope);
-        if (runtimeResult?.commandOverride) {
-          command = runtimeResult.commandOverride;
+        if (this.eventClient?.simulateEnvelope) {
+          runtimeResult = await this.eventClient.simulateEnvelope(envelope);
+        } else if (this.runtime?.execute) {
+          runtimeResult = await this.runtime.execute(envelope);
         }
       } catch (err) {
         console.error("❌ Mindcraft CE runtime error:", err.message);
+      }
+
+      if (runtimeResult?.commandOverride) {
+        command = runtimeResult.commandOverride;
       }
     }
 

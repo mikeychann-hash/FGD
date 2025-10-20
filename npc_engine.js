@@ -3,6 +3,7 @@
 
 import { interpretCommand } from "./interpreter.js";
 import { validateTask } from "./task_schema.js";
+import { SUPPORT_LEVELS, SUPPLY_ACTIONS, TASK_PRIORITIES } from "./mindcraft_ce_constants.js";
 
 const TASK_TIMEOUT = 30000; // 30 seconds max per task
 const SIMULATED_TASK_DURATION = 3000;
@@ -113,8 +114,10 @@ export class NPCEngine {
     return this.assignTask(available, task);
   }
 
-  findIdleNPC() {
-    return [...this.npcs.values()].find(n => n.state === "idle");
+  findIdleNPC(excludeNpcId = null) {
+    return [...this.npcs.values()].find(
+      n => n.state === "idle" && (!excludeNpcId || n.id !== excludeNpcId)
+    );
   }
 
   assignTask(npc, task) {
@@ -251,12 +254,22 @@ export class NPCEngine {
   handleSupportRequest(npc, event) {
     npc.pendingSupport = event;
     console.log(`🆘 NPC ${npc.id} requested support: ${event.reason || "unspecified"}`);
+
+    const task = this.buildSupportTask(npc, event);
+    if (task) {
+      this.enqueueFollowupTask(task, { excludeNpcId: npc.id, urgent: true });
+    }
   }
 
   handleToolRequest(npc, event) {
     npc.pendingToolRequest = event;
     const items = event.request?.items?.map(item => `${item.item}x${item.count}`).join(", ") || "unknown";
     console.log(`🧰 NPC ${npc.id} requested tools: ${items}`);
+
+    const deliveryTask = this.buildDeliveryTask(npc, event);
+    if (deliveryTask) {
+      this.enqueueFollowupTask(deliveryTask, { excludeNpcId: npc.id, urgent: true });
+    }
   }
 
   handleItemUsed(npc, event) {
@@ -277,6 +290,164 @@ export class NPCEngine {
     if (event.status) {
       console.log(`🛡️ Loadout update for ${npc.id}: ${event.status}`);
     }
+  }
+
+  enqueueFollowupTask(task, options = {}) {
+    const validation = validateTask(task);
+    if (!validation.valid) {
+      console.warn(`⚠️  Follow-up task validation failed: ${validation.errors.join(", ")}`);
+      return;
+    }
+
+    const exclude = options.excludeNpcId || null;
+    const idle = this.findIdleNPC(exclude);
+
+    if (idle) {
+      console.log(`⚡ Assigning follow-up task ${task.action} to ${idle.id}`);
+      this.assignTask(idle, task);
+      return;
+    }
+
+    if (options.urgent) {
+      this.taskQueue.unshift(task);
+    } else {
+      this.taskQueue.push(task);
+    }
+
+    console.log(
+      `📨 Queued follow-up task (${task.action}); queue length ${this.taskQueue.length}`
+    );
+  }
+
+  buildSupportTask(npc, event) {
+    const hazard = event.hazard || event.reason || npc.lastHazard?.hazard || null;
+    const target = this.resolveTargetLocation(npc, event);
+    const assistance = this.normalizeStringList(
+      event.assistance || event.directive?.assistance || event.directive?.actions || "combat_support"
+    );
+    const actions = this.normalizeStringList(event.actions || event.directive?.actions);
+    const objectives = this.normalizeStringList(event.objectives);
+    const requestItems = event.directive?.request?.items || event.request?.items || null;
+    const level =
+      this.normalizeSupportLevel(event.directive?.level || event.level || this.deriveSupportLevel(event)) ||
+      undefined;
+    const priority = this.normalizeTaskPriority(event.priority || "high");
+
+    const metadata = {
+      targetNpc: npc.id,
+      hazard: hazard || undefined,
+      assistance: assistance.length ? assistance : undefined,
+      actions: actions.length ? actions : undefined,
+      objectives: objectives.length ? objectives : undefined,
+      level,
+      priority,
+      notes: event.reason || undefined
+    };
+
+    if (requestItems && requestItems.length) {
+      metadata.requests = { items: requestItems };
+    }
+
+    return {
+      action: "support",
+      details: hazard ? `Support ${npc.id} near ${hazard}` : `Support ${npc.id}`,
+      target,
+      metadata
+    };
+  }
+
+  buildDeliveryTask(npc, event) {
+    const requestedItems = event.request?.items || event.directive?.request?.items || [];
+    if (!Array.isArray(requestedItems) || requestedItems.length === 0) {
+      return null;
+    }
+
+    const actions = this.normalizeSupplyActionList(event.actions || event.directive?.actions);
+    if (!actions.length) {
+      actions.push("deliver");
+    }
+
+    const priority = this.normalizeTaskPriority(event.priority || "high");
+    const destination = this.resolveTargetLocation(npc, event);
+
+    return {
+      action: "deliver_items",
+      details: `Deliver supplies to ${npc.id}`,
+      target: destination,
+      metadata: {
+        targetNpc: npc.id,
+        items: requestedItems,
+        actions,
+        priority,
+        notes: event.reason || undefined
+      }
+    };
+  }
+
+  resolveTargetLocation(npc, event) {
+    if (event.target) return event.target;
+    if (event.location) return event.location;
+    if (event.position) return event.position;
+    if (npc.task?.target) return npc.task.target;
+    return { ...npc.position };
+  }
+
+  normalizeStringList(value) {
+    if (value === undefined || value === null) {
+      return [];
+    }
+
+    const list = Array.isArray(value) ? value : [value];
+    return list
+      .map(entry => (typeof entry === "string" ? entry.trim() : null))
+      .filter(Boolean);
+  }
+
+  normalizeSupportLevel(level) {
+    if (!level) return undefined;
+    const normalized = level.toString().toLowerCase();
+    if (SUPPORT_LEVELS.includes(normalized)) {
+      return normalized;
+    }
+    if (normalized === "urgent") return "high";
+    return undefined;
+  }
+
+  deriveSupportLevel(event) {
+    const severity = (event?.severity || event?.directive?.severity || "").toString().toLowerCase();
+    if (severity === "critical") return "emergency";
+    if (severity === "high") return "high";
+    if (severity === "moderate") return "normal";
+    return undefined;
+  }
+
+  normalizeSupplyActionList(actions) {
+    const list = this.normalizeStringList(actions).map(entry => entry.toLowerCase());
+    if (!list.length) return [];
+
+    return list
+      .map(entry => {
+        if (SUPPLY_ACTIONS.includes(entry)) {
+          return entry;
+        }
+        if (entry.includes("deliver")) return "deliver";
+        if (entry.includes("restock")) return "restock";
+        if (entry.includes("swap")) return "swap";
+        if (entry.includes("repair")) return "repair";
+        return null;
+      })
+      .filter(Boolean);
+  }
+
+  normalizeTaskPriority(priority) {
+    if (!priority) return "normal";
+    const normalized = priority.toString().toLowerCase();
+    if (TASK_PRIORITIES.includes(normalized)) {
+      return normalized;
+    }
+    if (normalized === "urgent") return "high";
+    if (normalized === "emergency") return "critical";
+    return "normal";
   }
 
   pauseTask(npcId, reasonEvent) {

@@ -1,33 +1,21 @@
 // integrations/mindcraft_ce_adapter.js
 // Builds Minecraft CE compatible commands from NPC task payloads
 
+import {
+  INVENTORY_VIEWS,
+  INVENTORY_PRIORITY_LEVELS,
+  ITEM_USAGE_TYPES,
+  EQUIP_SLOTS,
+  LOADOUT_PRIORITIES,
+  DIG_STRATEGIES,
+  SUPPORT_LEVELS,
+  SUPPLY_ACTIONS,
+  TASK_PRIORITIES
+} from "./mindcraft_ce_constants.js";
+
+
 const DEFAULT_PREFIX = "mindcraftce";
 const DEFAULT_VERSION = "1.0";
-const INVENTORY_VIEWS = ["overview", "hotbar", "equipment", "crafting", "materials"];
-const INVENTORY_PRIORITY_LEVELS = ["critical", "high", "medium", "low", "junk"];
-const ITEM_USAGE_TYPES = [
-  "heal",
-  "buff",
-  "attack",
-  "utility",
-  "tool",
-  "place",
-  "consume",
-  "equip",
-  "interact"
-];
-const EQUIP_SLOTS = [
-  "main_hand",
-  "off_hand",
-  "head",
-  "chest",
-  "legs",
-  "feet",
-  "hotbar",
-  "accessory"
-];
-const LOADOUT_PRIORITIES = ["primary", "secondary", "backup"];
-const DIG_STRATEGIES = ["clear", "tunnel", "staircase", "quarry", "strip", "pillar"];
 
 export class MindcraftCEAdapter {
   constructor(options = {}) {
@@ -48,16 +36,20 @@ export class MindcraftCEAdapter {
   buildEnvelope(taskPayload) {
     const { npcId, action, details, target, metadata, priority } = taskPayload;
 
+    const normalizedPriority = this.normalizeTaskPriority(priority);
+
     const envelope = {
       version: this.version,
       action,
       details,
       target,
       npc: npcId || null,
-      priority: priority || "normal",
+      priority: normalizedPriority || "normal",
       metadata: this.buildMetadata(action, metadata, taskPayload),
       issuedAt: Date.now()
     };
+
+    envelope.id = this.generateEnvelopeId(envelope);
 
     if (metadata?.tags) {
       envelope.tags = Array.isArray(metadata.tags)
@@ -66,6 +58,16 @@ export class MindcraftCEAdapter {
     }
 
     return envelope;
+  }
+
+  generateEnvelopeId(envelope) {
+    if (envelope?.id) {
+      return envelope.id;
+    }
+
+    const npc = envelope?.npc || envelope?.npcId || "npc";
+    const issuedAt = envelope?.issuedAt || Date.now();
+    return `${npc}:${issuedAt}`;
   }
 
   buildMetadata(action, metadata = {}, taskPayload) {
@@ -92,9 +94,83 @@ export class MindcraftCEAdapter {
         return this.buildDigMetadata(metadata, taskPayload);
       case "assess_equipment":
         return this.buildEquipmentAssessment(metadata, taskPayload);
+      case "support":
+        return this.buildSupportMetadata(metadata, taskPayload);
+      case "deliver_items":
+        return this.buildDeliverItemsMetadata(metadata, taskPayload);
       default:
         return { ...metadata };
     }
+  }
+
+  buildSupportMetadata(metadata = {}, taskPayload = {}) {
+    const assistance = this.normalizeStringArray(metadata.assistance);
+    const actions = this.normalizeStringArray(metadata.actions);
+    const objectives = this.normalizeStringArray(metadata.objectives);
+    const hazards = this.normalizeStringArray(metadata.hazards || metadata.threats);
+    const level = this.normalizeSupportLevel(metadata.level);
+    const priority = this.normalizeTaskPriority(metadata.priority || taskPayload.priority);
+
+    const requests = {};
+    const requestItems = this.normalizeItemList(metadata.requests?.items);
+    const requestTools = this.normalizeItemList(metadata.requests?.tools);
+
+    if (requestItems.length) {
+      requests.items = requestItems;
+    }
+
+    if (requestTools.length) {
+      requests.tools = requestTools;
+    }
+
+    const supportPayload = {
+      targetNpc:
+        metadata.targetNpc || taskPayload?.metadata?.targetNpc || taskPayload?.npcId || undefined,
+      hazard: metadata.hazard || metadata.threat || undefined,
+      hazards: hazards.length ? hazards : undefined,
+      level: level || undefined,
+      assistance: assistance.length ? assistance : undefined,
+      actions: actions.length ? actions : undefined,
+      objectives: objectives.length ? objectives : undefined,
+      requests: Object.keys(requests).length ? requests : undefined,
+      rallyPoint:
+        this.normalizeTargetDescriptor(metadata.rallyPoint || metadata.target || metadata.location) ||
+        this.extractRallyPoint(taskPayload?.target),
+      priority: priority || undefined,
+      notes: metadata.note || metadata.notes || undefined
+    };
+
+    return this.pruneEmpty(supportPayload);
+  }
+
+  buildDeliverItemsMetadata(metadata = {}, taskPayload = {}) {
+    const items = this.normalizeItemList(metadata.items);
+    const actions = this.normalizeSupplyActions(metadata.actions);
+    const priority = this.normalizeTaskPriority(metadata.priority || taskPayload.priority);
+    const destination =
+      this.normalizeTargetDescriptor(metadata.destination) ||
+      this.normalizeTargetDescriptor(taskPayload?.target);
+
+    const deliveryPayload = {
+      targetNpc:
+        metadata.targetNpc || taskPayload?.metadata?.targetNpc || taskPayload?.npcId || undefined,
+      destination,
+      items,
+      actions: actions.length ? actions : ["deliver"],
+      priority: priority || undefined,
+      allowSubstitutions:
+        typeof metadata.allowSubstitutions === "boolean" ? metadata.allowSubstitutions : undefined,
+      expedite: typeof metadata.expedite === "boolean" ? metadata.expedite : undefined,
+      confirmation: metadata.confirmation || undefined,
+      notes: metadata.note || metadata.notes || undefined
+    };
+
+    const supplementalRequests = this.normalizeItemList(metadata.requests);
+    if (supplementalRequests.length) {
+      deliveryPayload.requests = supplementalRequests;
+    }
+
+    return this.pruneEmpty(deliveryPayload);
   }
 
   buildChestMetadata(metadata) {
@@ -170,7 +246,8 @@ export class MindcraftCEAdapter {
       weaponType: this.normalizeWeaponType(metadata.weaponType),
       support: this.normalizeSupportPlan(metadata.support),
       tactics: Array.isArray(metadata.tactics) ? metadata.tactics : metadata.tactics ? [metadata.tactics] : [],
-      priority: metadata.priority || taskPayload?.priority || "normal",
+      priority:
+        this.normalizeTaskPriority(metadata.priority || taskPayload?.priority) || "normal",
       loadout: this.normalizeCombatLoadout(metadata.loadout, {
         preferredWeapons,
         backupWeapons,
@@ -1054,12 +1131,79 @@ export class MindcraftCEAdapter {
     return undefined;
   }
 
+  normalizeSupportLevel(level) {
+    if (!level) return undefined;
+    const normalized = level.toString().toLowerCase();
+    if (SUPPORT_LEVELS.includes(normalized)) {
+      return normalized;
+    }
+    if (normalized === "emergency") return "emergency";
+    if (normalized === "urgent") return "high";
+    return undefined;
+  }
+
+  normalizeSupplyActions(actions) {
+    const list = this.normalizeStringArray(actions);
+    if (!list.length) {
+      return [];
+    }
+
+    return list
+      .map(entry => entry.toLowerCase())
+      .map(entry => {
+        if (SUPPLY_ACTIONS.includes(entry)) {
+          return entry;
+        }
+        if (entry.includes("deliver")) return "deliver";
+        if (entry.includes("restock")) return "restock";
+        if (entry.includes("swap")) return "swap";
+        if (entry.includes("repair")) return "repair";
+        return null;
+      })
+      .filter(Boolean);
+  }
+
+  normalizeTaskPriority(priority) {
+    if (!priority) return undefined;
+    const normalized = priority.toString().toLowerCase();
+    if (TASK_PRIORITIES.includes(normalized)) {
+      return normalized;
+    }
+    if (normalized === "urgent") return "high";
+    if (normalized === "emergency") return "critical";
+    return undefined;
+  }
+
   normalizeStringArray(list) {
     if (!list) return [];
     const array = Array.isArray(list) ? list : [list];
     return array
       .map(entry => (typeof entry === "string" ? entry.trim() : null))
       .filter(Boolean);
+  }
+
+  pruneEmpty(obj = {}) {
+    if (!obj || typeof obj !== "object") {
+      return obj;
+    }
+
+    const entries = Object.entries(obj).filter(([_, value]) => {
+      if (value === undefined || value === null) {
+        return false;
+      }
+
+      if (Array.isArray(value)) {
+        return value.length > 0;
+      }
+
+      if (typeof value === "object") {
+        return Object.keys(value).length > 0;
+      }
+
+      return true;
+    });
+
+    return Object.fromEntries(entries);
   }
 
   normalizeCombatLoadout(loadout, fallback = {}) {

@@ -24,7 +24,9 @@ export async function interpretCommand(inputText) {
         "For use_item tasks, include metadata.item, metadata.usage (heal/buff/attack/utility/tool/place/consume/equip/interact), optional metadata.target, and metadata.fallbacks for backup consumables.",
         "For equip_item tasks, provide metadata.item or metadata.candidates, metadata.slot (main_hand/off_hand/head/chest/legs/feet/hotbar/accessory), and metadata.priority or metadata.preferred lists when deciding optimal gear.",
         "For dig tasks, describe the excavation area in metadata.area (shape + dimensions), include metadata.tools, metadata.hazards (lava, water, enemies, etc.), and metadata.mitigations or metadata.statusDirectives for safety just like mining.",
-        "For assess_equipment tasks, describe the decision goal in details, point target toward the storage or NPC being evaluated, and include metadata.goal (best_defense/best_attack/balanced/specialized), metadata.criteria (array of strings), and metadata.candidates (items under consideration)."
+        "For assess_equipment tasks, describe the decision goal in details, point target toward the storage or NPC being evaluated, and include metadata.goal (best_defense/best_attack/balanced/specialized), metadata.criteria (array of strings), and metadata.candidates (items under consideration).",
+        "For support tasks, name the NPC needing help in metadata.targetNpc, describe the hazard or reason, list metadata.assistance/actions/objectives, include metadata.requests.items if supplies are needed, and set metadata.level (emergency/high/normal/low) plus metadata.priority when triaging.",
+        "For deliver_items tasks, include metadata.items (array of { item, count }), metadata.actions (deliver/restock/swap/repair), metadata.targetNpc, metadata.priority (critical/high/normal/low), and set the task target to the drop-off point."
       ].join(" ")
     },
     {

@@ -2,6 +2,7 @@
 // Simulated Mindcraft CE runtime that reacts to enriched mining metadata
 
 import EventEmitter from "events";
+import { STATUS_DIRECTIVE_ACTIONS } from "./mindcraft_ce_constants.js";
 
 const DEFAULT_EVENT_DELAY = 40;
 const DEFAULT_MIN_DELAY = 20;
@@ -15,6 +16,10 @@ export class MindcraftCERuntime extends EventEmitter {
   }
 
   buildEnvelopeId(envelope) {
+    if (envelope?.id) {
+      return envelope.id;
+    }
+
     const npc = envelope?.npc || "unknown";
     const issuedAt = envelope?.issuedAt || Date.now();
     return `${npc}:${issuedAt}`;
@@ -84,7 +89,12 @@ export class MindcraftCERuntime extends EventEmitter {
   }
 
   requiresFollowUp(action) {
-    return ["pause", "reroute", "request_support", "request_tools"].includes(action);
+    if (!action) return false;
+    const normalized = action.toLowerCase();
+    return (
+      STATUS_DIRECTIVE_ACTIONS.includes(normalized) &&
+      normalized !== "resume"
+    );
   }
 
   emitHazardEvent(envelope, watch, envelopeId) {

@@ -1,12 +1,21 @@
 // shared/task_schema.js
 // Defines the schema and validation helpers for NPC tasks
 
-export const VALID_ACTIONS = ["build", "mine", "explore", "gather", "guard"];
+export const VALID_ACTIONS = [
+  "build",
+  "mine",
+  "explore",
+  "gather",
+  "guard",
+  "craft",
+  "interact",
+  "combat"
+];
 
 export const NPC_TASK_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["action", "details", "target"],
+  required: ["action", "details"],
   properties: {
     action: {
       type: "string",
@@ -71,13 +80,19 @@ export function validateTask(task) {
     errors.push("Task details must be a non-empty string");
   }
 
-  if (typeof task.target !== "object" || task.target === null) {
-    errors.push("Task target must be provided");
-  } else {
+  const actionsRequiringTarget = new Set(["build", "mine", "explore", "gather", "guard", "interact", "combat"]);
+
+  if (task.target == null) {
+    if (actionsRequiringTarget.has(task.action)) {
+      errors.push(`Task target must be provided for action "${task.action}"`);
+    }
+  } else if (typeof task.target === "object") {
     const { x, y, z } = task.target;
     if (![x, y, z].every(coord => typeof coord === "number" && Number.isFinite(coord))) {
       errors.push("Target coordinates must be finite numbers");
     }
+  } else {
+    errors.push("Task target must be an object when provided");
   }
 
   if (task.priority && !["low", "normal", "high"].includes(task.priority)) {

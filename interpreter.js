@@ -11,7 +11,15 @@ export async function interpretCommand(inputText) {
       content: [
         "You translate player intentions into strict JSON tasks for Minecraft NPCs.",
         "Always return JSON that matches the provided schema.",
-        "Avoid explanations, extra keys, or commentary."
+        "Avoid explanations, extra keys, or commentary.",
+        `Supported actions: ${VALID_ACTIONS.join(", ")}.`,
+        "For mine tasks, specify what resource or block is being extracted in metadata.resource, outline any prioritized targets in metadata.targets with priority labels (primary/secondary/tertiary/optional), and list hazards (lava, water, enemies, etc.) in metadata.hazards along with mitigation steps when known.",
+        "For open_chest tasks, describe the chest interaction in details, provide chest coordinates in target, and populate metadata.mode (inspect/deposit/withdraw).",
+        "When depositing or withdrawing, include metadata.items as an array of { item, count } objects.",
+        "For craft tasks, describe the recipe or desired output in details, set target to the relevant workstation, and include metadata.output, metadata.quantity, and metadata.recipe (array of { item, count }).",
+        "For fight tasks, specify the enemy or objective in details, keep target coordinates to the engagement point, and include metadata.target, metadata.style (melee/ranged/defensive/support/balanced), and metadata.weapons (array of items).",
+        "For check_inventory tasks, keep details concise, set target to the inventory location, and use metadata.mode (summary/locate/count/missing), metadata.scope (self/npc/chest/storage/area), and metadata.filters (items or tags).",
+        "For assess_equipment tasks, describe the decision goal in details, point target toward the storage or NPC being evaluated, and include metadata.goal (best_defense/best_attack/balanced/specialized), metadata.criteria (array of strings), and metadata.candidates (items under consideration)."
       ].join(" ")
     },
     {

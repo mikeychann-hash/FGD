@@ -4,6 +4,8 @@
 import EventEmitter from "events";
 import { Rcon } from "rcon-client";
 
+import { MindcraftCEAdapter } from "./mindcraft_ce_adapter.js";
+
 export class MinecraftBridge extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -13,11 +15,17 @@ export class MinecraftBridge extends EventEmitter {
       password: options.password || "",
       timeout: options.timeout || 10000,
       commandPrefix: options.commandPrefix || "aicraft",
-      connectOnCreate: options.connectOnCreate !== false
+      connectOnCreate: options.connectOnCreate !== false,
+      useMindcraftCE: options.useMindcraftCE !== false
     };
 
     this.client = null;
     this.connected = false;
+    this.commandBuilder = options.commandBuilder || null;
+
+    if (!this.commandBuilder && this.options.useMindcraftCE) {
+      this.commandBuilder = new MindcraftCEAdapter(options.mindcraftCE || {});
+    }
 
     if (this.options.connectOnCreate) {
       this.connect().catch(err => {
@@ -70,6 +78,10 @@ export class MinecraftBridge extends EventEmitter {
   }
 
   buildCommand(taskPayload) {
+    if (this.commandBuilder?.buildCommand) {
+      return this.commandBuilder.buildCommand(taskPayload);
+    }
+
     const serialized = JSON.stringify(taskPayload);
     return `${this.options.commandPrefix} ${serialized}`;
   }

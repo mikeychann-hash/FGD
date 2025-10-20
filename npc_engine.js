@@ -8,6 +8,26 @@ import { SUPPORT_LEVELS, SUPPLY_ACTIONS, TASK_PRIORITIES } from "./mindcraft_ce_
 const TASK_TIMEOUT = 30000; // 30 seconds max per task
 const SIMULATED_TASK_DURATION = 3000;
 
+const ACTION_ROLE_PREFERENCES = {
+  build: ["builder", "architect", "worker"],
+  mine: ["miner", "worker", "digger"],
+  dig: ["miner", "worker", "digger", "builder"],
+  gather: ["gatherer", "miner", "scout"],
+  explore: ["scout", "explorer", "pathfinder"],
+  guard: ["fighter", "guard", "warrior"],
+  fight: ["fighter", "guard", "warrior", "support"],
+  support: ["fighter", "guard", "support"],
+  deliver_items: ["runner", "support", "logistics", "steward"],
+  craft: ["crafter", "support", "steward"],
+  manage_inventory: ["steward", "support", "crafter"],
+  open_inventory: ["steward", "support", "crafter"],
+  open_chest: ["steward", "support", "runner"],
+  check_inventory: ["steward", "support", "crafter"],
+  use_item: ["healer", "support", "fighter"],
+  equip_item: ["support", "fighter", "steward"],
+  assess_equipment: ["support", "steward", "crafter"]
+};
+
 export class NPCEngine {
   constructor(options = {}) {
     this.npcs = new Map(); // npcId -> state
@@ -103,21 +123,29 @@ export class NPCEngine {
       return null;
     }
 
-    const available = this.findIdleNPC();
+    const available = this.findIdleNPC(null, npc => this.canHandleTask(npc, task));
 
     if (!available) {
-      this.taskQueue.push(task);
-      console.warn(`⏸️  No idle NPCs available. Task queued (${this.taskQueue.length} in queue)`);
+      const preferredTypes = this.getPreferredTypesForAction(task.action);
+      this.addQueuedTask(task, { preferredTypes });
+      console.warn(
+        `⏸️  No idle NPCs available. Task queued (${this.taskQueue.length} in queue)`
+      );
       return null;
     }
 
     return this.assignTask(available, task);
   }
 
-  findIdleNPC(excludeNpcId = null) {
-    return [...this.npcs.values()].find(
-      n => n.state === "idle" && (!excludeNpcId || n.id !== excludeNpcId)
-    );
+  findIdleNPC(excludeNpcId = null, predicate = null) {
+    for (const npc of this.npcs.values()) {
+      if (npc.state !== "idle") continue;
+      if (excludeNpcId && npc.id === excludeNpcId) continue;
+      if (predicate && !predicate(npc)) continue;
+      return npc;
+    }
+
+    return null;
   }
 
   assignTask(npc, task) {
@@ -300,7 +328,15 @@ export class NPCEngine {
     }
 
     const exclude = options.excludeNpcId || null;
-    const idle = this.findIdleNPC(exclude);
+    const preferredTypes = this.normalizePreferredTypes(
+      options.preferredTypes || this.getPreferredTypesForAction(task.action)
+    );
+
+    let idle = this.findIdleNPC(exclude, npc => this.matchesPreferredTypes(npc, preferredTypes));
+
+    if (!idle) {
+      idle = this.findIdleNPC(exclude, npc => this.canHandleTask(npc, task));
+    }
 
     if (idle) {
       console.log(`⚡ Assigning follow-up task ${task.action} to ${idle.id}`);
@@ -308,11 +344,7 @@ export class NPCEngine {
       return;
     }
 
-    if (options.urgent) {
-      this.taskQueue.unshift(task);
-    } else {
-      this.taskQueue.push(task);
-    }
+    this.addQueuedTask(task, { ...options, preferredTypes });
 
     console.log(
       `📨 Queued follow-up task (${task.action}); queue length ${this.taskQueue.length}`
@@ -450,6 +482,81 @@ export class NPCEngine {
     return "normal";
   }
 
+  normalizePreferredTypes(types) {
+    if (!types) return [];
+
+    const list = Array.isArray(types) ? types : [types];
+    const normalized = list
+      .map(type => (typeof type === "string" ? type.toLowerCase().trim() : null))
+      .filter(Boolean);
+
+    return [...new Set(normalized)];
+  }
+
+  getPreferredTypesForAction(action) {
+    if (!action) {
+      return [];
+    }
+
+    return ACTION_ROLE_PREFERENCES[action] || [];
+  }
+
+  hasSpecialistForAction(action) {
+    const preferred = this.normalizePreferredTypes(this.getPreferredTypesForAction(action));
+    if (!preferred.length) {
+      return false;
+    }
+
+    return [...this.npcs.values()].some(npc =>
+      preferred.includes((npc.type || "").toLowerCase())
+    );
+  }
+
+  matchesPreferredTypes(npc, preferredTypes = []) {
+    if (!preferredTypes.length) {
+      return false;
+    }
+
+    const npcType = (npc.type || "").toLowerCase();
+    return preferredTypes.includes(npcType);
+  }
+
+  canHandleTask(npc, task) {
+    if (!task?.action) {
+      return true;
+    }
+
+    const preferred = this.normalizePreferredTypes(this.getPreferredTypesForAction(task.action));
+
+    if (!preferred.length) {
+      return true;
+    }
+
+    if (this.matchesPreferredTypes(npc, preferred)) {
+      return true;
+    }
+
+    return !this.hasSpecialistForAction(task.action);
+  }
+
+  addQueuedTask(task, options = {}) {
+    const entry = {
+      task,
+      options: {
+        ...options,
+        preferredTypes: this.normalizePreferredTypes(options.preferredTypes)
+      }
+    };
+
+    if (options.urgent) {
+      this.taskQueue.unshift(entry);
+    } else {
+      this.taskQueue.push(entry);
+    }
+
+    return entry;
+  }
+
   pauseTask(npcId, reasonEvent) {
     const npc = this.npcs.get(npcId);
     if (!npc || npc.state === "paused") return;
@@ -507,12 +614,28 @@ export class NPCEngine {
   processQueue() {
     if (this.taskQueue.length === 0) return;
 
-    const available = this.findIdleNPC();
-    if (!available) return;
+    for (let i = 0; i < this.taskQueue.length; i++) {
+      const { task, options = {} } = this.taskQueue[i];
+      const exclude = options.excludeNpcId || null;
+      const preferredTypes = this.normalizePreferredTypes(
+        options.preferredTypes || this.getPreferredTypesForAction(task.action)
+      );
 
-    const nextTask = this.taskQueue.shift();
-    console.log(`📋 Processing queued task (${this.taskQueue.length} remaining)`);
-    this.assignTask(available, nextTask);
+      let npc = this.findIdleNPC(exclude, candidate =>
+        this.matchesPreferredTypes(candidate, preferredTypes)
+      );
+
+      if (!npc) {
+        npc = this.findIdleNPC(exclude, candidate => this.canHandleTask(candidate, task));
+      }
+
+      if (npc) {
+        this.taskQueue.splice(i, 1);
+        console.log(`📋 Processing queued task (${this.taskQueue.length} remaining)`);
+        this.assignTask(npc, task);
+        return;
+      }
+    }
   }
 
   getStatus() {

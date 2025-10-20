@@ -31,6 +31,23 @@ const MINING_TASK = {
   }
 };
 
+function makeSupportEvent(overrides = {}) {
+  return {
+    type: "support_request",
+    npcId: "miner",
+    hazard: "lava",
+    severity: "high",
+    reason: "Lava pool ahead",
+    assistance: ["combat_cover"],
+    directive: {
+      action: "request_support",
+      request: { items: [{ item: "minecraft:water_bucket", count: 1 }] },
+      actions: ["combat_cover"]
+    },
+    ...overrides
+  };
+}
+
 test("support requests assign support tasks to idle allies", async () => {
   const bridge = new StubBridge();
   const engine = new NPCEngine({ bridge });
@@ -87,4 +104,63 @@ test("tool requests create delivery tasks", async () => {
   assert.ok(runner.task);
   assert.equal(runner.task.action, "deliver_items");
   assert.equal(runner.task.metadata.items[0].item, "minecraft:diamond_pickaxe");
+});
+
+test("queued support tasks prefer specialists when available", async () => {
+  const bridge = new StubBridge();
+  const engine = new NPCEngine({ bridge });
+  const dispatched = [];
+
+  bridge.on("dispatched", payload => {
+    dispatched.push(payload);
+  });
+
+  engine.registerNPC("miner", "miner");
+  engine.registerNPC("builder", "builder");
+  engine.registerNPC("guard", "fighter");
+
+  engine.assignTask(engine.npcs.get("miner"), { ...MINING_TASK });
+
+  engine.assignTask(engine.npcs.get("guard"), {
+    action: "guard",
+    details: "Hold position",
+    target: { x: 2, y: 64, z: 2 },
+    metadata: { level: "high" }
+  });
+
+  engine.handleSupportRequest(engine.npcs.get("miner"), makeSupportEvent());
+
+  const builder = engine.npcs.get("builder");
+  assert.equal(builder.state, "idle");
+  assert.equal(engine.taskQueue.length, 1);
+  assert.equal(engine.taskQueue[0].task.action, "support");
+
+  await new Promise(resolve => setImmediate(resolve));
+
+  const guard = engine.npcs.get("guard");
+  const supportDispatch = dispatched.find(
+    payload => payload.npcId === "guard" && payload.action === "support"
+  );
+
+  assert.ok(supportDispatch, "expected support dispatch for guard");
+  assert.equal(guard.task?.metadata?.targetNpc || supportDispatch.metadata.targetNpc, "miner");
+  assert.equal(engine.taskQueue.length, 0);
+});
+
+test("support requests fall back when no specialists registered", () => {
+  const bridge = new StubBridge();
+  const engine = new NPCEngine({ bridge });
+
+  engine.registerNPC("miner", "miner");
+  engine.registerNPC("builder", "builder");
+
+  engine.assignTask(engine.npcs.get("miner"), { ...MINING_TASK });
+
+  engine.handleSupportRequest(engine.npcs.get("miner"), makeSupportEvent());
+
+  const builder = engine.npcs.get("builder");
+  assert.equal(builder.state, "working");
+  assert.ok(builder.task);
+  assert.equal(builder.task.action, "support");
+  assert.equal(builder.task.metadata.targetNpc, "miner");
 });

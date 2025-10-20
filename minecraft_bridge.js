@@ -1,7 +1,7 @@
 // bridges/minecraft_bridge.js
 // Provides a transport layer between the NPCEngine and a Minecraft server via RCON.
-// Behaviors such as jumping, swimming, or hazard avoidance must be implemented on this automation side.
-// Supporting richer navigation context would require extending this bridge protocol to transmit additional environmental data.
+// Receives navigationContext payloads that describe elevation, liquid, and hazard reasoning for downstream automation.
+// Downstream automation can leverage the enriched context to execute sophisticated movement behaviors.
 
 import EventEmitter from "events";
 import express from "express";

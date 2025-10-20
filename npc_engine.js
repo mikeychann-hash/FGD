@@ -1,12 +1,12 @@
 // ai/npc_engine.js
-// Core AI task manager for AICraft NPCs.
-// NPC state currently lacks awareness of elevation, liquids, or hazards; richer navigation would need state model extensions.
+// Core AI task manager for AICraft NPCs with integrated navigation context reasoning.
 
 import EventEmitter from "events";
 
 import { interpretCommand } from "./interpreter.js";
 import { generateModelTasks, DEFAULT_AUTONOMY_PROMPT_TEXT } from "./model_director.js";
 import { validateTask } from "./task_schema.js";
+import { NavigationGrid, summarizeNavigation } from "./navigation.js";
 
 const TASK_TIMEOUT = 30000; // 30 seconds max per task
 const SIMULATED_TASK_DURATION = 3000;
@@ -24,7 +24,8 @@ const ACTION_ROLE_PREFERENCES = {
   guard: ["guard", "fighter"],
   craft: ["crafter", "builder"],
   interact: ["support", "builder", "worker"],
-  combat: ["fighter", "guard"]
+  combat: ["fighter", "guard"],
+  navigate: ["scout", "explorer", "builder", "worker"]
 };
 
 function normalizePriority(priority) {
@@ -42,16 +43,53 @@ function cloneTask(task) {
         ? { ...task.target }
         : task.target ?? null,
     metadata: task.metadata ? { ...task.metadata } : {},
+    navigationContext:
+      task.navigationContext && typeof task.navigationContext === "object"
+        ? {
+            ...task.navigationContext,
+            path: Array.isArray(task.navigationContext.path)
+              ? task.navigationContext.path.map(step => ({ ...step }))
+              : task.navigationContext.path,
+            hazards: Array.isArray(task.navigationContext.hazards)
+              ? task.navigationContext.hazards.map(hazard => ({ ...hazard }))
+              : task.navigationContext.hazards
+          }
+        : undefined,
     preferredNpcTypes: Array.isArray(task.preferredNpcTypes)
       ? [...task.preferredNpcTypes]
       : []
   };
 }
 
+function normalizeVector(position, fallback = { x: 0, y: 0, z: 0 }) {
+  if (!position || typeof position !== "object") {
+    return { ...fallback };
+  }
+  const { x, y, z } = position;
+  return {
+    x: Number.isFinite(x) ? x : fallback.x,
+    y: Number.isFinite(y) ? y : fallback.y,
+    z: Number.isFinite(z) ? z : fallback.z
+  };
+}
+
+function toBooleanFlag(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  return undefined;
+}
+
 export class NPCEngine extends EventEmitter {
   constructor(options = {}) {
     super();
-    this.npcs = new Map(); // npcId -> state (does not yet track elevation/liquid awareness)
+    this.npcs = new Map(); // npcId -> state with navigation awareness
     this.taskQueue = []; // [{ task, enqueuedAt }]
     this.taskTimeouts = new Map(); // npcId -> timeoutId
     this.bridge = options.bridge || null;
@@ -63,6 +101,13 @@ export class NPCEngine extends EventEmitter {
     this.autonomyConfig = null;
     this.autonomyTimer = null;
     this.autonomyRunning = false;
+    const providedGrid = options.navigation?.grid || options.navigationGrid;
+    const allowWater =
+      options.navigation?.allowWater ?? options.allowWater ?? false;
+    this.navigation = {
+      grid: providedGrid instanceof NavigationGrid ? providedGrid : new NavigationGrid(),
+      allowWater: Boolean(allowWater)
+    };
     this.bridgeHandlers = {
       npc_update: payload => this.handleBridgeUpdate(payload),
       task_feedback: payload => this.handleBridgeFeedback(payload),
@@ -84,6 +129,46 @@ export class NPCEngine extends EventEmitter {
     }
   }
 
+  setNavigationGrid(grid) {
+    if (grid instanceof NavigationGrid) {
+      this.navigation.grid = grid;
+      return;
+    }
+
+    const newGrid = new NavigationGrid();
+    const source = Array.isArray(grid)
+      ? grid
+      : Array.isArray(grid?.cells)
+        ? grid.cells
+        : [];
+
+    for (const cell of source) {
+      if (!cell || typeof cell !== "object") continue;
+      newGrid.setCell(cell.position, cell);
+    }
+
+    this.navigation.grid = newGrid;
+  }
+
+  getNavigationGrid() {
+    return this.navigation.grid;
+  }
+
+  updateNavigationCell(position, data = {}) {
+    this.navigation.grid.setCell(position, data);
+  }
+
+  markNavigationHazard(position, hazard) {
+    this.navigation.grid.markHazard(position, hazard);
+  }
+
+  setAllowWaterTraversal(value) {
+    const flag = toBooleanFlag(value);
+    if (flag !== undefined) {
+      this.navigation.allowWater = flag;
+    }
+  }
+
   registerNPC(id, type = "builder", options = {}) {
     const spawnPosition = options.position || this.defaultSpawnPosition;
     this.npcs.set(id, {
@@ -91,10 +176,13 @@ export class NPCEngine extends EventEmitter {
       type,
       task: null,
       state: "idle",
-      position: { ...spawnPosition }, // lacks richer navigation context like hazards or elevation data
+      position: { ...spawnPosition },
       progress: 0,
       lastUpdate: null,
-      awaitingFeedback: false
+      awaitingFeedback: false,
+      navigation: {
+        lastContext: null
+      }
     });
     console.log(`🤖 Registered NPC ${id} (${type})`);
     this.emit("npc_registered", { id, type, position: { ...spawnPosition } });
@@ -312,6 +400,66 @@ export class NPCEngine extends EventEmitter {
     };
   }
 
+  buildNavigationContext(npc, task) {
+    if (!npc || !task?.target) {
+      return null;
+    }
+
+    const start = normalizeVector(npc.position || this.defaultSpawnPosition, this.defaultSpawnPosition);
+    const goal = normalizeVector(task.target, this.defaultSpawnPosition);
+    const metadata = task.metadata || {};
+    const explicitAllowWater = toBooleanFlag(metadata.allowWater);
+    const movementImpliesWater = metadata.movementMode === "swim";
+    const allowWater =
+      explicitAllowWater !== undefined
+        ? explicitAllowWater
+        : movementImpliesWater
+          ? true
+          : Boolean(this.navigation.allowWater);
+
+    const summary = summarizeNavigation(this.navigation.grid, start, goal, { allowWater });
+    const clonedPath = Array.isArray(summary.path)
+      ? summary.path.map(step => ({ ...step }))
+      : [];
+    const navigationContext = {
+      path: clonedPath,
+      elevationGain: summary.elevationGain,
+      elevationDrop: summary.elevationDrop,
+      liquidSegments: summary.liquidSegments,
+      hazards: Array.isArray(summary.hazards)
+        ? summary.hazards.map(hazard => ({ ...hazard }))
+        : [],
+      estimatedCost: summary.estimatedCost,
+      viable: summary.viable,
+      movementMode: metadata.movementMode || (allowWater ? "swim" : "walk"),
+      allowWater
+    };
+
+    if ((!navigationContext.path || navigationContext.path.length === 0) && task.target) {
+      navigationContext.path = [
+        { ...start, elevation: start.y, liquid: null, hazards: [] },
+        { ...goal, elevation: goal.y, liquid: null, hazards: [] }
+      ];
+    }
+
+    if (metadata.navigationDirectives && typeof metadata.navigationDirectives === "object") {
+      navigationContext.directives = {
+        ...metadata.navigationDirectives,
+        avoidHazards: Array.isArray(metadata.navigationDirectives.avoidHazards)
+          ? [...metadata.navigationDirectives.avoidHazards]
+          : undefined
+      };
+      if (navigationContext.directives.avoidHazards === undefined) {
+        delete navigationContext.directives.avoidHazards;
+      }
+      if (Object.keys(navigationContext.directives).length === 0) {
+        delete navigationContext.directives;
+      }
+    }
+
+    return navigationContext;
+  }
+
   enqueueTask(task) {
     const entry = {
       task: cloneTask(task),
@@ -350,6 +498,21 @@ export class NPCEngine extends EventEmitter {
     const normalizedTask = cloneTask(task);
     normalizedTask.priority = normalizePriority(normalizedTask.priority);
     normalizedTask.preferredNpcTypes = this.getPreferredNpcTypes(normalizedTask);
+    const navigationContext = this.buildNavigationContext(npc, normalizedTask);
+    if (navigationContext) {
+      normalizedTask.navigationContext = navigationContext;
+      if (npc.navigation) {
+        npc.navigation.lastContext = {
+          ...navigationContext,
+          path: Array.isArray(navigationContext.path)
+            ? navigationContext.path.map(step => ({ ...step }))
+            : navigationContext.path,
+          hazards: Array.isArray(navigationContext.hazards)
+            ? navigationContext.hazards.map(hazard => ({ ...hazard }))
+            : navigationContext.hazards
+        };
+      }
+    }
     npc.task = normalizedTask;
     npc.state = "working";
     npc.progress = 0;
@@ -456,6 +619,17 @@ export class NPCEngine extends EventEmitter {
       console.log(`ℹ️  Completion metadata for ${npcId}:`, metadata);
     }
 
+    if (success && completedTask?.target) {
+      const finalStep = Array.isArray(completedTask.navigationContext?.path)
+        ? completedTask.navigationContext.path[completedTask.navigationContext.path.length - 1]
+        : completedTask.target;
+      npc.position = normalizeVector(finalStep || completedTask.target, npc.position);
+    }
+
+    if (npc.navigation) {
+      npc.navigation.lastContext = null;
+    }
+
     this.emit("task_completed", {
       npcId,
       success,
@@ -504,7 +678,11 @@ export class NPCEngine extends EventEmitter {
       queueLength: this.taskQueue.length,
       queueByPriority: { high: 0, normal: 0, low: 0 },
       npcs: [],
-      bridgeConnected: Boolean(this.bridge?.isConnected?.())
+      bridgeConnected: Boolean(this.bridge?.isConnected?.()),
+      navigation: {
+        allowWater: this.navigation.allowWater,
+        knownCells: this.navigation.grid?.cells?.size ?? 0
+      }
     };
 
     for (const npc of this.npcs.values()) {
@@ -517,7 +695,9 @@ export class NPCEngine extends EventEmitter {
         task: npc.task?.action || null,
         preferredNpcTypes: npc.task?.preferredNpcTypes || [],
         progress: npc.progress,
-        lastUpdate: npc.lastUpdate
+        lastUpdate: npc.lastUpdate,
+        position: { ...normalizeVector(npc.position, this.defaultSpawnPosition) },
+        navigationContext: npc.navigation?.lastContext
       });
     }
 
@@ -608,6 +788,10 @@ export class NPCEngine extends EventEmitter {
       npc.lastUpdate = Date.now();
     }
 
+    if (feedback.position) {
+      npc.position = normalizeVector(feedback.position, npc.position);
+    }
+
     if (typeof success === "boolean") {
       npc.awaitingFeedback = false;
       this.completeTask(npcId, success, feedback);
@@ -630,6 +814,10 @@ export class NPCEngine extends EventEmitter {
     if (typeof progress === "number") {
       npc.progress = Math.max(0, Math.min(100, progress));
       npc.lastUpdate = Date.now();
+    }
+
+    if (update.position) {
+      npc.position = normalizeVector(update.position, npc.position);
     }
 
     if (status) {

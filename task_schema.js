@@ -1,7 +1,6 @@
 // shared/task_schema.js
 // Defines the schema and validation helpers for NPC tasks.
-// NPCs cannot reason about elevation, liquids, or hazards with the current schema.
-// Enhancing those capabilities would require extending this schema to carry richer navigation context.
+// Supports navigationContext fields that describe elevation, liquid, and hazard reasoning for movement tasks.
 
 export const VALID_ACTIONS = [
   "build",
@@ -11,7 +10,8 @@ export const VALID_ACTIONS = [
   "guard",
   "craft",
   "interact",
-  "combat"
+  "combat",
+  "navigate"
 ];
 
 export const actionsRequiringTarget = new Set([
@@ -21,7 +21,8 @@ export const actionsRequiringTarget = new Set([
   "gather",
   "guard",
   "interact",
-  "combat"
+  "combat",
+  "navigate"
 ]);
 
 export const NPC_TASK_SCHEMA = {
@@ -60,6 +61,80 @@ export const NPC_TASK_SCHEMA = {
     metadata: {
       type: "object",
       additionalProperties: true
+    },
+    navigationContext: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        viable: { type: "boolean" },
+        path: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["x", "y", "z"],
+            properties: {
+              x: { type: "number" },
+              y: { type: "number" },
+              z: { type: "number" },
+              elevation: { type: "number" },
+              liquid: { type: ["string", "null"] },
+              hazards: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    type: { type: "string" },
+                    severity: { type: "string" },
+                    description: { type: ["string", "null"] }
+                  }
+                }
+              }
+            }
+          }
+        },
+        elevationGain: { type: "number" },
+        elevationDrop: { type: "number" },
+        liquidSegments: { type: "number" },
+        hazards: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              type: { type: "string" },
+              severity: { type: "string" },
+              description: { type: ["string", "null"] },
+              location: {
+                type: "object",
+                additionalProperties: false,
+                required: ["x", "y", "z"],
+                properties: {
+                  x: { type: "number" },
+                  y: { type: "number" },
+                  z: { type: "number" }
+                }
+              }
+            }
+          }
+        },
+        estimatedCost: { type: "number" },
+        movementMode: { type: "string" },
+        allowWater: { type: "boolean" },
+        directives: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            avoidHazards: {
+              type: "array",
+              items: { type: "string" }
+            },
+            targetElevation: { type: "string" },
+            seekLiquid: { type: "string" }
+          }
+        }
+      }
     },
     priority: {
       type: "string",
@@ -126,6 +201,68 @@ export function validateTask(task) {
 
   if (task.priority && task.priority !== normalizedPriority) {
     errors.push(`Invalid priority: ${task.priority}`);
+  }
+
+  if (task.navigationContext != null) {
+    if (!isObject(task.navigationContext)) {
+      errors.push("Navigation context must be an object when provided");
+    } else {
+      const { path, hazards, viable, estimatedCost, movementMode, allowWater, directives } = task.navigationContext;
+      if (path != null && !Array.isArray(path)) {
+        errors.push("Navigation context path must be an array when provided");
+      }
+      if (Array.isArray(path)) {
+        for (const step of path) {
+          if (!isObject(step)) {
+            errors.push("Navigation context path entries must be objects");
+            break;
+          }
+          const { x, y, z } = step;
+          if (![x, y, z].every(coord => typeof coord === "number" && Number.isFinite(coord))) {
+            errors.push("Navigation context path coordinates must be finite numbers");
+            break;
+          }
+        }
+      }
+      if (hazards != null && !Array.isArray(hazards)) {
+        errors.push("Navigation context hazards must be an array when provided");
+      }
+      if (typeof viable !== "undefined" && typeof viable !== "boolean") {
+        errors.push("Navigation context viable flag must be a boolean when provided");
+      }
+      if (typeof estimatedCost !== "undefined" && typeof estimatedCost !== "number") {
+        errors.push("Navigation context estimatedCost must be a number when provided");
+      }
+      if (typeof movementMode !== "undefined" && typeof movementMode !== "string") {
+        errors.push("Navigation context movementMode must be a string when provided");
+      }
+      if (typeof allowWater !== "undefined" && typeof allowWater !== "boolean") {
+        errors.push("Navigation context allowWater must be a boolean when provided");
+      }
+      if (directives != null) {
+        if (!isObject(directives)) {
+          errors.push("Navigation context directives must be an object when provided");
+        } else {
+          if (directives.avoidHazards != null && !Array.isArray(directives.avoidHazards)) {
+            errors.push("Navigation context directives.avoidHazards must be an array when provided");
+          }
+          if (Array.isArray(directives.avoidHazards)) {
+            for (const hazard of directives.avoidHazards) {
+              if (typeof hazard !== "string") {
+                errors.push("Navigation context directives.avoidHazards entries must be strings");
+                break;
+              }
+            }
+          }
+          if (directives.targetElevation != null && typeof directives.targetElevation !== "string") {
+            errors.push("Navigation context directives.targetElevation must be a string when provided");
+          }
+          if (directives.seekLiquid != null && typeof directives.seekLiquid !== "string") {
+            errors.push("Navigation context directives.seekLiquid must be a string when provided");
+          }
+        }
+      }
+    }
   }
 
   if (task.action === "craft") {

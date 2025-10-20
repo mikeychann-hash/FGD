@@ -9,8 +9,8 @@ const DEFAULT_AUTONOMY_PROMPT = [
   "You receive snapshots of the NPC roster, their tasks, and the current queue.",
   "Reply ONLY with JSON following the provided schema so the engine can act on your instructions.",
   "Do not include explanations or markdown.",
-  "NPCs cannot reason about elevation, liquids, or hazardous blocks; avoid proposing tasks that rely on them understanding those factors.",
-  "Behaviors such as jumping, swimming, or hazard avoidance must be carried out by the Minecraft automation system that executes the task payloads."
+  "NPCs can reason about elevation, liquids, and hazardous blocks when planning movement tasks.",
+  "Use the navigate action and populate navigationContext when instructing pathing so the bridge receives elevation, liquid, and hazard cues."
 ].join(" ");
 
 const AUTONOMY_RESPONSE_FORMAT = {

@@ -2,7 +2,7 @@
 // Converts text or chat commands into structured tasks
 
 import { queryLLM } from "./llm_bridge.js";
-import { NPC_TASK_RESPONSE_FORMAT, VALID_ACTIONS, validateTask } from "./task_schema.js";
+import { NPC_TASK_RESPONSE_FORMAT, VALID_ACTIONS, actionsRequiringTarget, validateTask } from "./task_schema.js";
 
 const DEFAULT_TARGET = { x: 0, y: 64, z: 0 };
 
@@ -18,27 +18,43 @@ function extractFirstCoordinateTriplet(text) {
   };
 }
 
+function normalizeWhitespace(value) {
+  return value
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function deriveActionAndMetadata(text) {
   const normalized = text.toLowerCase();
   const metadata = {};
 
   if (/(craft|forge|make)/.test(normalized)) {
-    const itemMatch = normalized.match(/craft(?:\s+an?|\s+the)?\s+([\w\s]+)/);
+    const itemMatch = normalized.match(/craft(?:\s+an?|\s+the)?\s+([^,]+?)(?:\s+(?:at|in|for)\b|$)/);
     if (itemMatch) {
-      metadata.item = itemMatch[1].trim().replace(/\s+(?:at|in|to)\s+.*$/, "").trim();
+      metadata.item = normalizeWhitespace(itemMatch[1]);
+    }
+    if (!metadata.item) {
+      metadata.item = "unspecified item";
     }
     return { action: "craft", metadata };
   }
 
   if (/(open|unlock).*chest/.test(normalized) || /chest/.test(normalized)) {
     metadata.interaction = "open_container";
+    const containerMatch = normalized.match(/(ender\s+chest|trapped\s+chest|chest|barrel|shulker\s+box|crate|furnace|anvil|crafting\s+table)/);
+    if (containerMatch) {
+      metadata.container = normalizeWhitespace(containerMatch[1]);
+    }
     return { action: "interact", metadata };
   }
 
   if (/(fight|attack|defend|kill|combat)/.test(normalized)) {
-    const enemyMatch = normalized.match(/(?:fight|attack|kill|defend)(?:\s+the)?\s+([\w\s]+)/);
+    const enemyMatch = normalized.match(/(?:fight|attack|kill|defend)(?:\s+the)?\s+([^,]+?)(?:\s+(?:at|near|in)\b|$)/);
     if (enemyMatch) {
-      metadata.targetEntity = enemyMatch[1].trim();
+      metadata.targetEntity = normalizeWhitespace(enemyMatch[1]);
+    }
+    if (!metadata.targetEntity) {
+      metadata.targetEntity = "unspecified target";
     }
     return { action: "combat", metadata };
   }
@@ -78,14 +94,19 @@ function derivePriority(text) {
 }
 
 function fallbackInterpretation(inputText) {
-  const coordinateTarget = extractFirstCoordinateTriplet(inputText) || DEFAULT_TARGET;
+  const coordinateTarget = extractFirstCoordinateTriplet(inputText);
   const { action, metadata } = deriveActionAndMetadata(inputText);
   const priority = derivePriority(inputText);
+
+  const needsTarget = actionsRequiringTarget.has(action);
+  const target = needsTarget
+    ? coordinateTarget || DEFAULT_TARGET
+    : coordinateTarget || null;
 
   return {
     action,
     details: inputText.trim(),
-    target: coordinateTarget,
+    target,
     metadata,
     priority
   };

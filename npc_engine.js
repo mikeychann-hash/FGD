@@ -4,6 +4,7 @@
 import EventEmitter from "events";
 
 import { interpretCommand } from "./interpreter.js";
+import { generateModelTasks, DEFAULT_AUTONOMY_PROMPT_TEXT } from "./model_director.js";
 import { validateTask } from "./task_schema.js";
 
 const TASK_TIMEOUT = 30000; // 30 seconds max per task
@@ -58,6 +59,9 @@ export class NPCEngine extends EventEmitter {
     this.requireFeedback = options.requireFeedback ?? true;
     this.modelControlRatio = normalizeControlRatio(options.modelControlRatio);
     this.interpreterOptions = { ...(options.interpreterOptions || {}) };
+    this.autonomyConfig = null;
+    this.autonomyTimer = null;
+    this.autonomyRunning = false;
     this.bridgeHandlers = {
       npc_update: payload => this.handleBridgeUpdate(payload),
       task_feedback: payload => this.handleBridgeFeedback(payload),
@@ -101,6 +105,110 @@ export class NPCEngine extends EventEmitter {
     }
 
     this.processQueue();
+  }
+
+  enableModelAutonomy(options = {}) {
+    this.disableModelAutonomy();
+
+    const {
+      instructions = DEFAULT_AUTONOMY_PROMPT_TEXT,
+      intervalMs = 10000,
+      maxTasks = 3,
+      allowWhenBusy = false,
+      mockResponse = null,
+      temperature = 0.3,
+      sender = "model_autonomy"
+    } = options;
+
+    this.autonomyConfig = {
+      instructions,
+      intervalMs: Math.max(1000, intervalMs),
+      maxTasks,
+      allowWhenBusy,
+      mockResponse,
+      temperature,
+      sender
+    };
+
+    this.autonomyTimer = setInterval(() => {
+      this.runAutonomyCycle().catch(err => {
+        console.error("❌ Autonomy cycle failed:", err.message);
+      });
+    }, this.autonomyConfig.intervalMs);
+
+    // Kick off an immediate cycle so it feels responsive
+    this.runAutonomyCycle({ force: true }).catch(err => {
+      console.error("❌ Initial autonomy cycle failed:", err.message);
+    });
+
+    console.log(
+      `🧠 Model autonomy enabled (interval ${this.autonomyConfig.intervalMs}ms, max ${this.autonomyConfig.maxTasks} tasks).`
+    );
+  }
+
+  disableModelAutonomy() {
+    if (this.autonomyTimer) {
+      clearInterval(this.autonomyTimer);
+      this.autonomyTimer = null;
+    }
+    this.autonomyConfig = null;
+    this.autonomyRunning = false;
+  }
+
+  async runAutonomyCycle({ force = false } = {}) {
+    if (!this.autonomyConfig || this.autonomyRunning) {
+      return;
+    }
+
+    const busyNPC = [...this.npcs.values()].some(npc => npc.state === "working");
+    const queueNotEmpty = this.taskQueue.length > 0;
+
+    if (!force && !this.autonomyConfig.allowWhenBusy && (busyNPC || queueNotEmpty)) {
+      return;
+    }
+
+    this.autonomyRunning = true;
+    try {
+      const statusSnapshot = this.getStatus();
+      const { tasks, rationale } = await generateModelTasks({
+        statusSnapshot,
+        instructions: this.autonomyConfig.instructions,
+        maxTasks: this.autonomyConfig.maxTasks,
+        mockResponse: this.autonomyConfig.mockResponse,
+        temperature: this.autonomyConfig.temperature
+      });
+
+      if (rationale) {
+        console.log(`🧠 Autonomy rationale: ${rationale}`);
+      }
+
+      if (!tasks || tasks.length === 0) {
+        return;
+      }
+
+      for (const task of tasks) {
+        const validation = validateTask(task);
+        if (!validation.valid) {
+          console.warn(`⚠️  Autonomy task rejected: ${validation.errors.join("; ")}`);
+          continue;
+        }
+
+        const normalizedTask = this.normalizeTask(task, this.autonomyConfig.sender);
+        const available = this.findIdleNPC(normalizedTask);
+
+        if (!available) {
+          const position = this.enqueueTask(normalizedTask);
+          console.log(
+            `📥 Autonomy queued task (${normalizedTask.action}) at position ${position}`
+          );
+          continue;
+        }
+
+        this.assignTask(available, normalizedTask);
+      }
+    } finally {
+      this.autonomyRunning = false;
+    }
   }
 
   unregisterNPC(id) {

@@ -71,7 +71,10 @@ export class NPCEngine {
       type,
       task: null,
       state: "idle",
-      position: { x: 0, y: 0, z: 0 }
+      position: { x: 0, y: 0, z: 0 },
+      inventoryState: null,
+      lastItemUsed: null,
+      loadout: null
     });
     console.log(`🤖 Registered NPC ${id} (${type})`);
   }
@@ -192,6 +195,15 @@ export class NPCEngine {
       case "request_tools":
         this.handleToolRequest(npc, event);
         break;
+      case "item_used":
+        this.handleItemUsed(npc, event);
+        break;
+      case "inventory_update":
+        this.handleInventoryUpdate(npc, event);
+        break;
+      case "loadout_update":
+        this.handleLoadoutUpdate(npc, event);
+        break;
       case "task_complete":
         this.completeTask(npc.id, event.success !== false);
         break;
@@ -247,6 +259,26 @@ export class NPCEngine {
     console.log(`🧰 NPC ${npc.id} requested tools: ${items}`);
   }
 
+  handleItemUsed(npc, event) {
+    npc.lastItemUsed = event;
+    const itemName = event.item?.item || event.item || "unknown item";
+    console.log(`🍎 NPC ${npc.id} used ${itemName} for ${event.purpose || "utility"}`);
+  }
+
+  handleInventoryUpdate(npc, event) {
+    npc.inventoryState = event.state || event;
+    if (event.summary) {
+      console.log(`📦 Inventory update for ${npc.id}: ${event.summary}`);
+    }
+  }
+
+  handleLoadoutUpdate(npc, event) {
+    npc.loadout = event.loadout || event;
+    if (event.status) {
+      console.log(`🛡️ Loadout update for ${npc.id}: ${event.status}`);
+    }
+  }
+
   pauseTask(npcId, reasonEvent) {
     const npc = this.npcs.get(npcId);
     if (!npc || npc.state === "paused") return;
@@ -288,6 +320,9 @@ export class NPCEngine {
     npc.pendingToolRequest = null;
     npc.activePlan = null;
     npc.reroute = null;
+    npc.lastItemUsed = null;
+    npc.inventoryState = null;
+    npc.loadout = null;
 
     if (success) {
       console.log(`✅ NPC ${npcId} completed task: ${completedTask?.action}`);

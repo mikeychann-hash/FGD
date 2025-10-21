@@ -9,6 +9,7 @@ const DEFAULT_DATA = {
   skills: {},
   dialogues: [],
   outcomes: [],
+  performance: {},
   metadata: {
     version: "1.0.0",
     created: null,
@@ -132,6 +133,43 @@ export class KnowledgeStore extends EventEmitter {
     return true;
   }
 
+  recordPerformance(npcName, taskType, snapshot = {}) {
+    if (!npcName || !taskType) {
+      console.warn("⚠️  Invalid performance update: missing npcName or taskType");
+      return null;
+    }
+
+    if (!this.data.performance[npcName]) {
+      this.data.performance[npcName] = {};
+    }
+
+    const existing = this.data.performance[npcName][taskType] || {
+      attempts: 0,
+      successes: 0,
+      failures: 0,
+      totalDuration: 0,
+      averageDuration: null,
+      totalOutput: 0,
+      averageEfficiency: null,
+      totalErrors: 0,
+      errorRate: 0,
+      successStreak: 0,
+      bestSuccessStreak: 0,
+      lastUpdated: null
+    };
+
+    const merged = {
+      ...existing,
+      ...snapshot,
+      lastUpdated: new Date().toISOString()
+    };
+
+    this.data.performance[npcName][taskType] = merged;
+    this.save();
+    this.emit("performance_recorded", { npc: npcName, task: taskType, data: merged });
+    return merged;
+  }
+
   pruneOutcomes() {
     const cutoff = Date.now() - OUTCOME_RETENTION_MS;
     const originalLength = this.data.outcomes.length;
@@ -168,6 +206,19 @@ export class KnowledgeStore extends EventEmitter {
 
   getSkills(npcName) {
     return npcName ? this.data.skills[npcName] : this.data.skills;
+  }
+
+  getPerformance(npcName = null, taskType = null) {
+    if (!npcName) {
+      return this.data.performance;
+    }
+
+    const npcPerformance = this.data.performance[npcName] || {};
+    if (!taskType) {
+      return npcPerformance;
+    }
+
+    return npcPerformance[taskType] || null;
   }
 
   getSuccessRate(npcName, taskType = null) {

@@ -55,12 +55,55 @@ function normalizeMockResponse(mock) {
   return null;
 }
 
+function buildNpcContextPayload(npcContext, statusSnapshot) {
+  if (!npcContext || Object.keys(npcContext).length === 0) {
+    return null;
+  }
+
+  const ordering = Array.isArray(statusSnapshot?.npcs)
+    ? statusSnapshot.npcs.map(npc => npc.id)
+    : Object.keys(npcContext);
+
+  const entries = [];
+  for (const id of ordering) {
+    if (!npcContext[id]) continue;
+    const entry = npcContext[id];
+    entries.push({
+      npc: id,
+      archetype: entry.archetype,
+      summary: entry.summary,
+      dominantTraits: entry.dominantTraits,
+      motivation: entry.motivation,
+      xp: entry.xp,
+      skillRatings: entry.skillRatings,
+      performance: entry.performance,
+      planner: entry.planner,
+      recentMemories: Array.isArray(entry.recentMemories)
+        ? entry.recentMemories.map(memory => ({
+            task: memory.task,
+            success: memory.success,
+            reward: memory.reward,
+            timestamp: memory.timestamp,
+            metrics: memory.metrics
+          }))
+        : []
+    });
+  }
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return { npc_context: entries };
+}
+
 export async function generateModelTasks({
   statusSnapshot,
   instructions = DEFAULT_AUTONOMY_PROMPT,
   maxTasks = 5,
   mockResponse = null,
-  temperature = 0.3
+  temperature = 0.3,
+  npcContext = null
 } = {}) {
   const normalizedMax = Math.min(Math.max(1, Math.trunc(maxTasks) || 1), 10);
   const useMock = mockResponse != null;
@@ -87,6 +130,17 @@ export async function generateModelTasks({
       content: JSON.stringify(statusSnapshot ?? {})
     }
   ];
+
+  const contextPayload = buildNpcContextPayload(npcContext, statusSnapshot);
+  if (contextPayload) {
+    autonomyMessages.push({
+      role: "user",
+      content: JSON.stringify({
+        message: "Personalized NPC learning context for planning.",
+        ...contextPayload
+      })
+    });
+  }
 
   let raw;
   if (useMock) {

@@ -8,6 +8,14 @@ const THRESHOLDS = {
   VERY_LOW: 0.2
 };
 
+const DEFAULT_BEHAVIOR_PROFILE = {
+  archetype: "balanced",
+  riskTolerance: 0.5,
+  speedMultiplier: 1,
+  efficiencyBias: 1,
+  cautionMultiplier: 1
+};
+
 export class Traits {
   generate() {
     return {
@@ -121,5 +129,131 @@ export class Traits {
     // Convert difference to similarity score
     const avgDiff = totalDiff / traits.length;
     return 1 - avgDiff;
+  }
+
+  classify(personality) {
+    if (!personality) return DEFAULT_BEHAVIOR_PROFILE.archetype;
+    const { patience, curiosity, aggression, empathy } = personality;
+
+    if (patience > THRESHOLDS.VERY_HIGH && aggression < THRESHOLDS.LOW) {
+      return "cautious";
+    }
+    if (curiosity > THRESHOLDS.VERY_HIGH) {
+      return "adventurous";
+    }
+    if (aggression > THRESHOLDS.HIGH) {
+      return "aggressive";
+    }
+    if (empathy > THRESHOLDS.VERY_HIGH) {
+      return "supportive";
+    }
+    return "balanced";
+  }
+
+  getBehaviorProfile(personality) {
+    if (!personality) {
+      return { ...DEFAULT_BEHAVIOR_PROFILE };
+    }
+
+    const archetype = this.classify(personality);
+    const riskToleranceBase = 0.4 + personality.curiosity * 0.3 - personality.patience * 0.2;
+    const aggressionBias = personality.aggression * 0.3;
+    const empathyBias = personality.empathy * 0.1;
+
+    const profile = {
+      archetype,
+      riskTolerance: Math.min(1, Math.max(0, riskToleranceBase + aggressionBias - empathyBias)),
+      speedMultiplier: 1,
+      efficiencyBias: 1 + personality.motivation * 0.15,
+      cautionMultiplier: 1
+    };
+
+    if (archetype === "cautious") {
+      profile.speedMultiplier *= 0.9;
+      profile.cautionMultiplier = 1.2;
+      profile.riskTolerance = Math.max(0.1, profile.riskTolerance - 0.2);
+    } else if (archetype === "adventurous") {
+      profile.speedMultiplier *= 1.1;
+      profile.riskTolerance = Math.min(1, profile.riskTolerance + 0.2);
+    } else if (archetype === "aggressive") {
+      profile.speedMultiplier *= 1.15;
+      profile.riskTolerance = Math.min(1, profile.riskTolerance + 0.25);
+      profile.efficiencyBias *= 0.95;
+    } else if (archetype === "supportive") {
+      profile.speedMultiplier *= 0.95;
+      profile.efficiencyBias *= 1.1;
+      profile.riskTolerance = Math.max(0.2, profile.riskTolerance - 0.1);
+    }
+
+    if (personality.patience > THRESHOLDS.HIGH) {
+      profile.efficiencyBias *= 1.05;
+    }
+
+    if (personality.creativity > THRESHOLDS.HIGH) {
+      profile.efficiencyBias *= 1.05;
+    }
+
+    return profile;
+  }
+
+  getTaskModifiers(personality, taskType) {
+    const behavior = this.getBehaviorProfile(personality);
+    const modifiers = {
+      speed: behavior.speedMultiplier,
+      riskTolerance: behavior.riskTolerance,
+      efficiency: behavior.efficiencyBias,
+      caution: behavior.cautionMultiplier
+    };
+
+    switch (taskType) {
+      case "mining": {
+        modifiers.speed *= personality.curiosity > THRESHOLDS.HIGH ? 1.05 : 1;
+        modifiers.caution *= personality.patience > THRESHOLDS.HIGH ? 1.1 : 1;
+        break;
+      }
+      case "building": {
+        modifiers.efficiency *= personality.creativity > THRESHOLDS.HIGH ? 1.1 : 1;
+        break;
+      }
+      case "gathering": {
+        modifiers.speed *= personality.motivation > THRESHOLDS.HIGH ? 1.05 : 1;
+        break;
+      }
+      case "exploring": {
+        modifiers.speed *= personality.curiosity > THRESHOLDS.HIGH ? 1.1 : 1;
+        modifiers.riskTolerance *= 1.05;
+        break;
+      }
+      case "guard": {
+        modifiers.riskTolerance *= 1 + personality.aggression * 0.5;
+        break;
+      }
+      default:
+        break;
+    }
+
+    return modifiers;
+  }
+
+  summarizeForPrompt(personality) {
+    if (!personality) {
+      return {
+        archetype: DEFAULT_BEHAVIOR_PROFILE.archetype,
+        summary: "neutral",
+        dominantTraits: []
+      };
+    }
+
+    const behavior = this.getBehaviorProfile(personality);
+    const detailed = this.getDetailedDescription(personality);
+    return {
+      archetype: behavior.archetype,
+      summary: this.describe(personality),
+      dominantTraits: detailed.traits,
+      behavior,
+      motivation: personality.motivation,
+      curiosity: personality.curiosity,
+      patience: personality.patience
+    };
   }
 }

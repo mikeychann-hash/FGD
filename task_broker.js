@@ -3,6 +3,7 @@
 
 import { CognitiveLink } from "./cognitive_link.js";
 import { validateTask } from "./task_schema.js";
+import { planTask } from "./tasks/index.js";
 import fs from "fs/promises";
 import fsSync from "fs";
 import EventEmitter from "events";
@@ -169,8 +170,14 @@ export class TaskBroker extends EventEmitter {
 
   async executeLocally(task) {
     console.log(`🏠 Executing locally: ${task.action}`);
-    this.emit("local_execution", task);
-    return { result: `Task "${task.action}" executed locally`, from: this.manifest.nodeName, local: true };
+    const plan = planTask(task);
+    this.emit("local_execution", { task, plan });
+
+    const result = plan
+      ? { summary: plan.summary, plan }
+      : { summary: `Task "${task.action}" executed locally` };
+
+    return { result, from: this.manifest.nodeName, local: true };
   }
 
   getStatus() {

@@ -6,6 +6,7 @@ import EventEmitter from "events";
 import { interpretCommand } from "./interpreter.js";
 import { generateModelTasks, DEFAULT_AUTONOMY_PROMPT_TEXT } from "./model_director.js";
 import { validateTask } from "./task_schema.js";
+import { planTask } from "./tasks/index.js";
 
 const TASK_TIMEOUT = 30000; // 30 seconds max per task
 const SIMULATED_TASK_DURATION = 3000;
@@ -384,16 +385,29 @@ export class NPCEngine extends EventEmitter {
   }
 
   dispatchTask(npc, task) {
+    const plan = planTask(task, { npc });
+
     if (!this.bridge) {
-      setTimeout(() => {
-        this.completeTask(npc.id, true);
-      }, SIMULATED_TASK_DURATION);
       this.emit("task_dispatched", {
         npcId: npc.id,
         task: cloneTask(task),
-        transport: "simulation"
+        transport: "simulation",
+        plan
       });
+
+      if (plan) {
+        this.emit("task_plan_generated", { npcId: npc.id, task: cloneTask(task), plan });
+        this.simulateTaskExecution(npc, task, plan);
+      } else {
+        setTimeout(() => {
+          this.completeTask(npc.id, true);
+        }, SIMULATED_TASK_DURATION);
+      }
       return;
+    }
+
+    if (plan) {
+      this.emit("task_plan_generated", { npcId: npc.id, task: cloneTask(task), plan });
     }
 
     this.bridge
@@ -406,7 +420,8 @@ export class NPCEngine extends EventEmitter {
           npcId: npc.id,
           task: cloneTask(task),
           transport: "bridge",
-          response
+          response,
+          plan
         });
         if (npc.awaitingFeedback) {
           return;
@@ -422,6 +437,43 @@ export class NPCEngine extends EventEmitter {
         });
         this.completeTask(npc.id, false);
       });
+  }
+
+  simulateTaskExecution(npc, task, plan = null) {
+    const executionPlan = plan || planTask(task, { npc });
+
+    if (!executionPlan || executionPlan.steps.length === 0) {
+      setTimeout(() => {
+        this.completeTask(npc.id, true);
+      }, SIMULATED_TASK_DURATION);
+      return;
+    }
+
+    const totalSteps = executionPlan.steps.length;
+    const totalDuration = Math.max(
+      executionPlan.estimatedDuration || SIMULATED_TASK_DURATION,
+      totalSteps * 750
+    );
+    const stepDuration = Math.max(500, Math.round(totalDuration / totalSteps));
+
+    executionPlan.steps.forEach((step, index) => {
+      setTimeout(() => {
+        npc.progress = Math.min(100, Math.round(((index + 1) / totalSteps) * 100));
+        npc.lastUpdate = Date.now();
+
+        this.emit("task_progress", {
+          npcId: npc.id,
+          task: cloneTask(task),
+          stepIndex: index,
+          step,
+          progress: npc.progress
+        });
+
+        if (index === totalSteps - 1) {
+          this.completeTask(npc.id, true, { plan: executionPlan });
+        }
+      }, stepDuration * (index + 1));
+    });
   }
 
   completeTask(npcId, success = true, metadata = null) {

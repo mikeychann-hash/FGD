@@ -1,6 +1,165 @@
 // tasks/helpers.js
 // Shared helper utilities for task planning modules
 
+let TASK_NODE_COUNTER = 0;
+
+function generateTaskNodeId(prefix = "task") {
+  const safePrefix = typeof prefix === "string" && prefix.trim().length > 0 ? prefix.trim() : "task";
+  TASK_NODE_COUNTER += 1;
+  return `${safePrefix}_${Date.now().toString(36)}_${TASK_NODE_COUNTER}`;
+}
+
+function cloneSerializable(value) {
+  if (value == null) {
+    return value;
+  }
+  if (typeof globalThis.structuredClone === "function") {
+    return globalThis.structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
+export class TaskGraph {
+  constructor() {
+    this.nodes = new Map();
+    this.rootId = null;
+  }
+
+  addNode(nodeInput) {
+    if (!nodeInput) {
+      throw new Error("Cannot add empty node to TaskGraph");
+    }
+    const node = {
+      id: nodeInput.id || generateTaskNodeId("graph"),
+      action: nodeInput.action || "generic",
+      summary: nodeInput.summary || nodeInput.title || nodeInput.action || "task",
+      metadata: nodeInput.metadata ? { ...nodeInput.metadata } : {},
+      requirements: Array.isArray(nodeInput.requirements) ? [...nodeInput.requirements] : [],
+      parents: new Set(Array.isArray(nodeInput.parents) ? nodeInput.parents : []),
+      children: new Set(Array.isArray(nodeInput.children) ? nodeInput.children : [])
+    };
+
+    this.nodes.set(node.id, node);
+    if (!this.rootId) {
+      this.rootId = node.id;
+    }
+    return node.id;
+  }
+
+  setRoot(nodeId) {
+    if (!this.nodes.has(nodeId)) {
+      throw new Error(`Unknown node "${nodeId}" cannot be set as root`);
+    }
+    this.rootId = nodeId;
+  }
+
+  addDependency(parentId, childId) {
+    if (!this.nodes.has(parentId)) {
+      throw new Error(`Unknown parent node "${parentId}"`);
+    }
+    if (!this.nodes.has(childId)) {
+      throw new Error(`Unknown child node "${childId}"`);
+    }
+    if (parentId === childId) {
+      return;
+    }
+    const parent = this.nodes.get(parentId);
+    const child = this.nodes.get(childId);
+    parent.children.add(childId);
+    child.parents.add(parentId);
+  }
+
+  getNode(nodeId) {
+    const node = this.nodes.get(nodeId);
+    if (!node) {
+      return null;
+    }
+    return {
+      id: node.id,
+      action: node.action,
+      summary: node.summary,
+      metadata: { ...node.metadata },
+      requirements: [...node.requirements],
+      parents: [...node.parents],
+      children: [...node.children]
+    };
+  }
+
+  toJSON() {
+    return {
+      rootId: this.rootId,
+      nodes: [...this.nodes.values()].map(node => ({
+        id: node.id,
+        action: node.action,
+        summary: node.summary,
+        metadata: { ...node.metadata },
+        requirements: [...node.requirements],
+        parents: [...node.parents],
+        children: [...node.children]
+      }))
+    };
+  }
+
+  static fromJSON(payload) {
+    const graph = new TaskGraph();
+    if (!payload || typeof payload !== "object" || !Array.isArray(payload.nodes)) {
+      return graph;
+    }
+    for (const node of payload.nodes) {
+      const nodeId = graph.addNode({
+        id: node.id,
+        action: node.action,
+        summary: node.summary,
+        metadata: node.metadata,
+        requirements: node.requirements,
+        parents: node.parents,
+        children: node.children
+      });
+      if (payload.rootId && payload.rootId === nodeId) {
+        graph.setRoot(nodeId);
+      }
+    }
+    if (payload.rootId && graph.nodes.has(payload.rootId)) {
+      graph.setRoot(payload.rootId);
+    }
+    return graph;
+  }
+
+  getReadyNodes(completed = new Set()) {
+    const ready = [];
+    for (const node of this.nodes.values()) {
+      if (completed.has(node.id)) {
+        continue;
+      }
+      const unmet = [...node.parents].some(parentId => !completed.has(parentId));
+      if (!unmet) {
+        ready.push(node.id);
+      }
+    }
+    return ready;
+  }
+}
+
+export function createTaskGraph() {
+  return new TaskGraph();
+}
+
+export function createTaskNode({
+  id = null,
+  action = "generic",
+  summary = "task",
+  metadata = {},
+  requirements = []
+} = {}) {
+  return {
+    id: id || generateTaskNodeId(action),
+    action,
+    summary,
+    metadata: { ...metadata },
+    requirements: Array.isArray(requirements) ? [...requirements] : []
+  };
+}
+
 function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -68,7 +227,9 @@ export function createPlan({
   estimatedDuration = 8000,
   resources = [],
   risks = [],
-  notes = []
+  notes = [],
+  taskGraph = null,
+  subTasks = []
 }) {
   return {
     action: task.action,
@@ -77,7 +238,9 @@ export function createPlan({
     resources,
     steps: Array.isArray(steps) ? steps : [],
     risks: Array.isArray(risks) ? risks : [],
-    notes: Array.isArray(notes) ? notes : []
+    notes: Array.isArray(notes) ? notes : [],
+    taskGraph: taskGraph instanceof TaskGraph ? taskGraph.toJSON() : taskGraph,
+    subTasks: Array.isArray(subTasks) ? cloneSerializable(subTasks) : []
   };
 }
 

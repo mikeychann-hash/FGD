@@ -7,6 +7,7 @@ import { interpretCommand } from "./interpreter.js";
 import { generateModelTasks, DEFAULT_AUTONOMY_PROMPT_TEXT } from "./model_director.js";
 import { validateTask } from "./task_schema.js";
 import { planTask } from "./tasks/index.js";
+import { KnowledgeStore } from "./knowledge_store.js";
 
 const TASK_TIMEOUT = 30000; // 30 seconds max per task
 const SIMULATED_TASK_DURATION = 3000;
@@ -26,6 +27,28 @@ const ACTION_ROLE_PREFERENCES = {
   interact: ["support", "builder", "worker"],
   combat: ["fighter", "guard"]
 };
+
+let TASK_ID_COUNTER = 0;
+
+function generateTaskId(prefix = "task") {
+  TASK_ID_COUNTER += 1;
+  const safePrefix = typeof prefix === "string" && prefix.trim().length > 0 ? prefix.trim() : "task";
+  return `${safePrefix}_${Date.now().toString(36)}_${TASK_ID_COUNTER}`;
+}
+
+function clonePlan(plan) {
+  if (!plan) {
+    return null;
+  }
+  if (typeof globalThis.structuredClone === "function") {
+    try {
+      return globalThis.structuredClone(plan);
+    } catch (err) {
+      // ignore and fall back to JSON
+    }
+  }
+  return JSON.parse(JSON.stringify(plan));
+}
 
 function normalizePriority(priority) {
   if (["low", "normal", "high"].includes(priority)) {
@@ -63,6 +86,9 @@ export class NPCEngine extends EventEmitter {
     this.autonomyConfig = null;
     this.autonomyTimer = null;
     this.autonomyRunning = false;
+    this.enablePersistence = options.enablePersistence !== false;
+    this.knowledgeStore = options.knowledgeStore || (this.enablePersistence ? new KnowledgeStore(options.persistencePath) : null);
+    this.persistenceRestored = false;
     this.bridgeHandlers = {
       npc_update: payload => this.handleBridgeUpdate(payload),
       task_feedback: payload => this.handleBridgeFeedback(payload),
@@ -71,6 +97,15 @@ export class NPCEngine extends EventEmitter {
 
     if (this.bridge) {
       this.attachBridgeListeners(this.bridge);
+    }
+
+    if (this.enablePersistence && this.knowledgeStore) {
+      const restore = () => this.restorePersistedState();
+      if (this.knowledgeStore.isLoaded) {
+        restore();
+      } else {
+        this.knowledgeStore.once("loaded", restore);
+      }
     }
   }
 
@@ -302,9 +337,14 @@ export class NPCEngine extends EventEmitter {
     const normalizedPriority = normalizePriority(task.priority);
     const createdAt = typeof task.createdAt === "number" ? task.createdAt : Date.now();
     const origin = task.sender || sender || "system";
-    const preferredNpcTypes = this.getPreferredNpcTypes(task);
+    const cloned = cloneTask(task);
+    const preferredNpcTypes = this.getPreferredNpcTypes(cloned);
+    const taskId = typeof cloned.id === "string" && cloned.id.trim().length > 0
+      ? cloned.id
+      : generateTaskId(cloned.action || "task");
     return {
-      ...cloneTask(task),
+      ...cloned,
+      id: taskId,
       priority: normalizedPriority,
       sender: origin,
       createdAt,
@@ -312,14 +352,20 @@ export class NPCEngine extends EventEmitter {
     };
   }
 
-  enqueueTask(task) {
+  enqueueTask(task, options = {}) {
+    const shouldPersist = options.persist !== false;
     const entry = {
       task: cloneTask(task),
-      enqueuedAt: Date.now()
+      enqueuedAt: options.enqueuedAt ?? Date.now(),
+      plan: options.plan ? clonePlan(options.plan) : null,
+      resumed: Boolean(options.resumed)
     };
 
     entry.task.priority = normalizePriority(entry.task.priority);
     entry.task.preferredNpcTypes = this.getPreferredNpcTypes(entry.task);
+    if (!entry.task.id) {
+      entry.task.id = generateTaskId(entry.task.action || "task");
+    }
 
     const priorityValue = PRIORITY_WEIGHT[task.priority] ?? PRIORITY_WEIGHT.normal;
     let insertIndex = this.taskQueue.findIndex(existing => {
@@ -339,17 +385,140 @@ export class NPCEngine extends EventEmitter {
       position: insertIndex + 1
     });
 
+    if (shouldPersist) {
+      this.persistQueueState();
+    }
+
     return insertIndex + 1;
+  }
+
+  persistQueueState() {
+    if (!this.enablePersistence || !this.knowledgeStore) {
+      return;
+    }
+    const snapshot = this.taskQueue.map(entry => ({
+      task: cloneTask(entry.task),
+      enqueuedAt: entry.enqueuedAt,
+      plan: entry.plan ? clonePlan(entry.plan) : null,
+      resumed: Boolean(entry.resumed)
+    }));
+    this.knowledgeStore.saveTaskQueue(snapshot);
+  }
+
+  trackActivePlan(npcId, task, plan, options = {}) {
+    if (!this.enablePersistence || !this.knowledgeStore || !task?.id) {
+      return;
+    }
+    const payload = {
+      npcId,
+      task: cloneTask(task),
+      plan: plan ? clonePlan(plan) : null,
+      progress: options.progress ?? 0,
+      resumed: Boolean(options.resumed),
+      enqueuedAt: options.enqueuedAt ?? Date.now(),
+      metadata: options.metadata ? { ...options.metadata } : {}
+    };
+    this.knowledgeStore.upsertActivePlan(payload);
+  }
+
+  updateActivePlanProgress(taskId, progress, metadata = {}) {
+    if (!this.enablePersistence || !this.knowledgeStore || !taskId) {
+      return;
+    }
+    this.knowledgeStore.updateActivePlan(taskId, {
+      progress,
+      metadata
+    });
+  }
+
+  clearActivePlan(taskId) {
+    if (!this.enablePersistence || !this.knowledgeStore || !taskId) {
+      return;
+    }
+    this.knowledgeStore.removeActivePlan(taskId);
+  }
+
+  restorePersistedState() {
+    if (!this.enablePersistence || !this.knowledgeStore || this.persistenceRestored) {
+      return;
+    }
+    this.persistenceRestored = true;
+
+    const snapshot = this.knowledgeStore.getPlanSnapshots?.();
+    if (!snapshot) {
+      return;
+    }
+
+    const restoredEntries = [];
+    const queueEntries = Array.isArray(snapshot.queue) ? snapshot.queue : [];
+    const activeEntries = Array.isArray(snapshot.active) ? snapshot.active : [];
+
+    for (const entry of queueEntries) {
+      if (!entry?.task) {
+        continue;
+      }
+      const taskClone = cloneTask(entry.task);
+      taskClone.id = typeof taskClone.id === "string" && taskClone.id.trim().length > 0
+        ? taskClone.id
+        : generateTaskId(taskClone.action || "task");
+      taskClone.priority = normalizePriority(taskClone.priority);
+      taskClone.preferredNpcTypes = this.getPreferredNpcTypes(taskClone);
+      restoredEntries.push({
+        task: taskClone,
+        enqueuedAt: entry.enqueuedAt || Date.now(),
+        plan: entry.plan ? clonePlan(entry.plan) : null,
+        resumed: Boolean(entry.resumed)
+      });
+    }
+
+    for (const entry of activeEntries) {
+      if (!entry?.task) {
+        continue;
+      }
+      const taskClone = cloneTask(entry.task);
+      taskClone.id = typeof taskClone.id === "string" && taskClone.id.trim().length > 0
+        ? taskClone.id
+        : generateTaskId(taskClone.action || "task");
+      taskClone.priority = normalizePriority(taskClone.priority);
+      taskClone.preferredNpcTypes = this.getPreferredNpcTypes(taskClone);
+      restoredEntries.push({
+        task: taskClone,
+        enqueuedAt: entry.enqueuedAt || Date.now(),
+        plan: entry.plan ? clonePlan(entry.plan) : null,
+        resumed: true
+      });
+    }
+
+    if (restoredEntries.length === 0) {
+      return;
+    }
+
+    this.taskQueue = restoredEntries;
+    this.taskQueue.sort((a, b) => {
+      const aPriority = PRIORITY_WEIGHT[a.task.priority] ?? PRIORITY_WEIGHT.normal;
+      const bPriority = PRIORITY_WEIGHT[b.task.priority] ?? PRIORITY_WEIGHT.normal;
+      return bPriority - aPriority;
+    });
+
+    console.log(`♻️  Restored ${this.taskQueue.length} task(s) from persistence.`);
+    this.persistQueueState();
+    if (typeof this.knowledgeStore.clearActivePlans === "function") {
+      this.knowledgeStore.clearActivePlans();
+    }
+    this.processQueue();
   }
 
   getIdleNPCs() {
     return [...this.npcs.values()].filter(n => n.state === "idle");
   }
 
-  assignTask(npc, task) {
+  assignTask(npc, task, providedPlan = null, options = {}) {
     const normalizedTask = cloneTask(task);
     normalizedTask.priority = normalizePriority(normalizedTask.priority);
     normalizedTask.preferredNpcTypes = this.getPreferredNpcTypes(normalizedTask);
+    if (!normalizedTask.id) {
+      normalizedTask.id = generateTaskId(normalizedTask.action || "task");
+    }
     npc.task = normalizedTask;
     npc.state = "working";
     npc.progress = 0;
@@ -359,6 +528,7 @@ export class NPCEngine extends EventEmitter {
         this.bridge &&
         this.bridge.options?.enableUpdateServer !== false
     );
+    npc.currentPlan = null;
     const preferenceNote =
       normalizedTask.preferredNpcTypes && normalizedTask.preferredNpcTypes.length > 0
         ? ` [preferred: ${normalizedTask.preferredNpcTypes.join(", ")}]`
@@ -379,13 +549,22 @@ export class NPCEngine extends EventEmitter {
 
     this.taskTimeouts.set(npc.id, safetyTimeout);
 
-    this.dispatchTask(npc, normalizedTask);
+    const plan = this.dispatchTask(npc, normalizedTask, providedPlan);
+    npc.currentPlan = plan || null;
+
+    if (this.enablePersistence && this.knowledgeStore) {
+      this.trackActivePlan(npc.id, normalizedTask, plan, {
+        resumed: Boolean(options.resumed),
+        enqueuedAt: options.enqueuedAt ?? Date.now()
+      });
+    }
 
     return npc;
   }
 
-  dispatchTask(npc, task) {
-    const plan = planTask(task, { npc });
+  dispatchTask(npc, task, providedPlan = null) {
+    const planContext = { npc, engine: this };
+    const plan = providedPlan ? clonePlan(providedPlan) : planTask(task, planContext);
 
     if (!this.bridge) {
       this.emit("task_dispatched", {
@@ -403,15 +582,20 @@ export class NPCEngine extends EventEmitter {
           this.completeTask(npc.id, true);
         }, SIMULATED_TASK_DURATION);
       }
-      return;
+      return plan;
     }
 
     if (plan) {
       this.emit("task_plan_generated", { npcId: npc.id, task: cloneTask(task), plan });
     }
 
+    const payload = { ...task, npcId: npc.id };
+    if (plan) {
+      payload.plan = clonePlan(plan);
+    }
+
     this.bridge
-      .dispatchTask({ ...task, npcId: npc.id })
+      .dispatchTask(payload)
       .then(response => {
         if (response) {
           console.log(`🧭 Bridge response for ${npc.id}:`, response);
@@ -437,6 +621,8 @@ export class NPCEngine extends EventEmitter {
         });
         this.completeTask(npc.id, false);
       });
+
+    return plan;
   }
 
   simulateTaskExecution(npc, task, plan = null) {
@@ -460,6 +646,14 @@ export class NPCEngine extends EventEmitter {
       setTimeout(() => {
         npc.progress = Math.min(100, Math.round(((index + 1) / totalSteps) * 100));
         npc.lastUpdate = Date.now();
+
+        if (task?.id) {
+          this.updateActivePlanProgress(task.id, npc.progress, {
+            source: "simulation",
+            stepIndex: index,
+            stepTitle: step.title
+          });
+        }
 
         this.emit("task_progress", {
           npcId: npc.id,
@@ -496,6 +690,11 @@ export class NPCEngine extends EventEmitter {
     npc.progress = 0;
     npc.lastUpdate = Date.now();
     npc.awaitingFeedback = false;
+    npc.currentPlan = null;
+
+    if (completedTask?.id) {
+      this.clearActivePlan(completedTask.id);
+    }
 
     if (success) {
       console.log(`✅ NPC ${npcId} completed task: ${completedTask?.action}`);
@@ -515,6 +714,7 @@ export class NPCEngine extends EventEmitter {
     });
 
     this.processQueue();
+    this.persistQueueState();
   }
 
   processQueue() {
@@ -540,11 +740,13 @@ export class NPCEngine extends EventEmitter {
         task: cloneTask(nextTask),
         remaining: this.taskQueue.length
       });
-      this.assignTask(npc, nextTask);
+      this.assignTask(npc, nextTask, nextEntry.plan, { resumed: Boolean(nextEntry.resumed) });
       if (this.taskQueue.length === 0) {
         break;
       }
     }
+
+    this.persistQueueState();
   }
 
   getStatus() {
@@ -657,6 +859,12 @@ export class NPCEngine extends EventEmitter {
     if (typeof progress === "number") {
       npc.progress = Math.max(0, Math.min(100, progress));
       npc.lastUpdate = Date.now();
+      if (npc.task?.id) {
+        this.updateActivePlanProgress(npc.task.id, npc.progress, {
+          source: "bridge_feedback",
+          message: feedback.message || null
+        });
+      }
     }
 
     if (typeof success === "boolean") {
@@ -681,6 +889,12 @@ export class NPCEngine extends EventEmitter {
     if (typeof progress === "number") {
       npc.progress = Math.max(0, Math.min(100, progress));
       npc.lastUpdate = Date.now();
+      if (npc.task?.id) {
+        this.updateActivePlanProgress(npc.task.id, npc.progress, {
+          source: "bridge_update",
+          status: update.status || null
+        });
+      }
     }
 
     if (status) {

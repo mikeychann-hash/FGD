@@ -9,7 +9,15 @@ const DEFAULT_STATE = {
   delegationBias: 0.4,
   cooldown: 10000,
   lastAdjustment: null,
-  adjustmentHistory: []
+  adjustmentHistory: [],
+  dynamicThresholds: {
+    CRITICAL: 0.95,
+    HIGH: 0.85,
+    MEDIUM: 0.7,
+    LOW: 0.5
+  },
+  recommendedScanInterval: null,
+  thresholdHistory: []
 };
 
 const BOUNDS = {
@@ -18,7 +26,7 @@ const BOUNDS = {
   cooldown: { min: 5000, max: 60000 }
 };
 
-const THRESHOLDS = {
+const BASE_THRESHOLDS = {
   CRITICAL: 0.95,
   HIGH: 0.85,
   MEDIUM: 0.70,
@@ -31,6 +39,9 @@ export class PolicyEngine {
     this.state = { ...DEFAULT_STATE };
     this.saveQueue = null;
     this.lastActionTime = new Map();
+    this.dynamicThresholds = { ...DEFAULT_STATE.dynamicThresholds };
+    this.recommendations = { scanInterval: null };
+    this.thresholdHistory = [];
     this.load();
   }
 
@@ -43,9 +54,20 @@ export class PolicyEngine {
       } else {
         console.log("📝 Starting with default policy state");
       }
+      this.dynamicThresholds = {
+        ...BASE_THRESHOLDS,
+        ...(this.state.dynamicThresholds || {})
+      };
+      this.recommendations.scanInterval = this.state.recommendedScanInterval || null;
+      this.thresholdHistory = Array.isArray(this.state.thresholdHistory)
+        ? this.state.thresholdHistory
+        : [];
     } catch (err) {
       console.error("❌ Error loading policy state:", err.message);
       this.state = { ...DEFAULT_STATE };
+      this.dynamicThresholds = { ...BASE_THRESHOLDS };
+      this.thresholdHistory = [];
+      this.recommendations = { scanInterval: null };
     }
   }
 
@@ -57,9 +79,25 @@ export class PolicyEngine {
 
     const actions = [];
     const now = Date.now();
+    const thresholds = this.getContextAwareThresholds(metrics?.context);
+    const predictedCpu = metrics?.predicted?.cpu ?? metrics.cpu;
+    const predictedMem = metrics?.predicted?.mem ?? metrics.mem;
+
+    let hasRebalance = actions.some(action => action.type === "rebalance_node");
+    if (!hasRebalance && predictedCpu >= thresholds.HIGH && (metrics.nodes || []).length > 0) {
+      actions.push({
+        type: "rebalance_node",
+        priority: predictedCpu >= thresholds.CRITICAL ? "high" : "medium",
+        description: "Forecasted CPU spike - preparing node rebalance",
+        payload: {
+          nodes: metrics.nodes
+        }
+      });
+      hasRebalance = true;
+    }
 
     // Critical CPU load
-    if (metrics.cpu >= THRESHOLDS.CRITICAL) {
+    if (metrics.cpu >= thresholds.CRITICAL) {
       actions.push({
         type: "adjust_policy",
         priority: "critical",
@@ -77,7 +115,7 @@ export class PolicyEngine {
       });
     }
     // High CPU load
-    else if (metrics.cpu >= THRESHOLDS.HIGH) {
+    else if (metrics.cpu >= thresholds.HIGH) {
       actions.push({
         type: "adjust_policy",
         priority: "high",
@@ -92,7 +130,7 @@ export class PolicyEngine {
     }
 
     // Critical memory usage
-    if (metrics.mem >= THRESHOLDS.CRITICAL) {
+    if (metrics.mem >= thresholds.CRITICAL || predictedMem >= thresholds.CRITICAL) {
       actions.push({
         type: "adjust_policy",
         priority: "critical",
@@ -106,7 +144,7 @@ export class PolicyEngine {
       });
     }
     // High memory usage
-    else if (metrics.mem >= THRESHOLDS.HIGH) {
+    else if (metrics.mem >= thresholds.HIGH || predictedMem >= thresholds.HIGH) {
       actions.push({
         type: "adjust_policy",
         priority: "high",
@@ -123,20 +161,32 @@ export class PolicyEngine {
     // Node rebalancing for distributed load
     if (metrics.nodes && metrics.nodes.length > 1) {
       const overloadedNodes = metrics.nodes.filter(
-        n => n.load > THRESHOLDS.HIGH
+        n => n.load > thresholds.HIGH
       );
-      if (overloadedNodes.length > 0) {
+      if (overloadedNodes.length > 0 && !hasRebalance) {
         actions.push({
           type: "rebalance_node",
           priority: "medium",
           description: `Rebalancing ${overloadedNodes.length} overloaded node(s)`,
           payload: { nodes: overloadedNodes }
         });
+        hasRebalance = true;
       }
     }
 
     // Filter out actions that are in cooldown
-    return actions.filter(action => this.canExecuteAction(action.type, now));
+    const executable = actions.filter(action => this.canExecuteAction(action.type, now));
+    if (executable.length === 0 && predictedCpu >= thresholds.CRITICAL) {
+      executable.push({
+        type: "scale_down",
+        priority: "high",
+        description: "Forecasted critical CPU load - scaling down non-critical tasks",
+        payload: { reason: "forecast" }
+      });
+    }
+
+    this.recordThresholdSnapshot();
+    return executable;
   }
 
   validateMetrics(metrics) {
@@ -148,6 +198,10 @@ export class PolicyEngine {
 
   clamp(value, bounds) {
     return Math.max(bounds.min, Math.min(bounds.max, value));
+  }
+
+  clampNormalized(value) {
+    return Math.max(0, Math.min(1, value));
   }
 
   canExecuteAction(actionType, now = Date.now()) {
@@ -210,7 +264,12 @@ export class PolicyEngine {
   }
 
   getState() {
-    return { ...this.state };
+    return {
+      ...this.state,
+      dynamicThresholds: { ...this.dynamicThresholds },
+      recommendedScanInterval: this.recommendations.scanInterval,
+      thresholdHistory: [...this.thresholdHistory]
+    };
   }
 
   async save() {
@@ -224,7 +283,16 @@ export class PolicyEngine {
         await fs.mkdir("./data", { recursive: true });
         await fs.writeFile(
           this.path,
-          JSON.stringify(this.state, null, 2),
+          JSON.stringify(
+            {
+              ...this.state,
+              dynamicThresholds: { ...this.dynamicThresholds },
+              recommendedScanInterval: this.recommendations.scanInterval,
+              thresholdHistory: this.thresholdHistory
+            },
+            null,
+            2
+          ),
           "utf-8"
         );
         console.log("💾 Policy state saved successfully");
@@ -237,7 +305,139 @@ export class PolicyEngine {
   reset() {
     this.state = { ...DEFAULT_STATE };
     this.lastActionTime.clear();
+    this.dynamicThresholds = { ...BASE_THRESHOLDS };
+    this.recommendations = { scanInterval: null };
+    this.thresholdHistory = [];
     this.save();
     console.log("🔄 Policy state reset to defaults");
+  }
+
+  ingestMetricsHistory(history, context = {}) {
+    if (!Array.isArray(history) || history.length < 2) return;
+
+    const window = history.slice(-Math.min(history.length, 20));
+    const cpuValues = window.map(sample => sample.cpu).filter(v => typeof v === "number");
+    const memValues = window.map(sample => sample.mem).filter(v => typeof v === "number");
+
+    if (cpuValues.length === 0 || memValues.length === 0) return;
+
+    const cpuAvg = cpuValues.reduce((sum, value) => sum + value, 0) / cpuValues.length;
+    const cpuMax = Math.max(...cpuValues);
+    const memMax = Math.max(...memValues);
+
+    const smoothing = 0.25;
+    const mediumTarget = this.clampNormalized(cpuAvg + 0.05);
+    const highTarget = this.clampNormalized(Math.max(mediumTarget + 0.05, Math.max(cpuAvg + 0.1, memMax)));
+    const criticalTarget = this.clampNormalized(Math.max(highTarget + 0.05, Math.max(cpuMax, memMax)));
+    const lowTarget = this.clampNormalized(Math.min(mediumTarget - 0.15, 0.55));
+
+    this.dynamicThresholds = {
+      CRITICAL: this.interpolate(this.dynamicThresholds.CRITICAL, criticalTarget, smoothing),
+      HIGH: this.interpolate(this.dynamicThresholds.HIGH, highTarget, smoothing),
+      MEDIUM: this.interpolate(this.dynamicThresholds.MEDIUM, mediumTarget, smoothing),
+      LOW: this.interpolate(this.dynamicThresholds.LOW, lowTarget, smoothing)
+    };
+
+    if (memMax > this.dynamicThresholds.CRITICAL) {
+      this.dynamicThresholds.CRITICAL = this.interpolate(
+        this.dynamicThresholds.CRITICAL,
+        this.clampNormalized(memMax),
+        smoothing
+      );
+    }
+
+    this.state.dynamicThresholds = { ...this.dynamicThresholds };
+
+    const activityBonus = context.minersActive ? 0.03 : 0;
+    const idlePenalty = (context.activeTaskCount || 0) === 0 ? -0.03 : 0;
+    const adjustment = activityBonus + idlePenalty;
+    if (adjustment !== 0) {
+      for (const key of Object.keys(this.dynamicThresholds)) {
+        this.dynamicThresholds[key] = this.clampNormalized(
+          this.dynamicThresholds[key] + adjustment * (key === "CRITICAL" ? 1 : key === "HIGH" ? 0.8 : key === "MEDIUM" ? 0.5 : 0.3)
+        );
+      }
+    }
+
+    this.dynamicThresholds.HIGH = Math.min(
+      this.dynamicThresholds.HIGH,
+      this.dynamicThresholds.CRITICAL - 0.02
+    );
+    this.dynamicThresholds.MEDIUM = Math.min(
+      this.dynamicThresholds.MEDIUM,
+      this.dynamicThresholds.HIGH - 0.05
+    );
+    this.dynamicThresholds.LOW = Math.min(
+      this.dynamicThresholds.LOW,
+      this.dynamicThresholds.MEDIUM - 0.1
+    );
+    this.dynamicThresholds.CRITICAL = Math.max(this.dynamicThresholds.CRITICAL, 0.8);
+    this.dynamicThresholds.HIGH = Math.max(this.dynamicThresholds.HIGH, 0.6);
+    this.dynamicThresholds.MEDIUM = Math.max(this.dynamicThresholds.MEDIUM, 0.45);
+    this.dynamicThresholds.LOW = Math.max(this.dynamicThresholds.LOW, 0.1);
+
+    this.state.dynamicThresholds = { ...this.dynamicThresholds };
+  }
+
+  ingestFusionStats(stats) {
+    if (!stats || typeof stats !== "object") return;
+
+    let recommended = this.recommendations.scanInterval || this.state.cooldown;
+    if (typeof stats.averageInterval === "number" && stats.averageInterval > 0) {
+      recommended = Math.max(4000, Math.min(45000, stats.averageInterval / 4));
+    } else if (typeof stats.mergesPerHour === "number") {
+      recommended = stats.mergesPerHour > 5 ? 6000 : 12000;
+    }
+
+    this.setRecommendedScanInterval(Math.round(recommended));
+  }
+
+  getContextAwareThresholds(context = {}) {
+    const thresholds = { ...this.dynamicThresholds };
+    const minersActive = Boolean(context.minersActive);
+    const activeTaskCount = context.activeTaskCount ?? 0;
+    const idle = activeTaskCount === 0 && !minersActive;
+
+    const modifier = minersActive ? 0.04 : idle ? -0.04 : 0;
+
+    if (modifier !== 0) {
+      thresholds.CRITICAL = this.clampNormalized(thresholds.CRITICAL + modifier);
+      thresholds.HIGH = this.clampNormalized(thresholds.HIGH + modifier * 0.8);
+      thresholds.MEDIUM = this.clampNormalized(thresholds.MEDIUM + modifier * 0.5);
+      thresholds.LOW = this.clampNormalized(thresholds.LOW + modifier * 0.3);
+    }
+
+    thresholds.HIGH = Math.min(thresholds.HIGH, thresholds.CRITICAL - 0.02);
+    thresholds.MEDIUM = Math.min(thresholds.MEDIUM, thresholds.HIGH - 0.05);
+    thresholds.LOW = Math.min(thresholds.LOW, thresholds.MEDIUM - 0.1);
+    thresholds.LOW = Math.max(thresholds.LOW, 0.1);
+
+    return thresholds;
+  }
+
+  interpolate(current, target, factor) {
+    return current + (target - current) * factor;
+  }
+
+  setRecommendedScanInterval(value) {
+    if (!value || Number.isNaN(value)) return;
+    this.recommendations.scanInterval = Math.max(3000, Math.min(60000, value));
+    this.state.recommendedScanInterval = this.recommendations.scanInterval;
+  }
+
+  getRecommendations() {
+    return { ...this.recommendations };
+  }
+
+  recordThresholdSnapshot() {
+    const snapshot = {
+      timestamp: new Date().toISOString(),
+      ...this.dynamicThresholds
+    };
+    this.thresholdHistory.push(snapshot);
+    if (this.thresholdHistory.length > 120) {
+      this.thresholdHistory = this.thresholdHistory.slice(-120);
+    }
+    this.state.thresholdHistory = this.thresholdHistory;
   }
 }

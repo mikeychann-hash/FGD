@@ -198,6 +198,149 @@ button:hover {
   box-shadow: 0 16px 28px -16px rgba(37, 99, 235, 0.9);
 }
 
+.overlay-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.overlay-header h2 {
+  margin: 0;
+}
+
+#autonomic-overlay {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.overlay-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.overlay-grid--wide {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.policy-summary ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.policy-summary li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  color: var(--text-secondary);
+  background: rgba(15, 23, 42, 0.6);
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(96, 165, 250, 0.1);
+}
+
+.policy-summary li strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.context-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.badge--accent {
+  background: rgba(96, 165, 250, 0.16);
+  color: var(--accent);
+  border-color: rgba(96, 165, 250, 0.32);
+}
+
+.badge--muted {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-secondary);
+}
+
+.policy-actions ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.policy-actions li {
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(96, 165, 250, 0.12);
+  background: rgba(15, 23, 42, 0.64);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.policy-actions li.success {
+  border-color: rgba(52, 211, 153, 0.3);
+}
+
+.policy-actions li.failure {
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.policy-actions li.empty {
+  text-align: center;
+  color: var(--text-secondary);
+  border-style: dashed;
+}
+
+.policy-actions .action-row {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.policy-actions .action-type {
+  color: var(--accent);
+}
+
+.policy-actions .action-priority {
+  color: var(--warning);
+}
+
+.policy-actions .action-meta {
+  display: flex;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.policy-actions .action-meta .error {
+  color: var(--danger);
+}
+
 #fusion-sidebar {
   position: sticky;
   top: 32px;

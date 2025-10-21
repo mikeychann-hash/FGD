@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_PATH = path.join(__dirname, "data", "fused_knowledge.json");
+const AUTONOMIC_PATH = path.join(__dirname, "data", "autonomic_snapshot.json");
 const DEFAULT_FUSION_DATA = {
   skills: {},
   dialogues: {},
@@ -16,6 +17,16 @@ const DEFAULT_FUSION_DATA = {
     mergeCount: 0,
     sources: []
   }
+};
+
+const DEFAULT_AUTONOMIC_DATA = {
+  timestamp: null,
+  metrics: null,
+  metricsHistory: [],
+  forecastHistory: [],
+  policyState: null,
+  recommendations: null,
+  actionLog: []
 };
 
 const app = express();
@@ -36,6 +47,18 @@ app.get("/data/fused_knowledge.json", async (req, res) => {
       console.warn("Unable to read fusion data", err);
     }
     res.json(DEFAULT_FUSION_DATA);
+  }
+});
+
+app.get("/data/autonomic_snapshot.json", async (req, res) => {
+  try {
+    const data = await fs.readFile(AUTONOMIC_PATH, "utf-8");
+    res.type("application/json").send(data);
+  } catch (err) {
+    if (err.code !== "ENOENT") {
+      console.warn("Unable to read autonomic snapshot", err);
+    }
+    res.json(DEFAULT_AUTONOMIC_DATA);
   }
 });
 

@@ -47,6 +47,34 @@
         <input type="range" id="cooldown" min="1000" max="30000" step="1000" value="10000">
         <button id="apply-policy">Apply Policy</button>
       </section>
+
+      <section id="autonomic-overlay" class="card">
+        <div class="overlay-header">
+          <h2>🛡️ Autonomic Governance Overlay</h2>
+          <p class="section-subtitle">Live predictive metrics, dynamic thresholds, and action telemetry from the autonomic core.</p>
+        </div>
+        <div class="overlay-grid">
+          <div>
+            <h3>CPU Forecast vs Actual</h3>
+            <canvas id="policyTrendChart"></canvas>
+          </div>
+          <div>
+            <h3>Adaptive Threshold Curves</h3>
+            <canvas id="thresholdChart"></canvas>
+          </div>
+        </div>
+        <div class="overlay-grid overlay-grid--wide">
+          <div class="policy-summary">
+            <h3>Policy Snapshot</h3>
+            <ul id="policy-summary-list"></ul>
+            <div class="context-badges" id="context-badges"></div>
+          </div>
+          <div class="policy-actions">
+            <h3>Recent Governance Actions</h3>
+            <ul id="policy-action-log"></ul>
+          </div>
+        </div>
+      </section>
     </main>
 
     <aside id="fusion-sidebar">

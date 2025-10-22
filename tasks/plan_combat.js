@@ -23,6 +23,22 @@ function formatDisplayName(name) {
     .join(" ");
 }
 
+function normalizeOptionalName(value) {
+  const normalized = normalizeItemName(value);
+  return normalized === "unspecified item" ? "" : normalized;
+}
+
+function formatList(values = []) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return "";
+  }
+  if (values.length === 1) {
+    return values[0];
+  }
+  const last = values[values.length - 1];
+  return `${values.slice(0, -1).join(", ")} and ${last}`;
+}
+
 const enemyProfiles = {
   "charged creeper": {
     priority: 1,
@@ -211,6 +227,64 @@ const enemyCountermeasures = {
   phantom: ["bow", "slow falling potion"]
 };
 
+const stanceProfiles = {
+  aggressive: {
+    name: "aggressive",
+    description: "Lead the charge and overwhelm targets with burst damage while keeping momentum.",
+    engagementDistance: "close-range pressure within 2-3 blocks",
+    weaponPreference: {
+      primary: "axe",
+      secondary: "shield",
+      extras: ["sword"]
+    },
+    squadAdvice: "Point leader rushes the highest priority threat while allies collapse from both flanks."
+  },
+  defensive: {
+    name: "defensive",
+    description: "Hold ground with shield blocks and controlled counterattacks to mitigate incoming damage.",
+    engagementDistance: "tight formation within 3-4 blocks of allies",
+    weaponPreference: {
+      primary: "sword",
+      secondary: "shield",
+      extras: ["totem of undying"]
+    },
+    squadAdvice: "Leader anchors the line; flankers focus on intercepting threats targeting the backline."
+  },
+  guard: {
+    name: "guard",
+    description: "Protect objectives by rotating between chokepoints and intercepting attackers before they breach.",
+    engagementDistance: "mid-range control between 4-5 blocks",
+    weaponPreference: {
+      primary: "sword",
+      secondary: "shield",
+      extras: ["crossbow"]
+    },
+    squadAdvice: "Leader calls rotations; one ally watches rear arcs while another provides cover fire."
+  },
+  ranged: {
+    name: "ranged",
+    description: "Keep distance and wear down enemies with arrows or crossbow bolts while kiting.",
+    engagementDistance: "standoff range at 6-10 blocks",
+    weaponPreference: {
+      primary: "bow",
+      secondary: "sword",
+      extras: ["crossbow"]
+    },
+    squadAdvice: "Leader tags targets; flankers push to create crossfire while support maintains cover fire."
+  },
+  stealth: {
+    name: "stealth",
+    description: "Approach unseen, strike from cover, then disengage before the enemy can respond.",
+    engagementDistance: "ambush range within 4 blocks from concealment",
+    weaponPreference: {
+      primary: "sword",
+      secondary: "bow",
+      extras: ["potion of invisibility"]
+    },
+    squadAdvice: "Leader signals synchronized strikes while allies cut off escape paths quietly."
+  }
+};
+
 const environmentProfiles = [
   {
     matches: env => env.includes("nether"),
@@ -244,8 +318,45 @@ export function planCombatTask(task, context = {}) {
   const backupPlan = normalizeItemName(task?.metadata?.fallback || "retreat to base");
   const tactic = normalizeItemName(task?.metadata?.tactic || "melee");
   const enemyCount = resolveQuantity(task?.metadata?.count ?? task?.metadata?.enemyCount, 1) || 1;
-  const support = normalizeItemName(task?.metadata?.support || "");
+  const support = normalizeOptionalName(task?.metadata?.support || "");
   const environment = normalizeItemName(task?.metadata?.environment || context?.environment || "overworld");
+  const timeOfDay = normalizeOptionalName(task?.metadata?.timeOfDay || context?.timeOfDay);
+  const weather = normalizeOptionalName(task?.metadata?.weather || context?.weather);
+  const stanceKey = normalizeOptionalName(
+    task?.metadata?.stance ||
+    context?.npc?.stance ||
+    context?.stance ||
+    (tactic.includes("ranged") ? "ranged" : "guard")
+  ) || "guard";
+  const stanceProfile = stanceProfiles[stanceKey] || stanceProfiles.guard;
+  const squadMembersRaw = Array.isArray(task?.metadata?.squadMembers)
+    ? task.metadata.squadMembers
+    : Array.isArray(task?.metadata?.squad)
+    ? task.metadata.squad
+    : Array.isArray(task?.metadata?.team)
+    ? task.metadata.team
+    : [];
+  const squadMembers = squadMembersRaw
+    .map(entry => {
+      if (!entry) {
+        return null;
+      }
+      if (typeof entry === "string") {
+        return entry;
+      }
+      if (typeof entry === "object") {
+        return entry.name || entry.label || entry.id || entry.role || null;
+      }
+      return null;
+    })
+    .filter(Boolean);
+  const squadDisplayNames = squadMembers.map(formatDisplayName);
+  const explicitLeaderName = task?.metadata?.squadLeader || task?.metadata?.leader;
+  const squadLeaderName = explicitLeaderName
+    ? formatDisplayName(explicitLeaderName)
+    : squadDisplayNames[0] || (support ? formatDisplayName(support) : "");
+  const flankers = squadDisplayNames.slice(1, 3);
+  const coverMembers = squadDisplayNames.slice(3);
   const additionalTargets = [];
 
   if (Array.isArray(task?.metadata?.enemyTypes)) {
@@ -337,11 +448,26 @@ export function planCombatTask(task, context = {}) {
     });
   }
 
-  const requiredEquipment = [
-    normalizeItemName(task?.metadata?.primaryWeapon || (tactic.includes("ranged") ? "bow" : "sword")),
-    normalizeItemName(task?.metadata?.secondaryWeapon || (tactic.includes("shield") ? "shield" : "")),
-    "armor"
-  ].filter(Boolean);
+  const stanceWeaponPreference = stanceProfile?.weaponPreference || {};
+  const stanceExtras = Array.isArray(stanceWeaponPreference.extras)
+    ? stanceWeaponPreference.extras.map(normalizeOptionalName).filter(Boolean)
+    : [];
+
+  const primaryWeapon = normalizeOptionalName(
+    task?.metadata?.primaryWeapon ||
+      stanceWeaponPreference.primary ||
+      (tactic.includes("ranged") ? "bow" : "sword")
+  );
+  const secondaryWeapon = normalizeOptionalName(
+    task?.metadata?.secondaryWeapon ||
+      stanceWeaponPreference.secondary ||
+      (tactic.includes("shield") ? "shield" : "")
+  );
+
+  const requiredEquipment = [primaryWeapon, secondaryWeapon, "armor", ...stanceExtras].filter(Boolean);
+  const stanceWeaponsDisplay = [primaryWeapon, secondaryWeapon, ...stanceExtras]
+    .filter(Boolean)
+    .map(formatDisplayName);
 
   const potions = Array.isArray(task?.metadata?.potions)
     ? task.metadata.potions.map(normalizeItemName)
@@ -446,6 +572,38 @@ export function planCombatTask(task, context = {}) {
     );
   }
 
+  if (stanceProfile?.description) {
+    const stanceDescriptionParts = [
+      `${formatDisplayName(stanceProfile.name)} stance: ${stanceProfile.description}`
+    ];
+    if (stanceProfile.engagementDistance) {
+      stanceDescriptionParts.push(`Maintain ${stanceProfile.engagementDistance}.`);
+    }
+    if (stanceWeaponsDisplay.length > 0) {
+      stanceDescriptionParts.push(`Favor ${formatList(stanceWeaponsDisplay)} for primary damage.`);
+    }
+    if (stanceProfile.squadAdvice) {
+      stanceDescriptionParts.push(stanceProfile.squadAdvice);
+    }
+
+    steps.push(
+      createStep({
+        title: "Adopt stance",
+        type: "strategy",
+        description: stanceDescriptionParts.join(" "),
+        metadata: {
+          stance: stanceProfile.name,
+          engagementDistance: stanceProfile.engagementDistance,
+          preferredWeapons: {
+            primary: primaryWeapon,
+            secondary: secondaryWeapon,
+            extras: stanceExtras
+          }
+        }
+      })
+    );
+  }
+
   const engageDescriptionParts = [
     `Engage ${target} near ${targetDescription} using ${tactic} tactics while maintaining spacing to avoid damage.`
   ];
@@ -455,6 +613,73 @@ export function planCombatTask(task, context = {}) {
       `Eliminate threats following the priority order: ${prioritizedEnemies
         .map(detail => detail.displayName)
         .join(", ")}.`
+    );
+  }
+
+  if (stanceProfile?.engagementDistance) {
+    engageDescriptionParts.push(`Maintain ${stanceProfile.engagementDistance} as part of the ${formatDisplayName(stanceProfile.name)} stance.`);
+  }
+  if (stanceWeaponsDisplay.length > 0) {
+    engageDescriptionParts.push(`Keep ${formatList(stanceWeaponsDisplay)} ready for focus targets.`);
+  }
+
+  const conditionAdvice = [];
+  if (timeOfDay === "night") {
+    conditionAdvice.push("Night visibility is low—carry torches and leverage shields against surprise hits.");
+  }
+  if (timeOfDay === "night" && enemyTypes.includes("skeleton")) {
+    conditionAdvice.push("Avoid trading open-field shots with skeletons at night; pull them into cover or wait for dawn.");
+  }
+  if (timeOfDay === "day" && enemyTypes.includes("zombie")) {
+    conditionAdvice.push("Use daylight to weaken zombies in exposed areas when possible.");
+  }
+  if (weather.includes("storm") || weather.includes("thunder")) {
+    conditionAdvice.push("Thunderstorms spawn extra mobs and can trigger charged creepers—limit time in open terrain.");
+  }
+  if (weather.includes("rain") && enemyTypes.includes("blaze")) {
+    conditionAdvice.push("Rain hampers blaze fireballs—fight them outdoors to capitalize on the weather.");
+  }
+
+  if (conditionAdvice.length > 0) {
+    steps.push(
+      createStep({
+        title: "Adapt to conditions",
+        type: "awareness",
+        description: conditionAdvice.join(" "),
+        metadata: { timeOfDay, weather }
+      })
+    );
+  }
+
+  if (squadLeaderName || squadDisplayNames.length > 0) {
+    const squadDescriptionParts = [];
+    if (squadLeaderName) {
+      squadDescriptionParts.push(`Designate ${squadLeaderName} as squad lead to call focus targets.`);
+    }
+    if (flankers.length > 0) {
+      squadDescriptionParts.push(`${formatList(flankers)} flank to collapse hostile attention.`);
+    }
+    if (coverMembers.length > 0) {
+      squadDescriptionParts.push(`${formatList(coverMembers)} provide overwatch and cover fire.`);
+    }
+    if (!stanceProfile.squadAdvice && squadDescriptionParts.length === 0) {
+      squadDescriptionParts.push("Coordinate roles to maintain pressure on the primary target.");
+    }
+    squadDescriptionParts.push("Sync callouts using Collab Engine tactics for focus fire and retreats.");
+
+    steps.push(
+      createStep({
+        title: "Coordinate squad",
+        type: "coordination",
+        description: squadDescriptionParts.join(" "),
+        metadata: {
+          leader: squadLeaderName,
+          flankers,
+          cover: coverMembers,
+          squad: squadDisplayNames,
+          stance: stanceProfile.name
+        }
+      })
     );
   }
 
@@ -488,13 +713,14 @@ export function planCombatTask(task, context = {}) {
     })
   );
 
-  if (support && support !== "unspecified item") {
+  if (support) {
+    const supportDisplay = formatDisplayName(support);
     steps.push(
       createStep({
         title: "Coordinate support",
         type: "communication",
-        description: `Coordinate with ${support} for focus fire or healing as needed.`,
-        metadata: { support }
+        description: `Coordinate with ${supportDisplay} for focus fire or healing as needed.`,
+        metadata: { support: supportDisplay }
       })
     );
   }
@@ -540,6 +766,20 @@ export function planCombatTask(task, context = {}) {
   if (environment.includes("nether")) {
     risks.push("Fire and lava hazards require resistance.");
   }
+  if (timeOfDay === "night") {
+    risks.push("Nighttime reduces visibility and increases hostile spawn rates.");
+  }
+  if (weather.includes("storm") || weather.includes("thunder")) {
+    risks.push("Thunderstorms may summon charged creepers and lightning strikes.");
+  } else if (weather.includes("rain")) {
+    risks.push("Rain reduces visibility and can slow movement on uneven terrain.");
+  }
+  if (stanceKey === "aggressive") {
+    risks.push("Aggressive stance exposes the leader to burst damage if support lags.");
+  }
+  if (stanceKey === "stealth") {
+    risks.push("Breaking stealth early will forfeit the ambush advantage.");
+  }
   if (missingCounterItems.length > 0) {
     risks.push("Missing specialized countermeasures leaves you vulnerable to unique enemy abilities.");
   }
@@ -567,6 +807,34 @@ export function planCombatTask(task, context = {}) {
     const battlefieldNote = `Battlefield control guidance: ${environmentProfile.description}`;
     if (!notes.includes(battlefieldNote)) {
       notes.push(battlefieldNote);
+    }
+  }
+  if (timeOfDay) {
+    const timeNote = `Time of day: ${formatDisplayName(timeOfDay)}.`;
+    if (!notes.includes(timeNote)) {
+      notes.push(timeNote);
+    }
+  }
+  if (weather) {
+    const weatherNote = `Weather: ${formatDisplayName(weather)}.`;
+    if (!notes.includes(weatherNote)) {
+      notes.push(weatherNote);
+    }
+  }
+  if (squadDisplayNames.length > 0) {
+    const squadNoteParts = [];
+    if (squadLeaderName) {
+      squadNoteParts.push(`Lead: ${squadLeaderName}`);
+    }
+    if (flankers.length > 0) {
+      squadNoteParts.push(`Flankers: ${formatList(flankers)}`);
+    }
+    if (coverMembers.length > 0) {
+      squadNoteParts.push(`Cover: ${formatList(coverMembers)}`);
+    }
+    const squadNote = `Squad roles (${formatDisplayName(stanceProfile.name)} stance): ${squadNoteParts.join("; ")}.`;
+    if (!notes.includes(squadNote)) {
+      notes.push(squadNote);
     }
   }
 

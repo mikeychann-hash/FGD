@@ -31,6 +31,7 @@ export class MinecraftBridge extends EventEmitter {
     this.client = null;
     this.connected = false;
     this.updateServer = null;
+    this.combatState = new Map();
 
     if (this.options.connectOnCreate) {
       this.connect().catch(err => {
@@ -85,7 +86,9 @@ export class MinecraftBridge extends EventEmitter {
 
   async sendCommand(command) {
     await this.ensureConnected();
-    return this.client.send(command);
+    const response = await this.client.send(command);
+    this.processRconFeedback(response);
+    return response;
   }
 
   async sendRawCommand(command) {
@@ -115,6 +118,12 @@ export class MinecraftBridge extends EventEmitter {
 
     if (parsedResponse && typeof parsedResponse === "object") {
       this.emit("task_feedback", parsedResponse);
+      const feedbackCandidate =
+        parsedResponse.feedback ||
+        parsedResponse.message ||
+        parsedResponse.log ||
+        parsedResponse.output;
+      this.processRconFeedback(feedbackCandidate);
     }
 
     return response;
@@ -140,6 +149,202 @@ export class MinecraftBridge extends EventEmitter {
     return response;
   }
 
+  processRconFeedback(feedback) {
+    if (!feedback) {
+      return;
+    }
+
+    let text = "";
+    if (Array.isArray(feedback)) {
+      text = feedback.join("\n");
+    } else if (typeof feedback === "string") {
+      text = feedback;
+    } else if (typeof feedback === "object") {
+      const nested = feedback.feedback || feedback.message || feedback.log || feedback.output;
+      if (typeof nested === "string") {
+        text = nested;
+      }
+    }
+
+    if (!text || typeof text !== "string" || text.trim().length === 0) {
+      return;
+    }
+
+    const events = this.parseCombatFeedback(text);
+    if (events.length === 0) {
+      return;
+    }
+
+    events.forEach(event => this.handleCombatEvent(event));
+    this.emit("combat_events", events);
+  }
+
+  parseCombatFeedback(text) {
+    if (typeof text !== "string") {
+      return [];
+    }
+
+    const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const events = [];
+
+    lines.forEach(line => {
+      let match = line.match(/([A-Za-z0-9_:-]+)\s+(?:hit|struck|shot)\s+([A-Za-z0-9_:-]+)\s+for\s+([0-9.]+)\s+damage(?:.*?health\s*(?:is\s*now|:)?\s*([0-9.]+)(?:\/([0-9.]+))?)?/i);
+      if (match) {
+        events.push({
+          type: "attack",
+          source: match[1],
+          target: match[2],
+          damage: Number.parseFloat(match[3]),
+          health: match[4] ? Number.parseFloat(match[4]) : null,
+          maxHealth: match[5] ? Number.parseFloat(match[5]) : null,
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+took\s+([0-9.]+)\s+damage(?:.*?health\s*(?:is\s*now|:)?\s*([0-9.]+)(?:\/([0-9.]+))?)?/i);
+      if (match) {
+        events.push({
+          type: "damage",
+          target: match[1],
+          damage: Number.parseFloat(match[2]),
+          health: match[3] ? Number.parseFloat(match[3]) : null,
+          maxHealth: match[4] ? Number.parseFloat(match[4]) : null,
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+(?:hp|health)\s*(?:is|:|now)\s*([0-9.]+)(?:\/([0-9.]+))?/i);
+      if (match) {
+        events.push({
+          type: "health",
+          target: match[1],
+          health: Number.parseFloat(match[2]),
+          maxHealth: match[3] ? Number.parseFloat(match[3]) : null,
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+defeated\s+([A-Za-z0-9_:-]+)/i);
+      if (match) {
+        events.push({
+          type: "defeated",
+          source: match[1],
+          target: match[2],
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+was\s+(?:slain|killed|defeated)(?:\s+by\s+([A-Za-z0-9_:-]+))?/i);
+      if (match) {
+        events.push({
+          type: "defeated",
+          target: match[1],
+          source: match[2] || null,
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+recovered\s+([0-9.]+)\s+health/i);
+      if (match) {
+        events.push({
+          type: "heal",
+          target: match[1],
+          amount: Number.parseFloat(match[2]),
+          raw: line
+        });
+        return;
+      }
+    });
+
+    return events;
+  }
+
+  handleCombatEvent(event) {
+    if (!event) {
+      return;
+    }
+
+    const now = Date.now();
+    const { source, target, health, maxHealth, damage } = event;
+
+    if (target) {
+      const targetUpdates = {};
+      if (Number.isFinite(health)) {
+        targetUpdates.health = health;
+      } else if (Number.isFinite(damage)) {
+        const previous = this.combatState.get(target);
+        if (previous && Number.isFinite(previous.health)) {
+          targetUpdates.health = Math.max(previous.health - damage, 0);
+        }
+      }
+      if (Number.isFinite(maxHealth)) {
+        targetUpdates.maxHealth = maxHealth;
+      }
+      if (event.type === "defeated") {
+        targetUpdates.status = "defeated";
+        targetUpdates.health = 0;
+      }
+      if (event.type === "heal") {
+        const previous = this.combatState.get(target);
+        const currentHealth = previous && Number.isFinite(previous.health) ? previous.health : 0;
+        const max = previous && Number.isFinite(previous.maxHealth) ? previous.maxHealth : undefined;
+        const healed = currentHealth + (event.amount || 0);
+        targetUpdates.health = Number.isFinite(max) ? Math.min(healed, max) : healed;
+      }
+      if (!targetUpdates.status) {
+        targetUpdates.status = targetUpdates.health === 0 ? "down" : "active";
+      }
+      if (Number.isFinite(damage)) {
+        targetUpdates.lastDamage = { amount: damage, source, at: now };
+      }
+      targetUpdates.lastEvent = { type: event.type, raw: event.raw, source, at: now };
+      this.updateCombatant(target, targetUpdates);
+    }
+
+    if (source) {
+      this.updateCombatant(source, {
+        lastAction: { type: event.type, target, at: now },
+        status: event.type === "defeated" && target === source ? "defeated" : undefined
+      });
+    }
+
+    this.emit("combat_event", event);
+  }
+
+  updateCombatant(entityId, updates = {}) {
+    if (!entityId || !updates || typeof updates !== "object") {
+      return;
+    }
+
+    const sanitizedEntries = Object.entries(updates).filter(([, value]) => value !== undefined);
+    if (sanitizedEntries.length === 0) {
+      return;
+    }
+
+    const sanitizedUpdates = Object.fromEntries(sanitizedEntries);
+    const previous = this.combatState.get(entityId) || {};
+    const next = {
+      ...previous,
+      ...sanitizedUpdates,
+      lastUpdated: Date.now()
+    };
+    this.combatState.set(entityId, next);
+    this.emit("combat_update", { entityId, state: next, updates: sanitizedUpdates });
+  }
+
+  getCombatState(entityId) {
+    return entityId ? this.combatState.get(entityId) || null : null;
+  }
+
+  getCombatSnapshot() {
+    return Object.fromEntries(this.combatState.entries());
+  }
+
   async startUpdateServer(port = this.options.updatePort) {
     if (this.updateServer) return this.updateServer;
 
@@ -153,6 +358,9 @@ export class MinecraftBridge extends EventEmitter {
         return;
       }
       this.emit("npc_update", payload);
+      if (payload.rconFeedback || payload.combatLog) {
+        this.processRconFeedback(payload.rconFeedback || payload.combatLog);
+      }
       res.json({ status: "ok" });
     });
 

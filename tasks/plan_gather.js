@@ -827,6 +827,546 @@ function generateSafetyRecommendations(hazards) {
 }
 
 /* =====================================================
+ * GATHERING STRATEGIES SYSTEM
+ * Optimization patterns for different resource types
+ * ===================================================== */
+
+const GATHERING_STRATEGIES = {
+  // Mining strategies
+  strip_mining: {
+    type: "mining",
+    pattern: "linear",
+    efficiency: 0.85,
+    coverage: "high",
+    description: "Mine long tunnels at optimal Y-level with spacing",
+    bestFor: ["diamond_ore", "gold_ore", "iron_ore"],
+    spacing: 3,
+    branchLength: 50,
+    timeMultiplier: 1.0
+  },
+  branch_mining: {
+    type: "mining",
+    pattern: "branching",
+    efficiency: 0.90,
+    coverage: "very_high",
+    description: "Main tunnel with perpendicular branches for maximum coverage",
+    bestFor: ["diamond_ore", "ancient_debris"],
+    spacing: 2,
+    branchLength: 30,
+    timeMultiplier: 1.1
+  },
+  cave_exploration: {
+    type: "mining",
+    pattern: "organic",
+    efficiency: 0.70,
+    coverage: "variable",
+    description: "Explore natural caves and exposed ore veins",
+    bestFor: ["coal_ore", "iron_ore", "copper_ore"],
+    timeMultiplier: 0.8
+  },
+  quarry: {
+    type: "mining",
+    pattern: "layer_removal",
+    efficiency: 1.0,
+    coverage: "complete",
+    description: "Remove entire layers systematically",
+    bestFor: ["stone", "cobblestone", "andesite"],
+    timeMultiplier: 1.3
+  },
+
+  // Crop strategies
+  row_by_row: {
+    type: "crop",
+    pattern: "linear",
+    efficiency: 0.95,
+    coverage: "complete",
+    description: "Harvest crops in systematic rows",
+    bestFor: ["wheat", "carrots", "potatoes", "beetroots"],
+    timeMultiplier: 1.0
+  },
+  spiral_harvest: {
+    type: "crop",
+    pattern: "spiral",
+    efficiency: 0.88,
+    coverage: "complete",
+    description: "Harvest in spiral pattern from edge to center",
+    bestFor: ["wheat", "carrots", "potatoes"],
+    timeMultiplier: 1.05
+  },
+
+  // Tree strategies
+  selective_logging: {
+    type: "wood",
+    pattern: "selective",
+    efficiency: 0.75,
+    coverage: "partial",
+    description: "Harvest mature trees while preserving forest structure",
+    bestFor: ["oak_log", "birch_log"],
+    timeMultiplier: 0.9,
+    sustainability: "high"
+  },
+  clear_cutting: {
+    type: "wood",
+    pattern: "area_clear",
+    efficiency: 0.95,
+    coverage: "complete",
+    description: "Remove all trees in designated area",
+    bestFor: ["oak_log", "birch_log", "spruce_log"],
+    timeMultiplier: 1.0,
+    sustainability: "low"
+  },
+  tree_farm_rotation: {
+    type: "wood",
+    pattern: "rotation",
+    efficiency: 1.0,
+    coverage: "complete",
+    description: "Harvest planted trees in rotation for consistent yields",
+    bestFor: ["oak_log", "birch_log", "spruce_log"],
+    timeMultiplier: 0.85,
+    sustainability: "very_high"
+  }
+};
+
+/**
+ * Select optimal gathering strategy for resource and context
+ */
+function selectGatheringStrategy(resourceProfile, environmentalContext, quantity) {
+  const resourceType = resourceProfile.type;
+
+  // Filter strategies by resource type
+  const applicableStrategies = Object.entries(GATHERING_STRATEGIES)
+    .filter(([_, strategy]) => strategy.type === resourceType)
+    .map(([name, strategy]) => ({ name, ...strategy }));
+
+  if (applicableStrategies.length === 0) {
+    return null;
+  }
+
+  // Score strategies based on context
+  const scoredStrategies = applicableStrategies.map(strategy => {
+    let score = strategy.efficiency * 100;
+
+    // Prefer strategies best for this specific resource
+    if (strategy.bestFor?.includes(resourceProfile.name)) {
+      score += 20;
+    }
+
+    // Consider quantity
+    if (quantity) {
+      if (quantity > 64 && strategy.coverage === "complete") score += 10;
+      if (quantity < 32 && strategy.coverage === "partial") score += 10;
+    }
+
+    // Environmental considerations
+    if (environmentalContext.biome === "forest" && strategy.sustainability === "high") {
+      score += 15;
+    }
+
+    // Time efficiency for hazardous environments
+    if (environmentalContext.yLevelInfo?.category === "deep" && strategy.efficiency > 0.9) {
+      score += 10;
+    }
+
+    return { ...strategy, score };
+  });
+
+  // Return highest scoring strategy
+  scoredStrategies.sort((a, b) => b.score - a.score);
+  return scoredStrategies[0];
+}
+
+/**
+ * Generate strategy-specific recommendations
+ */
+function generateStrategyRecommendations(strategy, resourceProfile, quantity) {
+  if (!strategy) return [];
+
+  const recommendations = [];
+
+  // Pattern-specific advice
+  if (strategy.pattern === "branching" && strategy.spacing) {
+    recommendations.push(`Maintain ${strategy.spacing}-block spacing between branches for optimal coverage.`);
+  }
+
+  if (strategy.pattern === "linear" && strategy.branchLength) {
+    recommendations.push(`Create branches of ${strategy.branchLength} blocks for efficiency.`);
+  }
+
+  if (strategy.pattern === "rotation" && resourceProfile.replantable) {
+    recommendations.push(`Replant immediately after harvest to maintain rotation cycle.`);
+  }
+
+  if (strategy.sustainability === "low" && resourceProfile.replantable) {
+    recommendations.push(`Ensure replanting to maintain resource availability.`);
+  }
+
+  // Quantity-based advice
+  if (quantity > 64 && strategy.coverage !== "complete") {
+    recommendations.push(`Large quantity requested - consider switching to ${strategy.pattern} coverage strategy.`);
+  }
+
+  return recommendations;
+}
+
+/* =====================================================
+ * INVENTORY MANAGEMENT SYSTEM
+ * Smart storage and capacity planning
+ * ===================================================== */
+
+const INVENTORY_SLOTS = {
+  player: 36,      // Main inventory
+  hotbar: 9,       // Quick access (subset of main)
+  shulker_box: 27, // Portable storage
+  ender_chest: 27  // Shared storage across world
+};
+
+const STACK_SIZES = {
+  // Tools and weapons (non-stackable)
+  tool: 1,
+  weapon: 1,
+  armor: 1,
+
+  // Standard stackables
+  block: 64,
+  item: 64,
+  food: 64,
+
+  // Special stack sizes
+  ender_pearl: 16,
+  snowball: 16,
+  egg: 16,
+  bucket: 16,
+  sign: 16,
+
+  // Non-stackables
+  potion: 1,
+  banner: 16
+};
+
+/**
+ * Get stack size for an item
+ */
+function getStackSize(itemName) {
+  const normalized = normalizeItemName(itemName);
+
+  // Check if it's a tool
+  if (normalized.includes("pickaxe") || normalized.includes("axe") ||
+      normalized.includes("shovel") || normalized.includes("hoe") ||
+      normalized.includes("sword")) {
+    return STACK_SIZES.tool;
+  }
+
+  // Check if it's armor
+  if (normalized.includes("helmet") || normalized.includes("chestplate") ||
+      normalized.includes("leggings") || normalized.includes("boots")) {
+    return STACK_SIZES.armor;
+  }
+
+  // Check special items
+  if (STACK_SIZES[normalized]) {
+    return STACK_SIZES[normalized];
+  }
+
+  // Default to standard stack
+  return STACK_SIZES.block;
+}
+
+/**
+ * Calculate inventory space requirements
+ */
+function calculateInventoryRequirements(params, inventoryCheck) {
+  const { resource, quantity, replantItem, processing, supplies, tool, backupTools } = params;
+  const { replantQuantity } = inventoryCheck;
+
+  const requirements = {
+    totalSlotsNeeded: 0,
+    breakdown: {},
+    warnings: [],
+    recommendations: []
+  };
+
+  // Tools (always 1 slot each)
+  const toolSlots = 1 + (backupTools?.length || 0);
+  requirements.breakdown.tools = toolSlots;
+  requirements.totalSlotsNeeded += toolSlots;
+
+  // Gathered resources
+  if (quantity) {
+    const resourceStackSize = getStackSize(resource);
+    const resourceSlots = Math.ceil(quantity / resourceStackSize);
+    requirements.breakdown.gathered = resourceSlots;
+    requirements.totalSlotsNeeded += resourceSlots;
+  }
+
+  // Replanting supplies
+  if (replantItem && replantQuantity) {
+    const seedStackSize = getStackSize(replantItem);
+    const seedSlots = Math.ceil(replantQuantity / seedStackSize);
+    requirements.breakdown.replanting = seedSlots;
+    requirements.totalSlotsNeeded += seedSlots;
+  }
+
+  // Processing outputs
+  if (processing && processing.length > 0 && quantity) {
+    // Assume processing creates additional item types
+    const processingSlots = Math.min(processing.length, 3);
+    requirements.breakdown.processing = processingSlots;
+    requirements.totalSlotsNeeded += processingSlots;
+  }
+
+  // Supplies (food, torches, etc.)
+  if (supplies) {
+    const supplyList = Array.isArray(supplies) ? supplies : Object.keys(supplies);
+    const supplySlots = Math.min(supplyList.length, 5);
+    requirements.breakdown.supplies = supplySlots;
+    requirements.totalSlotsNeeded += supplySlots;
+  } else {
+    // Default supplies (food + torches)
+    requirements.breakdown.supplies = 2;
+    requirements.totalSlotsNeeded += 2;
+  }
+
+  // Buffer slots for unexpected items (drops, mob loot)
+  const bufferSlots = 3;
+  requirements.breakdown.buffer = bufferSlots;
+  requirements.totalSlotsNeeded += bufferSlots;
+
+  // Check capacity
+  const availableSlots = INVENTORY_SLOTS.player;
+  if (requirements.totalSlotsNeeded > availableSlots) {
+    const overflow = requirements.totalSlotsNeeded - availableSlots;
+    requirements.warnings.push(`Inventory overflow: need ${requirements.totalSlotsNeeded} slots, have ${availableSlots}.`);
+    requirements.warnings.push(`Consider ${overflow} shulker boxes or multiple trips.`);
+  } else if (requirements.totalSlotsNeeded > availableSlots * 0.8) {
+    requirements.warnings.push(`Inventory near capacity (${Math.round(requirements.totalSlotsNeeded / availableSlots * 100)}%). Consider bringing a shulker box.`);
+  }
+
+  // Recommendations
+  if (quantity > 64) {
+    const resourceStackSize = getStackSize(resource);
+    if (resourceStackSize === 64) {
+      requirements.recommendations.push(`Convert to blocks (9:1 ratio) to save ${Math.floor(quantity / 576)} inventory slots.`);
+    }
+  }
+
+  if (requirements.totalSlotsNeeded > 27) {
+    requirements.recommendations.push(`Bring an ender chest for convenient storage access.`);
+  }
+
+  if (processing && processing.length > 0) {
+    requirements.recommendations.push(`Process items at base to free inventory space during gathering.`);
+  }
+
+  return requirements;
+}
+
+/**
+ * Generate inventory organization plan
+ */
+function generateInventoryOrganization(params, requirements) {
+  const organization = {
+    hotbar: [],
+    mainInventory: [],
+    priority: []
+  };
+
+  // Hotbar (slots 0-8): Tools and frequently used items
+  organization.hotbar.push(params.tool);
+  if (params.backupTools && params.backupTools.length > 0) {
+    organization.hotbar.push(...params.backupTools.slice(0, 1));
+  }
+  organization.hotbar.push("food");
+  organization.hotbar.push("torches");
+  if (params.replantItem) {
+    organization.hotbar.push(params.replantItem);
+  }
+
+  // Main inventory priorities
+  organization.priority = [
+    "Keep tools in hotbar for quick access",
+    "Reserve bottom row for gathered resources",
+    "Place replanting supplies in accessible slot",
+    "Store food and supplies in consistent locations"
+  ];
+
+  return organization;
+}
+
+/* =====================================================
+ * ADVANCED DURABILITY CALCULATIONS
+ * Comprehensive tool planning and management
+ * ===================================================== */
+
+/**
+ * Calculate detailed durability requirements and planning
+ */
+function calculateDetailedDurability(params, inventoryCheck, strategy) {
+  const { quantity, resourceProfile, tool, backupTools } = params;
+  const { toolProfile, toolCondition, primaryToolItem } = inventoryCheck;
+
+  const durabilityPlan = {
+    primaryTool: {
+      name: tool,
+      currentDurability: null,
+      maxDurability: toolProfile.durability,
+      requiredDurability: 0,
+      remainingAfter: null,
+      sufficient: true,
+      condition: toolCondition?.status || "unknown"
+    },
+    backupNeeded: false,
+    backupTools: [],
+    recommendations: [],
+    warnings: [],
+    enchantmentBenefits: {}
+  };
+
+  // Calculate required durability
+  if (quantity && toolProfile.durabilityPerUse) {
+    durabilityPlan.primaryTool.requiredDurability = quantity * toolProfile.durabilityPerUse;
+
+    // Apply strategy modifier if applicable
+    if (strategy && strategy.timeMultiplier) {
+      // More time = potentially more blocks broken
+      durabilityPlan.primaryTool.requiredDurability *= strategy.timeMultiplier;
+    }
+  }
+
+  // Get current durability if tool is in inventory
+  if (primaryToolItem && primaryToolItem.durability != null) {
+    durabilityPlan.primaryTool.currentDurability = primaryToolItem.durability;
+    durabilityPlan.primaryTool.remainingAfter =
+      primaryToolItem.durability - durabilityPlan.primaryTool.requiredDurability;
+
+    durabilityPlan.primaryTool.sufficient =
+      durabilityPlan.primaryTool.remainingAfter >= 0;
+  } else if (primaryToolItem) {
+    // Tool exists but no durability info - assume new
+    durabilityPlan.primaryTool.currentDurability = toolProfile.durability;
+    durabilityPlan.primaryTool.remainingAfter =
+      toolProfile.durability - durabilityPlan.primaryTool.requiredDurability;
+    durabilityPlan.primaryTool.sufficient =
+      durabilityPlan.primaryTool.remainingAfter >= 0;
+  } else {
+    // Tool not in inventory
+    durabilityPlan.primaryTool.sufficient = false;
+  }
+
+  // Check if backup tool is needed
+  if (!durabilityPlan.primaryTool.sufficient) {
+    durabilityPlan.backupNeeded = true;
+
+    const shortfall = Math.abs(durabilityPlan.primaryTool.remainingAfter || durabilityPlan.primaryTool.requiredDurability);
+    const toolsNeeded = Math.ceil(shortfall / toolProfile.durability) + 1;
+
+    durabilityPlan.warnings.push(
+      `Primary ${tool} will break during gathering. Need ${toolsNeeded} total tools.`
+    );
+
+    // Check available backups
+    if (backupTools && backupTools.length > 0) {
+      for (const backupName of backupTools) {
+        const backupProfile = getToolProfile(backupName);
+        durabilityPlan.backupTools.push({
+          name: backupName,
+          durability: backupProfile.durability,
+          available: inventoryCheck.availableBackups?.includes(backupName) || false
+        });
+      }
+    }
+  }
+
+  // Warnings based on condition
+  if (toolCondition) {
+    if (toolCondition.status === "critical") {
+      durabilityPlan.warnings.push(
+        `${tool} at critical durability (${Math.round(toolCondition.percentage)}%). Repair or replace before gathering!`
+      );
+    } else if (toolCondition.status === "low") {
+      durabilityPlan.warnings.push(
+        `${tool} at low durability (${Math.round(toolCondition.percentage)}%). May break during operation.`
+      );
+    }
+  }
+
+  // Recommendations
+  if (durabilityPlan.primaryTool.requiredDurability > 100) {
+    durabilityPlan.recommendations.push(
+      `Consider enchanting ${tool} with Unbreaking III to triple durability.`
+    );
+
+    // Calculate enchantment benefits
+    durabilityPlan.enchantmentBenefits.unbreaking3 = {
+      effectiveDurability: toolProfile.durability * 4, // Unbreaking III ~4x
+      toolsSaved: Math.floor(durabilityPlan.primaryTool.requiredDurability / toolProfile.durability) -
+                  Math.floor(durabilityPlan.primaryTool.requiredDurability / (toolProfile.durability * 4))
+    };
+  }
+
+  if (durabilityPlan.primaryTool.requiredDurability > 50 && resourceProfile.type === "mining") {
+    durabilityPlan.recommendations.push(
+      `Mending enchantment recommended for extended mining operations.`
+    );
+  }
+
+  if (durabilityPlan.backupNeeded && (!backupTools || backupTools.length === 0)) {
+    durabilityPlan.recommendations.push(
+      `Craft ${Math.ceil(durabilityPlan.primaryTool.requiredDurability / toolProfile.durability)} spare ${tool}s before departing.`
+    );
+  }
+
+  // Repair recommendations
+  if (durabilityPlan.primaryTool.remainingAfter != null &&
+      durabilityPlan.primaryTool.remainingAfter < toolProfile.durability * 0.25) {
+    durabilityPlan.recommendations.push(
+      `Repair ${tool} after this operation (will be at ${Math.round((durabilityPlan.primaryTool.remainingAfter / toolProfile.durability) * 100)}% durability).`
+    );
+  }
+
+  return durabilityPlan;
+}
+
+/**
+ * Create tool management steps based on durability analysis
+ */
+function createToolManagementSteps(durabilityPlan) {
+  const steps = [];
+
+  // Add repair step if critical
+  if (durabilityPlan.primaryTool.condition === "critical") {
+    steps.push(
+      createStep({
+        title: "Repair tool",
+        type: "preparation",
+        description: `Repair ${durabilityPlan.primaryTool.name} before departure - currently at critical durability.`,
+        metadata: {
+          tool: durabilityPlan.primaryTool.name,
+          durability: durabilityPlan.primaryTool.currentDurability
+        }
+      })
+    );
+  }
+
+  // Add backup crafting step if needed
+  if (durabilityPlan.backupNeeded && durabilityPlan.backupTools.length === 0) {
+    const toolsNeeded = Math.ceil(durabilityPlan.primaryTool.requiredDurability / durabilityPlan.primaryTool.maxDurability);
+    steps.push(
+      createStep({
+        title: "Craft backup tools",
+        type: "preparation",
+        description: `Craft ${toolsNeeded} additional ${durabilityPlan.primaryTool.name}s to complete gathering operation.`,
+        metadata: {
+          tool: durabilityPlan.primaryTool.name,
+          quantity: toolsNeeded
+        }
+      })
+    );
+  }
+
+  return steps;
+}
+
+/* =====================================================
  * TASK PARAMETER EXTRACTION
  * Parse and normalize all task metadata
  * ===================================================== */
@@ -1285,9 +1825,9 @@ function calculateRealisticDuration(params, inventoryCheck, environmentalContext
 }
 
 /**
- * Calculate plan metrics with environmental and hazard analysis
+ * Calculate plan metrics with comprehensive analysis
  */
-function calculatePlanMetrics(params, inventoryCheck, environmentalContext, hazards, task) {
+function calculatePlanMetrics(params, inventoryCheck, environmentalContext, hazards, task, strategy, durabilityPlan, inventoryRequirements) {
   const {
     resource,
     tool,
@@ -1360,6 +1900,16 @@ function calculatePlanMetrics(params, inventoryCheck, environmentalContext, haza
     risks.push(`Y-level ${yLevel} is not optimal for ${resource} - consider relocating.`);
   }
 
+  // Add durability warnings to risks
+  if (durabilityPlan && durabilityPlan.warnings.length > 0) {
+    risks.push(...durabilityPlan.warnings);
+  }
+
+  // Add inventory warnings to risks
+  if (inventoryRequirements && inventoryRequirements.warnings.length > 0) {
+    risks.push(...inventoryRequirements.warnings);
+  }
+
   // Notes with environmental context
   const notes = [];
 
@@ -1370,6 +1920,28 @@ function calculatePlanMetrics(params, inventoryCheck, environmentalContext, haza
 
   if (weatherProfile.type !== "clear") {
     notes.push(`Weather: ${weatherProfile.type} - expect ${Math.round((1 - weatherProfile.movementModifier) * 100)}% slower movement.`);
+  }
+
+  // Strategy notes
+  if (strategy) {
+    notes.push(`Gathering strategy: ${strategy.name} (${Math.round(strategy.efficiency * 100)}% efficiency, ${strategy.coverage} coverage).`);
+    const strategyRecs = generateStrategyRecommendations(strategy, resourceProfile, quantity);
+    if (strategyRecs.length > 0) {
+      notes.push(...strategyRecs.slice(0, 2)); // Add top 2 strategy recommendations
+    }
+  }
+
+  // Inventory notes
+  if (inventoryRequirements) {
+    notes.push(`Inventory: ${inventoryRequirements.totalSlotsNeeded}/${INVENTORY_SLOTS.player} slots needed.`);
+    if (inventoryRequirements.recommendations.length > 0) {
+      notes.push(...inventoryRequirements.recommendations.slice(0, 2)); // Top 2 inventory recommendations
+    }
+  }
+
+  // Durability notes
+  if (durabilityPlan && durabilityPlan.recommendations.length > 0) {
+    notes.push(...durabilityPlan.recommendations.slice(0, 2)); // Top 2 durability recommendations
   }
 
   // Scheduling notes
@@ -1442,7 +2014,7 @@ function calculatePlanMetrics(params, inventoryCheck, environmentalContext, haza
  * ===================================================== */
 
 /**
- * Plan a gathering task with comprehensive environmental and hazard analysis
+ * Plan a gathering task with comprehensive analysis and optimization
  */
 export function planGatherTask(task, context = {}) {
   // Extract and normalize all parameters
@@ -1454,6 +2026,20 @@ export function planGatherTask(task, context = {}) {
   // Check inventory for requirements
   const inventoryCheck = checkInventoryRequirements(params, context);
 
+  // Select optimal gathering strategy
+  const strategy = selectGatheringStrategy(
+    params.resourceProfile,
+    environmentalContext,
+    params.quantity
+  );
+
+  // Calculate detailed durability requirements
+  const durabilityPlan = calculateDetailedDurability(params, inventoryCheck, strategy);
+
+  // Calculate inventory requirements
+  const inventoryRequirements = calculateInventoryRequirements(params, inventoryCheck);
+  const inventoryOrganization = generateInventoryOrganization(params, inventoryRequirements);
+
   // Assess environmental hazards
   const hazards = assessEnvironmentalHazards(
     params.resourceProfile,
@@ -1461,13 +2047,10 @@ export function planGatherTask(task, context = {}) {
     inventoryCheck
   );
 
-  // Generate plan steps
-  const preparationSteps = createPreparationSteps(params, inventoryCheck);
-  const harvestSteps = createHarvestSteps(params, inventoryCheck);
-  const postHarvestSteps = createPostHarvestSteps(params);
+  // Generate plan steps with all enhancements
+  const allSteps = [];
 
   // Add safety briefing step if there are hazards
-  const allSteps = [];
   if (hazards.length > 0) {
     const criticalHazards = hazards.filter(h => h.severity === "critical" || h.severity === "high");
     if (criticalHazards.length > 0) {
@@ -1488,7 +2071,54 @@ export function planGatherTask(task, context = {}) {
     }
   }
 
-  allSteps.push(...preparationSteps, ...harvestSteps, ...postHarvestSteps);
+  // Add tool management steps (repair, craft backups)
+  const toolManagementSteps = createToolManagementSteps(durabilityPlan);
+  allSteps.push(...toolManagementSteps);
+
+  // Add standard preparation steps
+  const preparationSteps = createPreparationSteps(params, inventoryCheck);
+  allSteps.push(...preparationSteps);
+
+  // Add inventory organization step
+  if (inventoryRequirements.totalSlotsNeeded > 20) {
+    const hotbarSummary = inventoryOrganization.hotbar.slice(0, 3).join(", ");
+    allSteps.push(
+      createStep({
+        title: "Organize inventory",
+        type: "preparation",
+        description: `Organize ${inventoryRequirements.totalSlotsNeeded} inventory slots. Hotbar: ${hotbarSummary}, etc.`,
+        metadata: {
+          organization: inventoryOrganization,
+          requirements: inventoryRequirements.breakdown
+        }
+      })
+    );
+  }
+
+  // Add gathering strategy step
+  if (strategy) {
+    allSteps.push(
+      createStep({
+        title: "Plan gathering route",
+        type: "preparation",
+        description: `Use ${strategy.name} strategy: ${strategy.description}`,
+        metadata: {
+          strategy: strategy.name,
+          pattern: strategy.pattern,
+          efficiency: strategy.efficiency,
+          recommendations: generateStrategyRecommendations(strategy, params.resourceProfile, params.quantity)
+        }
+      })
+    );
+  }
+
+  // Add harvest steps
+  const harvestSteps = createHarvestSteps(params, inventoryCheck);
+  allSteps.push(...harvestSteps);
+
+  // Add post-harvest steps
+  const postHarvestSteps = createPostHarvestSteps(params);
+  allSteps.push(...postHarvestSteps);
 
   // Calculate comprehensive metrics
   const metrics = calculatePlanMetrics(
@@ -1496,18 +2126,23 @@ export function planGatherTask(task, context = {}) {
     inventoryCheck,
     environmentalContext,
     hazards,
-    task
+    task,
+    strategy,
+    durabilityPlan,
+    inventoryRequirements
   );
 
-  // Build summary with environmental context
+  // Build summary with environmental context and strategy
   const envSummary = environmentalContext.biome && environmentalContext.yLevel != null
     ? ` in ${environmentalContext.biome} (Y=${environmentalContext.yLevel})`
     : "";
 
+  const strategySummary = strategy ? ` using ${strategy.name}` : "";
+
   // Create base plan
   const plan = createPlan({
     task,
-    summary: `Gather ${params.resource} at ${params.targetDescription}${envSummary}.`,
+    summary: `Gather ${params.resource} at ${params.targetDescription}${envSummary}${strategySummary}.`,
     steps: allSteps,
     estimatedDuration: metrics.estimatedDuration,
     resources: metrics.resources,
@@ -1522,7 +2157,26 @@ export function planGatherTask(task, context = {}) {
     environmentalContext: metrics.environmentalContext,
     hazards: metrics.hazards,
     toolEfficiency: inventoryCheck.toolEfficiency,
-    resourceOptimality: metrics.environmentalContext.optimality
+    resourceOptimality: metrics.environmentalContext.optimality,
+    gatheringStrategy: strategy ? {
+      name: strategy.name,
+      pattern: strategy.pattern,
+      efficiency: strategy.efficiency,
+      recommendations: generateStrategyRecommendations(strategy, params.resourceProfile, params.quantity)
+    } : null,
+    durabilityPlan: {
+      primaryTool: durabilityPlan.primaryTool,
+      backupNeeded: durabilityPlan.backupNeeded,
+      warnings: durabilityPlan.warnings,
+      recommendations: durabilityPlan.recommendations
+    },
+    inventoryManagement: {
+      slotsNeeded: inventoryRequirements.totalSlotsNeeded,
+      breakdown: inventoryRequirements.breakdown,
+      warnings: inventoryRequirements.warnings,
+      recommendations: inventoryRequirements.recommendations,
+      organization: inventoryOrganization
+    }
   };
 
   return plan;

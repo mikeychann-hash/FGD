@@ -1,229 +1,192 @@
-// fusion/knowledge_store.js
-// Local knowledge storage with validation and cleanup
+// knowledge_store.js
+// Persistent memory for task outcomes, skills, and adaptive learning
+// Refactored to emit richer telemetry and structured outcome events
 
-import fs from "fs/promises";
-import fsSync from "fs";
+import fs from "fs";
+import path from "path";
 import EventEmitter from "events";
 
-const DEFAULT_DATA = {
-  skills: {},
-  dialogues: [],
-  outcomes: [],
-  metadata: {
-    version: "1.0.0",
-    created: null,
-    lastUpdated: null,
-    totalOperations: 0
-  }
-};
-
-const MAX_OUTCOMES = 50000;
-const MAX_DIALOGUES = 10000;
-const OUTCOME_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
-const DIALOGUE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-
 export class KnowledgeStore extends EventEmitter {
-  constructor(path = "./data/local_knowledge.json") {
+  constructor(options = {}) {
     super();
-    this.path = path;
-    this.data = { ...DEFAULT_DATA };
-    this.saveQueue = null;
-    this.isLoaded = false;
+
+    this.filePath = options.filePath || path.resolve("data", "local_knowledge.json");
+    this.data = {
+      version: 2,
+      skills: {},
+      outcomes: [],
+      yields: {},
+      stats: {
+        tasksCompleted: 0,
+        averageSuccessRate: 0,
+        totalYield: 0
+      },
+      lastUpdated: Date.now()
+    };
+
+    this.maxRecords = options.maxRecords || 2000;
+    this.saveDebounceMs = options.saveDebounceMs || 3000;
+    this.lastSave = 0;
+    this.pendingSave = null;
+
     this.load();
   }
 
+  /* ---------------------------------------------
+   * Core Load / Save
+   * --------------------------------------------- */
   load() {
     try {
-      if (fsSync.existsSync(this.path)) {
-        const rawData = fsSync.readFileSync(this.path, "utf-8");
-        const loaded = JSON.parse(rawData);
-        this.data = {
-          ...DEFAULT_DATA,
-          ...loaded,
-          metadata: { ...DEFAULT_DATA.metadata, ...loaded.metadata }
-        };
-        console.log("📚 Local knowledge loaded successfully");
-        this.isLoaded = true;
-        this.emit("loaded");
-      } else {
-        this.data = {
-          ...DEFAULT_DATA,
-          metadata: { ...DEFAULT_DATA.metadata, created: new Date().toISOString() }
-        };
-        console.log("📝 Starting with empty knowledge store");
-        this.isLoaded = true;
+      if (fs.existsSync(this.filePath)) {
+        const raw = fs.readFileSync(this.filePath, "utf-8");
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          this.data = { ...this.data, ...parsed };
+          this.emit("loaded", { file: this.filePath, records: this.data.outcomes.length });
+        }
       }
     } catch (err) {
-      console.error("❌ Error loading knowledge store:", err.message);
-      this.data = { ...DEFAULT_DATA };
-      this.isLoaded = true;
+      console.error("❌ Knowledge store load failed:", err.message);
     }
   }
 
   async save() {
-    if (this.saveQueue) clearTimeout(this.saveQueue);
-    this.saveQueue = setTimeout(async () => {
+    if (this.pendingSave) clearTimeout(this.pendingSave);
+    this.pendingSave = setTimeout(() => {
       try {
-        await fs.mkdir("./data", { recursive: true });
-        this.data.metadata.lastUpdated = new Date().toISOString();
-        this.data.metadata.totalOperations++;
-        await fs.writeFile(this.path, JSON.stringify(this.data, null, 2), "utf-8");
-        console.log("💾 Knowledge store saved successfully");
-        this.emit("saved");
+        const tmp = `${this.filePath}.tmp`;
+        fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2));
+        fs.renameSync(tmp, this.filePath);
+        this.data.lastUpdated = Date.now();
+        this.emit("saved", { file: this.filePath, timestamp: this.data.lastUpdated });
       } catch (err) {
-        console.error("❌ Error saving knowledge store:", err.message);
-        this.emit("save_error", err);
+        console.error("❌ Knowledge store save failed:", err.message);
       }
-    }, 500);
+    }, this.saveDebounceMs);
   }
 
-  recordOutcome(npcName, task, success, metadata = {}) {
-    if (!npcName || !task) {
-      console.warn("⚠️  Invalid outcome: missing npcName or task");
-      return false;
-    }
+  /* ---------------------------------------------
+   * Recording Task Outcomes
+   * --------------------------------------------- */
+  recordOutcome(taskType, result = {}) {
     const outcome = {
-      npc: npcName,
-      task,
-      success: Boolean(success),
+      id: `${taskType}_${Date.now()}`,
+      taskType,
       timestamp: Date.now(),
-      duration: metadata.duration || null,
-      metadata: metadata || {}
+      success: !!result.success,
+      yield: result.yield ?? 0,
+      environment: result.environment || "unknown",
+      duration: result.duration || 0,
+      hazards: result.hazards || [],
+      npc: result.npc || null,
+      notes: result.notes || "",
+      metadata: result.metadata || {}
     };
+
     this.data.outcomes.push(outcome);
-    if (this.data.outcomes.length > MAX_OUTCOMES) this.pruneOutcomes();
-    this.save();
+    if (this.data.outcomes.length > this.maxRecords) {
+      this.data.outcomes.splice(0, this.data.outcomes.length - this.maxRecords);
+    }
+
+    // Aggregate yield + success stats
+    const yieldStats = this.data.yields[taskType] || { total: 0, count: 0 };
+    yieldStats.total += outcome.yield;
+    yieldStats.count += 1;
+    this.data.yields[taskType] = yieldStats;
+
+    const successStats = this.data.skills[taskType] || { successes: 0, attempts: 0 };
+    successStats.attempts++;
+    if (outcome.success) successStats.successes++;
+    this.data.skills[taskType] = successStats;
+
+    this.data.stats.tasksCompleted++;
+    this.data.stats.totalYield = Object.values(this.data.yields)
+      .reduce((sum, y) => sum + y.total, 0);
+
+    const totalAttempts = Object.values(this.data.skills)
+      .reduce((sum, s) => sum + s.attempts, 0);
+    const totalSuccesses = Object.values(this.data.skills)
+      .reduce((sum, s) => sum + s.successes, 0);
+    this.data.stats.averageSuccessRate = totalAttempts
+      ? totalSuccesses / totalAttempts
+      : 0;
+
+    // Emit events for dashboard and other systems
     this.emit("outcome_recorded", outcome);
-    return true;
-  }
+    if (outcome.yield > 0)
+      this.emit("yield_recorded", {
+        taskType,
+        yield: outcome.yield,
+        avgYield: this.getAverageYield(taskType)
+      });
+    if (outcome.success)
+      this.emit("task_completed", {
+        taskType,
+        npc: outcome.npc,
+        duration: outcome.duration,
+        environment: outcome.environment
+      });
+    if (outcome.hazards.length)
+      this.emit("hazard_encountered", {
+        taskType,
+        hazards: outcome.hazards,
+        npc: outcome.npc
+      });
 
-  recordDialogue(npcName, content, context = {}) {
-    if (!npcName || !content) {
-      console.warn("⚠️  Invalid dialogue: missing npcName or content");
-      return false;
-    }
-    const dialogue = {
-      id: `dlg_${this.generateId()}`,
-      npc: npcName,
-      content,
-      context,
-      timestamp: Date.now()
-    };
-    this.data.dialogues.push(dialogue);
-    if (this.data.dialogues.length > MAX_DIALOGUES) this.pruneDialogues();
     this.save();
-    this.emit("dialogue_recorded", dialogue);
-    return dialogue.id;
   }
 
-  updateSkills(npcName, skills) {
-    if (!npcName || !skills || typeof skills !== "object") {
-      console.warn("⚠️  Invalid skills update");
-      return false;
+  /* ---------------------------------------------
+   * Query Helpers
+   * --------------------------------------------- */
+
+  getSuccessRate(taskType) {
+    const entry = this.data.skills[taskType];
+    if (!entry) return 0;
+    return entry.attempts ? entry.successes / entry.attempts : 0;
+  }
+
+  getAverageYield(taskType) {
+    const entry = this.data.yields[taskType];
+    if (!entry) return 0;
+    return entry.count ? entry.total / entry.count : 0;
+  }
+
+  getHazardFrequency(hazardName) {
+    let total = 0;
+    for (const o of this.data.outcomes) {
+      if (Array.isArray(o.hazards) && o.hazards.includes(hazardName)) total++;
     }
-    if (!this.data.skills[npcName]) this.data.skills[npcName] = {};
-    for (const [skillName, value] of Object.entries(skills)) {
-      if (typeof value === "number" && !isNaN(value)) {
-        this.data.skills[npcName][skillName] = Math.max(0, Math.min(100, value));
-      }
+    return total;
+  }
+
+  getTaskHistory(taskType, limit = 20) {
+    return this.data.outcomes
+      .filter(o => o.taskType === taskType)
+      .slice(-limit)
+      .reverse();
+  }
+
+  /* ---------------------------------------------
+   * Adaptive Intelligence Hooks
+   * --------------------------------------------- */
+
+  getDynamicDurationEstimate(taskType, baseMs = 10000) {
+    const rate = this.getSuccessRate(taskType);
+    const mod = rate > 0 ? Math.max(0.5, 1.3 - rate) : 1.0;
+    const avgYield = this.getAverageYield(taskType);
+    const yieldBonus = avgYield > 0 ? Math.min(0.9, avgYield / 200) : 0;
+    return Math.round(baseMs * (mod - yieldBonus));
+  }
+
+  getRecommendedSupplies(taskType) {
+    const history = this.getTaskHistory(taskType, 50);
+    const hazards = {};
+    for (const h of history.flatMap(o => o.hazards || [])) {
+      hazards[h] = (hazards[h] || 0) + 1;
     }
-    this.save();
-    this.emit("skills_updated", { npc: npcName, skills: this.data.skills[npcName] });
-    return true;
-  }
-
-  pruneOutcomes() {
-    const cutoff = Date.now() - OUTCOME_RETENTION_MS;
-    const originalLength = this.data.outcomes.length;
-    this.data.outcomes = this.data.outcomes.filter(o => o.timestamp > cutoff).slice(-MAX_OUTCOMES);
-    const pruned = originalLength - this.data.outcomes.length;
-    if (pruned > 0) {
-      console.log(`🧹 Pruned ${pruned} old outcomes`);
-      this.emit("outcomes_pruned", pruned);
-    }
-  }
-
-  pruneDialogues() {
-    const cutoff = Date.now() - DIALOGUE_RETENTION_MS;
-    const originalLength = this.data.dialogues.length;
-    this.data.dialogues = this.data.dialogues.filter(d => d.timestamp > cutoff).slice(-MAX_DIALOGUES);
-    const pruned = originalLength - this.data.dialogues.length;
-    if (pruned > 0) {
-      console.log(`🧹 Pruned ${pruned} old dialogues`);
-      this.emit("dialogues_pruned", pruned);
-    }
-  }
-
-  getOutcomes(npcName = null, limit = 100) {
-    let outcomes = this.data.outcomes;
-    if (npcName) outcomes = outcomes.filter(o => o.npc === npcName);
-    return outcomes.slice(-limit);
-  }
-
-  getDialogues(npcName = null, limit = 100) {
-    let dialogues = this.data.dialogues;
-    if (npcName) dialogues = dialogues.filter(d => d.npc === npcName);
-    return dialogues.slice(-limit);
-  }
-
-  getSkills(npcName) {
-    return npcName ? this.data.skills[npcName] : this.data.skills;
-  }
-
-  getSuccessRate(npcName, taskType = null) {
-    let outcomes = this.data.outcomes.filter(o => o.npc === npcName);
-    if (taskType) outcomes = outcomes.filter(o => o.task === taskType);
-    if (outcomes.length === 0) return null;
-    const successful = outcomes.filter(o => o.success).length;
-    return successful / outcomes.length;
-  }
-
-  getSummary() {
-    return {
-      npcCount: Object.keys(this.data.skills).length,
-      totalOutcomes: this.data.outcomes.length,
-      totalDialogues: this.data.dialogues.length,
-      metadata: this.data.metadata,
-      oldestOutcome: this.data.outcomes.length > 0 
-        ? new Date(this.data.outcomes[0].timestamp).toISOString() : null,
-      newestOutcome: this.data.outcomes.length > 0
-        ? new Date(this.data.outcomes[this.data.outcomes.length - 1].timestamp).toISOString() : null
-    };
-  }
-
-  exportData() {
-    return { ...this.data, exportedAt: new Date().toISOString() };
-  }
-
-  importData(importedData) {
-    if (!importedData || typeof importedData !== "object") {
-      throw new Error("Invalid import data");
-    }
-    if (importedData.skills) this.data.skills = { ...this.data.skills, ...importedData.skills };
-    if (importedData.dialogues && Array.isArray(importedData.dialogues)) {
-      this.data.dialogues.push(...importedData.dialogues);
-      this.pruneDialogues();
-    }
-    if (importedData.outcomes && Array.isArray(importedData.outcomes)) {
-      this.data.outcomes.push(...importedData.outcomes);
-      this.pruneOutcomes();
-    }
-    this.save();
-    console.log("✅ Data imported successfully");
-    this.emit("data_imported");
-  }
-
-  clear() {
-    this.data = {
-      ...DEFAULT_DATA,
-      metadata: { ...DEFAULT_DATA.metadata, created: new Date().toISOString() }
-    };
-    this.save();
-    console.log("🗑️  Knowledge store cleared");
-    this.emit("cleared");
-  }
-
-  generateId() {
-    return Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+    return Object.keys(hazards)
+      .sort((a, b) => hazards[b] - hazards[a])
+      .slice(0, 5);
   }
 }

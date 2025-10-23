@@ -5,6 +5,20 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import EventEmitter from "events";
 
+function cloneSerializable(value) {
+  if (value == null) {
+    return value;
+  }
+  if (typeof globalThis.structuredClone === "function") {
+    try {
+      return globalThis.structuredClone(value);
+    } catch (err) {
+      // Ignore and fall back
+    }
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
 const DEFAULT_DATA = {
   skills: {},
   dialogues: [],
@@ -14,6 +28,10 @@ const DEFAULT_DATA = {
     created: null,
     lastUpdated: null,
     totalOperations: 0
+  },
+  plans: {
+    queue: [],
+    active: {}
   }
 };
 
@@ -37,10 +55,18 @@ export class KnowledgeStore extends EventEmitter {
       if (fsSync.existsSync(this.path)) {
         const rawData = fsSync.readFileSync(this.path, "utf-8");
         const loaded = JSON.parse(rawData);
+        const loadedPlans = loaded?.plans;
         this.data = {
           ...DEFAULT_DATA,
           ...loaded,
-          metadata: { ...DEFAULT_DATA.metadata, ...loaded.metadata }
+          metadata: { ...DEFAULT_DATA.metadata, ...loaded.metadata },
+          plans: {
+            queue: Array.isArray(loadedPlans?.queue) ? loadedPlans.queue : [],
+            active:
+              loadedPlans?.active && typeof loadedPlans.active === "object"
+                ? loadedPlans.active
+                : {}
+          }
         };
         console.log("📚 Local knowledge loaded successfully");
         this.isLoaded = true;
@@ -208,9 +234,99 @@ export class KnowledgeStore extends EventEmitter {
       this.data.outcomes.push(...importedData.outcomes);
       this.pruneOutcomes();
     }
+    if (importedData.plans) {
+      const importedQueue = Array.isArray(importedData.plans.queue) ? importedData.plans.queue : [];
+      const importedActive =
+        importedData.plans.active && typeof importedData.plans.active === "object"
+          ? importedData.plans.active
+          : {};
+      this.data.plans.queue.push(...importedQueue);
+      this.data.plans.active = {
+        ...this.data.plans.active,
+        ...importedActive
+      };
+      this.data.plans.queue = this.data.plans.queue.slice(-500);
+    }
     this.save();
     console.log("✅ Data imported successfully");
     this.emit("data_imported");
+  }
+
+  getPlanSnapshots() {
+    const queue = Array.isArray(this.data?.plans?.queue) ? this.data.plans.queue : [];
+    const activeMap = this.data?.plans?.active && typeof this.data.plans.active === "object"
+      ? this.data.plans.active
+      : {};
+    return {
+      queue: cloneSerializable(queue),
+      active: cloneSerializable(Object.values(activeMap))
+    };
+  }
+
+  saveTaskQueue(queueEntries = []) {
+    this.data.plans.queue = Array.isArray(queueEntries) ? cloneSerializable(queueEntries) : [];
+    this.save();
+    this.emit("plan_queue_saved", this.data.plans.queue);
+  }
+
+  upsertActivePlan(planState) {
+    if (!planState || typeof planState !== "object" || !planState.task?.id) {
+      console.warn("⚠️  Invalid plan state payload");
+      return false;
+    }
+    if (!this.data.plans.active) {
+      this.data.plans.active = {};
+    }
+    const taskId = planState.task.id;
+    const snapshot = cloneSerializable({
+      ...planState,
+      updatedAt: Date.now()
+    });
+    this.data.plans.active[taskId] = snapshot;
+    this.save();
+    this.emit("active_plan_updated", snapshot);
+    return true;
+  }
+
+  updateActivePlan(taskId, updates = {}) {
+    if (!taskId || !this.data.plans.active?.[taskId]) {
+      return false;
+    }
+    const existing = this.data.plans.active[taskId];
+    const merged = cloneSerializable({ ...existing, ...updates, updatedAt: Date.now() });
+    if (existing.metadata || updates.metadata) {
+      merged.metadata = {
+        ...cloneSerializable(existing.metadata || {}),
+        ...cloneSerializable(updates.metadata || {})
+      };
+    }
+    this.data.plans.active[taskId] = merged;
+    this.save();
+    this.emit("active_plan_updated", merged);
+    return true;
+  }
+
+  removeActivePlan(taskId) {
+    if (!taskId || !this.data.plans.active?.[taskId]) {
+      return false;
+    }
+    const removed = this.data.plans.active[taskId];
+    delete this.data.plans.active[taskId];
+    this.save();
+    this.emit("active_plan_removed", removed);
+    return true;
+  }
+
+  clearActivePlans() {
+    this.data.plans.active = {};
+    this.save();
+    this.emit("active_plans_cleared");
+  }
+
+  clearPlanQueue() {
+    this.data.plans.queue = [];
+    this.save();
+    this.emit("plan_queue_cleared");
   }
 
   clear() {

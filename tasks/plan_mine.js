@@ -1,5 +1,5 @@
 // tasks/plan_mine.js
-// Generates a sequence for mining style tasks
+// Generates a sequence for mining style tasks with hierarchical sub-planning
 
 import {
   createPlan,
@@ -10,7 +10,9 @@ import {
   hasInventoryItem,
   countInventoryItems,
   formatRequirementList,
-  resolveQuantity
+  resolveQuantity,
+  createTaskGraph,
+  createTaskNode
 } from "./helpers.js";
 
 const DEFAULT_SUPPORT_SUPPLIES = [
@@ -39,6 +41,13 @@ function determineSupportSupplies(task) {
   return [...DEFAULT_SUPPORT_SUPPLIES, ...normalizedExtras];
 }
 
+function invokePlanner(registry, action, task, context) {
+  if (!registry?.invoke) {
+    return null;
+  }
+  return registry.invoke(action, task, context) || null;
+}
+
 export function planMineTask(task, context = {}) {
   const targetDescription = describeTarget(task.target);
   const resource = normalizeItemName(task?.metadata?.resource || task?.metadata?.ore || task.details);
@@ -50,18 +59,20 @@ export function planMineTask(task, context = {}) {
   const hazards = Array.isArray(task?.metadata?.hazards) ? task.metadata.hazards.map(normalizeItemName) : [];
   const miningMethod = normalizeItemName(task?.metadata?.method || "branch");
   const reinforcements = Array.isArray(task?.metadata?.reinforcements)
-    ? task.metadata.reinforcements.map(item => {
-        if (typeof item === "string") {
-          return { name: normalizeItemName(item) };
-        }
-        if (item && typeof item === "object") {
-          return {
-            name: normalizeItemName(item.name || item.item),
-            count: resolveQuantity(item.count ?? item.quantity, null)
-          };
-        }
-        return null;
-      }).filter(Boolean)
+    ? task.metadata.reinforcements
+        .map(item => {
+          if (typeof item === "string") {
+            return { name: normalizeItemName(item) };
+          }
+          if (item && typeof item === "object") {
+            return {
+              name: normalizeItemName(item.name || item.item),
+              count: resolveQuantity(item.count ?? item.quantity, null)
+            };
+          }
+          return null;
+        })
+        .filter(Boolean)
     : [];
   const anchorPoint = task?.metadata?.anchorPoint || task?.metadata?.respawnAnchor;
   const escort = task?.metadata?.escort;
@@ -85,6 +96,25 @@ export function planMineTask(task, context = {}) {
     : `Retrieve or craft a suitable ${tool} before entering the mine.`;
 
   const steps = [];
+  const taskGraph = createTaskGraph();
+  const registry = context.planRegistry;
+
+  const rootNodeId = taskGraph.addNode(
+    createTaskNode({
+      action: "mine",
+      summary: quantity ? `Mine ${quantity} ${resource}` : `Mine ${resource}`,
+      metadata: {
+        target: task.target || null,
+        resource,
+        quantity,
+        dropOff,
+        method: miningMethod
+      }
+    })
+  );
+  taskGraph.setRoot(rootNodeId);
+
+  const subTasks = [];
 
   const missingSupportSummary = formatRequirementList(missingSupport);
   const supportSummary = formatRequirementList(supportSupplies) || "support supplies";
@@ -102,6 +132,36 @@ export function planMineTask(task, context = {}) {
       metadata: { supplies: supportSupplies, missing: missingSupport }
     })
   );
+
+  if (missingSupport.length > 0) {
+    const gatherTask = {
+      action: "gather",
+      details: `Collect ${missingSupportSummary}`,
+      priority: "high",
+      metadata: {
+        resources: missingSupport,
+        destination: task.metadata?.stagingArea || null
+      }
+    };
+    const gatherPlan = invokePlanner(registry, "gather", gatherTask, context);
+    const gatherNodeId = taskGraph.addNode(
+      createTaskNode({
+        action: "gather",
+        summary: `Gather ${missingSupportSummary}`,
+        metadata: {
+          supplies: missingSupport,
+          staging: task.metadata?.stagingArea || null
+        }
+      })
+    );
+    taskGraph.addDependency(gatherNodeId, rootNodeId);
+    subTasks.push({
+      id: gatherNodeId,
+      action: "gather",
+      task: gatherTask,
+      plan: gatherPlan
+    });
+  }
 
   if (reinforcements.length > 0) {
     const reinforcementSummary = formatRequirementList(reinforcements) || "reinforcement blocks";
@@ -126,6 +186,37 @@ export function planMineTask(task, context = {}) {
       }
     })
   );
+
+  if (!hasPrimaryTool) {
+    const craftTask = {
+      action: "craft",
+      details: `Craft a ${tool}`,
+      priority: "high",
+      metadata: {
+        item: tool,
+        quantity: 1,
+        workstation: task.metadata?.workstation || null
+      }
+    };
+    const craftPlan = invokePlanner(registry, "craft", craftTask, context);
+    const craftNodeId = taskGraph.addNode(
+      createTaskNode({
+        action: "craft",
+        summary: `Craft ${tool}`,
+        metadata: {
+          item: tool,
+          workstation: task.metadata?.workstation || null
+        }
+      })
+    );
+    taskGraph.addDependency(craftNodeId, rootNodeId);
+    subTasks.push({
+      id: craftNodeId,
+      action: "craft",
+      task: craftTask,
+      plan: craftPlan
+    });
+  }
 
   steps.push(
     createStep({
@@ -244,6 +335,33 @@ export function planMineTask(task, context = {}) {
         metadata: { container: dropOff }
       })
     );
+
+    const storeTask = {
+      action: "interact",
+      details: `Store ${resource} at ${dropOff}`,
+      metadata: {
+        target: dropOff,
+        items: [{ name: resource, count: quantity || null }]
+      }
+    };
+    const storePlan = invokePlanner(registry, "interact", storeTask, context);
+    const storeNodeId = taskGraph.addNode(
+      createTaskNode({
+        action: "interact",
+        summary: `Store ${resource}`,
+        metadata: {
+          dropOff,
+          items: [{ name: resource, count: quantity || null }]
+        }
+      })
+    );
+    taskGraph.addDependency(rootNodeId, storeNodeId);
+    subTasks.push({
+      id: storeNodeId,
+      action: "interact",
+      task: storeTask,
+      plan: storePlan
+    });
   }
 
   steps.push(
@@ -291,11 +409,15 @@ export function planMineTask(task, context = {}) {
 
   return createPlan({
     task,
-    summary: `Mine ${resource} at ${targetDescription}.`,
+    summary: quantity
+      ? `Mine ${quantity} ${resource} near ${targetDescription}`
+      : `Mine ${resource} near ${targetDescription}`,
     steps,
     estimatedDuration,
     resources: uniqueResources,
     risks,
-    notes
+    notes,
+    taskGraph,
+    subTasks
   });
 }

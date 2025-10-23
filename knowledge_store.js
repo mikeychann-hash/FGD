@@ -5,10 +5,19 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import EventEmitter from "events";
 
+function normalizeKey(value) {
+  if (!value || typeof value !== "string") {
+    return null;
+  }
+  const cleaned = value.trim().toLowerCase().replace(/[_\s]+/g, " ").trim();
+  return cleaned.length > 0 ? cleaned : null;
+}
+
 const DEFAULT_DATA = {
   skills: {},
   dialogues: [],
   outcomes: [],
+  toolDurability: {},
   metadata: {
     version: "1.0.0",
     created: null,
@@ -42,6 +51,14 @@ export class KnowledgeStore extends EventEmitter {
           ...loaded,
           metadata: { ...DEFAULT_DATA.metadata, ...loaded.metadata }
         };
+        this.data.toolDurability = {};
+        if (loaded.toolDurability && typeof loaded.toolDurability === "object") {
+          for (const [npc, tools] of Object.entries(loaded.toolDurability)) {
+            if (tools && typeof tools === "object") {
+              this.data.toolDurability[npc] = { ...tools };
+            }
+          }
+        }
         console.log("📚 Local knowledge loaded successfully");
         this.isLoaded = true;
         this.emit("loaded");
@@ -132,6 +149,123 @@ export class KnowledgeStore extends EventEmitter {
     return true;
   }
 
+  recordToolDurability(npcName, toolName, durability, info = {}) {
+    const npcKey = normalizeKey(npcName || info?.npc);
+    const toolKey = normalizeKey(toolName || info?.tool);
+
+    if (!npcKey || !toolKey) {
+      console.warn("⚠️  Invalid tool durability update: missing npc or tool name");
+      return false;
+    }
+
+    if (!this.data.toolDurability[npcKey]) {
+      this.data.toolDurability[npcKey] = {};
+    }
+
+    const previous = this.data.toolDurability[npcKey][toolKey] || {};
+    const numericDurability = Number.isFinite(durability)
+      ? durability
+      : Number.isFinite(info?.durability)
+      ? info.durability
+      : Number.isFinite(previous.durability)
+      ? previous.durability
+      : null;
+    const numericMax = Number.isFinite(info?.maxDurability)
+      ? info.maxDurability
+      : Number.isFinite(previous.maxDurability)
+      ? previous.maxDurability
+      : null;
+
+    let percent = Number.isFinite(info?.percent) ? info.percent : null;
+    if (percent === null && Number.isFinite(previous.percent)) {
+      percent = previous.percent;
+    }
+    if (percent === null && Number.isFinite(numericDurability) && Number.isFinite(numericMax) && numericMax > 0) {
+      percent = numericDurability / numericMax;
+    }
+    percent = Number.isFinite(percent) ? Math.max(0, Math.min(1, percent)) : null;
+
+    const broken = info?.broken ?? (percent !== null ? percent <= 0 : Number.isFinite(numericDurability) ? numericDurability <= 0 : previous.broken ?? false);
+
+    const entry = {
+      durability: Number.isFinite(numericDurability) ? numericDurability : null,
+      maxDurability: Number.isFinite(numericMax) ? numericMax : null,
+      percent,
+      broken,
+      lastUpdated: Date.now(),
+      note: info?.note || info?.notes || previous.note || null
+    };
+
+    if (broken) {
+      entry.brokenAt = info?.brokenAt || previous.brokenAt || Date.now();
+    }
+
+    this.data.toolDurability[npcKey][toolKey] = entry;
+    this.save();
+
+    const payload = { npc: npcKey, tool: toolKey, entry };
+    this.emit("tool_durability_recorded", payload);
+    if (broken) {
+      this.emit("tool_broken", payload);
+    }
+    return entry;
+  }
+
+  getToolDurability(npcName, toolName = null) {
+    if (!toolName) {
+      if (!npcName) {
+        return this.data.toolDurability;
+      }
+      const npcKey = normalizeKey(npcName);
+      if (!npcKey) {
+        return {};
+      }
+      return this.data.toolDurability[npcKey] || {};
+    }
+
+    const toolKey = normalizeKey(toolName);
+    if (!toolKey) {
+      return null;
+    }
+
+    if (npcName) {
+      const npcKey = normalizeKey(npcName);
+      if (!npcKey) {
+        return null;
+      }
+      return this.data.toolDurability[npcKey]?.[toolKey] || null;
+    }
+
+    for (const tools of Object.values(this.data.toolDurability)) {
+      if (tools && typeof tools === "object" && tools[toolKey]) {
+        return tools[toolKey];
+      }
+    }
+    return null;
+  }
+
+  getBrokenTools(npcName = null) {
+    const results = [];
+    const sourceEntries = npcName
+      ? (() => {
+          const npcKey = normalizeKey(npcName);
+          if (!npcKey) return [];
+          return [[npcKey, this.data.toolDurability[npcKey] || {}]];
+        })()
+      : Object.entries(this.data.toolDurability);
+
+    for (const [npcKey, tools] of sourceEntries) {
+      if (!tools || typeof tools !== "object") continue;
+      for (const [toolKey, entry] of Object.entries(tools)) {
+        if (entry?.broken) {
+          results.push({ npc: npcKey, tool: toolKey, entry });
+        }
+      }
+    }
+
+    return results;
+  }
+
   pruneOutcomes() {
     const cutoff = Date.now() - OUTCOME_RETENTION_MS;
     const originalLength = this.data.outcomes.length;
@@ -179,12 +313,21 @@ export class KnowledgeStore extends EventEmitter {
   }
 
   getSummary() {
+    const trackedTools = Object.values(this.data.toolDurability || {}).reduce((total, tools) => {
+      if (!tools || typeof tools !== "object") {
+        return total;
+      }
+      return total + Object.keys(tools).length;
+    }, 0);
+    const brokenTools = this.getBrokenTools().length;
     return {
       npcCount: Object.keys(this.data.skills).length,
       totalOutcomes: this.data.outcomes.length,
       totalDialogues: this.data.dialogues.length,
+      trackedTools,
+      brokenTools,
       metadata: this.data.metadata,
-      oldestOutcome: this.data.outcomes.length > 0 
+      oldestOutcome: this.data.outcomes.length > 0
         ? new Date(this.data.outcomes[0].timestamp).toISOString() : null,
       newestOutcome: this.data.outcomes.length > 0
         ? new Date(this.data.outcomes[this.data.outcomes.length - 1].timestamp).toISOString() : null
@@ -207,6 +350,20 @@ export class KnowledgeStore extends EventEmitter {
     if (importedData.outcomes && Array.isArray(importedData.outcomes)) {
       this.data.outcomes.push(...importedData.outcomes);
       this.pruneOutcomes();
+    }
+    if (importedData.toolDurability && typeof importedData.toolDurability === "object") {
+      for (const [npc, tools] of Object.entries(importedData.toolDurability)) {
+        const npcKey = normalizeKey(npc);
+        if (!npcKey || !tools || typeof tools !== "object") continue;
+        if (!this.data.toolDurability[npcKey]) {
+          this.data.toolDurability[npcKey] = {};
+        }
+        for (const [toolName, entry] of Object.entries(tools)) {
+          const toolKey = normalizeKey(toolName);
+          if (!toolKey || !entry || typeof entry !== "object") continue;
+          this.data.toolDurability[npcKey][toolKey] = { ...entry };
+        }
+      }
     }
     this.save();
     console.log("✅ Data imported successfully");

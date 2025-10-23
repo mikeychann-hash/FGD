@@ -1,155 +1,215 @@
-// tasks/helpers.js
-// Shared helper utilities for task planning modules
+// helpers.js
+// Shared utilities for task planners, normalizing data, validating plans,
+// and building structured steps for the AICraft Federation (FGD) stack.
 
-function isFiniteNumber(value) {
-  return typeof value === "number" && Number.isFinite(value);
+import crypto from "crypto";
+
+/* ---------------------------------------------
+ * Item / Entity Normalization
+ * --------------------------------------------- */
+
+const ITEM_ALIASES = {
+  "iron pickaxe": "iron_pickaxe",
+  "stone pickaxe": "stone_pickaxe",
+  "wood pickaxe": "wooden_pickaxe",
+  "wood": "oak_log",
+  "torchlight": "torch",
+  "meat": "cooked_beef",
+  "bread loaf": "bread",
+  "bucket water": "water_bucket",
+  "torch block": "torch"
+};
+
+export function normalizeItemName(name) {
+  if (!name || typeof name !== "string") return "unspecified item";
+  const trimmed = name.trim().toLowerCase();
+  if (ITEM_ALIASES[trimmed]) return ITEM_ALIASES[trimmed];
+  return trimmed.replace(/\s+/g, "_");
 }
 
-export function describeTarget(target) {
-  if (!target) {
-    return "current position";
-  }
+/* ---------------------------------------------
+ * Quantity Resolution
+ * --------------------------------------------- */
 
-  if (typeof target === "string") {
-    return target;
-  }
-
-  if (typeof target !== "object") {
-    return "target location";
-  }
-
-  const { name, label, dimension } = target;
-  const coords = [target.x, target.y, target.z]
-    .map(value => (isFiniteNumber(value) ? value.toFixed(1) : null))
-    .filter(value => value !== null);
-
-  const parts = [];
-  if (name || label) {
-    parts.push(name || label);
-  }
-  if (coords.length === 3) {
-    parts.push(`(${coords.join(", ")})`);
-  }
-  if (dimension) {
-    parts.push(dimension);
-  }
-
-  return parts.length > 0 ? parts.join(" ") : "target location";
-}
-
-export function normalizeItemName(item) {
-  if (!item || typeof item !== "string") {
-    return "unspecified item";
-  }
-  return item
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-export function resolveQuantity(value, fallback = null) {
-  if (isFiniteNumber(value)) {
-    return value;
-  }
+export function resolveQuantity(value, fallback = 1) {
+  if (value == null) return fallback;
+  if (typeof value === "number" && !isNaN(value)) return Math.max(value, 0);
   if (typeof value === "string") {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? fallback : Math.max(parsed, 0);
   }
   return fallback;
+}
+
+/* ---------------------------------------------
+ * Target Description
+ * --------------------------------------------- */
+
+export function describeTarget(target) {
+  if (!target) return "unspecified target";
+  if (typeof target === "string") return target;
+  if (typeof target === "object") {
+    const { x, y, z, label, name } = target;
+    if (label) return label;
+    if (name) return name;
+    if (x !== undefined && y !== undefined && z !== undefined) {
+      return `(${x}, ${y}, ${z})`;
+    }
+  }
+  return "target location";
+}
+
+/* ---------------------------------------------
+ * Inventory Extraction and Helpers
+ * --------------------------------------------- */
+
+export function extractInventory(context = {}) {
+  const candidates = [
+    context.inventory,
+    context?.npc?.inventory,
+    context?.agent?.inventory,
+    context?.state?.inventory
+  ].filter(Boolean);
+
+  const items = [];
+  for (const inv of candidates) {
+    if (Array.isArray(inv)) {
+      for (const item of inv) {
+        if (item && typeof item === "object" && item.name) {
+          items.push({
+            name: normalizeItemName(item.name),
+            count: resolveQuantity(item.count ?? item.quantity ?? 1, 1),
+            durability: resolveQuantity(item.durability, null),
+            maxDurability: resolveQuantity(item.maxDurability, null)
+          });
+        } else if (typeof item === "string") {
+          items.push({ name: normalizeItemName(item), count: 1 });
+        }
+      }
+    }
+  }
+  return items;
+}
+
+export function mergeInventories(...inventories) {
+  const merged = new Map();
+  for (const inv of inventories) {
+    for (const item of inv) {
+      const key = normalizeItemName(item.name);
+      const prev = merged.get(key) || { name: key, count: 0 };
+      merged.set(key, { ...prev, count: prev.count + (item.count || 1) });
+    }
+  }
+  return Array.from(merged.values());
+}
+
+export function hasInventoryItem(inventory, name, required = 1) {
+  const normalized = normalizeItemName(name);
+  const found = inventory.find(i => i.name === normalized);
+  return found ? found.count >= required : false;
+}
+
+export function countInventoryItems(inventory, name) {
+  const normalized = normalizeItemName(name);
+  const found = inventory.find(i => i.name === normalized);
+  return found ? found.count : 0;
+}
+
+/* ---------------------------------------------
+ * Requirement Formatting
+ * --------------------------------------------- */
+
+export function formatRequirementList(items = []) {
+  if (!Array.isArray(items) || items.length === 0) return "";
+  const parts = items.map(it => {
+    const c = it.count ? `${it.count} ` : "";
+    return `${c}${it.name}`;
+  });
+  if (parts.length === 1) return parts[0];
+  const last = parts.pop();
+  return `${parts.join(", ")} and ${last}`;
+}
+
+/* ---------------------------------------------
+ * Plan / Step Creation
+ * --------------------------------------------- */
+
+function generateStepId(title) {
+  const hash = crypto.randomBytes(3).toString("hex");
+  return `${normalizeItemName(title)}_${hash}`;
+}
+
+export function createStep({
+  title,
+  type = "action",
+  description = "",
+  metadata = {},
+  command = null,
+  order = null
+}) {
+  const stepId = generateStepId(title);
+  return {
+    id: stepId,
+    title,
+    type,
+    description,
+    command,
+    metadata,
+    orderIndex: order,
+    createdAt: Date.now()
+  };
 }
 
 export function createPlan({
   task,
   summary,
   steps,
-  estimatedDuration = 8000,
-  resources = [],
-  risks = [],
-  notes = []
+  estimatedDuration,
+  resources,
+  risks,
+  notes
 }) {
+  const planId = crypto.randomUUID();
   return {
-    action: task.action,
+    id: planId,
     summary,
+    task,
+    steps,
     estimatedDuration,
     resources,
-    steps: Array.isArray(steps) ? steps : [],
-    risks: Array.isArray(risks) ? risks : [],
-    notes: Array.isArray(notes) ? notes : []
+    risks,
+    notes,
+    createdAt: Date.now(),
+    schemaVersion: "1.2"
   };
 }
 
-export function createStep({ title, description, command = null, type = "generic", metadata = {} }) {
-  return {
-    title,
-    description,
-    command,
-    type,
-    metadata
-  };
+/* ---------------------------------------------
+ * Validation & Diagnostics
+ * --------------------------------------------- */
+
+export function validatePlan(plan) {
+  if (!plan || typeof plan !== "object") {
+    throw new Error("Invalid plan object");
+  }
+  if (!Array.isArray(plan.steps) || plan.steps.length === 0) {
+    throw new Error("Plan missing steps");
+  }
+  const invalid = plan.steps.filter(
+    s => !s.title || !s.type || typeof s.description !== "string"
+  );
+  if (invalid.length > 0) {
+    console.warn("⚠️ Invalid steps found:", invalid.map(s => s.title));
+  }
+  return true;
 }
 
-export function extractInventory(context = {}) {
-  const rawInventory = context.inventory || context?.npc?.inventory || [];
-  if (!Array.isArray(rawInventory)) {
-    return [];
-  }
+/* ---------------------------------------------
+ * Utility Logging (optional)
+ * --------------------------------------------- */
 
-  return rawInventory
-    .map(entry => {
-      if (entry && typeof entry === "object") {
-        const name = normalizeItemName(entry.name || entry.item || entry.id || entry.type);
-        const count = resolveQuantity(entry.count ?? entry.quantity ?? entry.amount, 1);
-        return { name, count: count ?? 1 };
-      }
-      if (typeof entry === "string") {
-        return { name: normalizeItemName(entry), count: 1 };
-      }
-      return null;
-    })
-    .filter(Boolean);
-}
-
-export function countInventoryItems(inventory, itemName) {
-  if (!Array.isArray(inventory) || !itemName) {
-    return 0;
-  }
-  const normalized = normalizeItemName(itemName);
-  return inventory.reduce((total, entry) => {
-    if (entry?.name === normalized) {
-      return total + (entry.count ?? 0);
-    }
-    return total;
-  }, 0);
-}
-
-export function hasInventoryItem(inventory, itemName, count = 1) {
-  if (!Array.isArray(inventory) || !itemName) {
-    return false;
-  }
-  const required = resolveQuantity(count, 1) ?? 1;
-  if (required <= 0) {
-    return true;
-  }
-  return countInventoryItems(inventory, itemName) >= required;
-}
-
-export function formatRequirementList(requirements = []) {
-  if (!Array.isArray(requirements) || requirements.length === 0) {
-    return "";
-  }
-
-  return requirements
-    .map(req => {
-      const name = normalizeItemName(req?.name || req?.item || req);
-      const count = resolveQuantity(req?.count ?? req?.quantity, null);
-      if (count && count > 0) {
-        return `${count} ${name}`;
-      }
-      return name;
-    })
-    .filter(Boolean)
-    .join(", ");
+export function debugLog(tag, message, data = null) {
+  const time = new Date().toISOString();
+  if (data) console.log(`[${time}] [${tag}] ${message}`, data);
+  else console.log(`[${time}] [${tag}] ${message}`);
 }

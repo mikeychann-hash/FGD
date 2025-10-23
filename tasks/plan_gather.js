@@ -1367,6 +1367,579 @@ function createToolManagementSteps(durabilityPlan) {
 }
 
 /* =====================================================
+ * AUTOMATION AWARENESS SYSTEM
+ * Suggest automated or more efficient methods
+ * ===================================================== */
+
+const AUTOMATION_OPTIONS = {
+  // Crop automation
+  wheat: {
+    automatable: true,
+    methods: [
+      {
+        name: "villager_farm",
+        type: "semi_auto",
+        effort: "medium",
+        yield: "high",
+        description: "Villager-based automatic crop collection",
+        requirements: ["villagers", "composter", "hoppers"],
+        efficiency: 0.95,
+        laborSavings: 0.9
+      },
+      {
+        name: "redstone_farm",
+        type: "full_auto",
+        effort: "high",
+        yield: "very_high",
+        description: "Fully automatic observer-piston farm",
+        requirements: ["observers", "pistons", "redstone", "hoppers"],
+        efficiency: 1.0,
+        laborSavings: 1.0
+      }
+    ]
+  },
+  carrots: {
+    automatable: true,
+    methods: [
+      {
+        name: "villager_farm",
+        type: "semi_auto",
+        effort: "medium",
+        yield: "high",
+        description: "Villager-based automatic crop collection",
+        requirements: ["villagers", "composter", "hoppers"],
+        efficiency: 0.95,
+        laborSavings: 0.9
+      }
+    ]
+  },
+  potatoes: {
+    automatable: true,
+    methods: [
+      {
+        name: "villager_farm",
+        type: "semi_auto",
+        effort: "medium",
+        yield: "high",
+        description: "Villager-based automatic crop collection",
+        requirements: ["villagers", "composter", "hoppers"],
+        efficiency: 0.95,
+        laborSavings: 0.9
+      }
+    ]
+  },
+
+  // Tree automation
+  oak_log: {
+    automatable: true,
+    methods: [
+      {
+        name: "tnt_tree_farm",
+        type: "semi_auto",
+        effort: "high",
+        yield: "very_high",
+        description: "TNT-based automatic tree harvesting",
+        requirements: ["tnt", "observers", "redstone"],
+        efficiency: 0.85,
+        laborSavings: 0.8
+      }
+    ]
+  },
+  birch_log: {
+    automatable: true,
+    methods: [
+      {
+        name: "tnt_tree_farm",
+        type: "semi_auto",
+        effort: "high",
+        yield: "very_high",
+        description: "TNT-based automatic tree harvesting",
+        requirements: ["tnt", "observers", "redstone"],
+        efficiency: 0.85,
+        laborSavings: 0.8
+      }
+    ]
+  },
+  spruce_log: {
+    automatable: true,
+    methods: [
+      {
+        name: "mega_spruce_farm",
+        type: "semi_auto",
+        effort: "very_high",
+        yield: "extreme",
+        description: "2x2 spruce tree automatic farm",
+        requirements: ["tnt", "observers", "redstone", "bone_meal_farm"],
+        efficiency: 0.9,
+        laborSavings: 0.85
+      }
+    ]
+  },
+
+  // Mining automation (limited)
+  cobblestone: {
+    automatable: true,
+    methods: [
+      {
+        name: "cobble_generator",
+        type: "full_auto",
+        effort: "low",
+        yield: "infinite",
+        description: "Automatic cobblestone generator",
+        requirements: ["water", "lava", "pistons", "observers"],
+        efficiency: 1.0,
+        laborSavings: 1.0
+      }
+    ]
+  },
+  stone: {
+    automatable: true,
+    methods: [
+      {
+        name: "stone_generator",
+        type: "full_auto",
+        effort: "medium",
+        yield: "infinite",
+        description: "Automatic stone generator with smelting",
+        requirements: ["water", "lava", "pistons", "observers", "furnaces"],
+        efficiency: 1.0,
+        laborSavings: 1.0
+      }
+    ]
+  },
+
+  // Special resources
+  iron_ingot: {
+    automatable: true,
+    methods: [
+      {
+        name: "iron_farm",
+        type: "full_auto",
+        effort: "very_high",
+        yield: "infinite",
+        description: "Automatic iron farm using villagers and golems",
+        requirements: ["villagers", "zombie", "water", "hoppers"],
+        efficiency: 1.0,
+        laborSavings: 1.0
+      }
+    ]
+  },
+  gold_ingot: {
+    automatable: true,
+    methods: [
+      {
+        name: "gold_farm",
+        type: "full_auto",
+        effort: "very_high",
+        yield: "infinite",
+        description: "Nether portal-based gold farm",
+        requirements: ["nether_portal", "turtle_eggs", "hoppers", "nether_access"],
+        efficiency: 1.0,
+        laborSavings: 1.0
+      }
+    ]
+  }
+};
+
+/**
+ * Analyze if automation is available and beneficial
+ */
+function analyzeAutomation(resourceProfile, params, context) {
+  const resource = resourceProfile.name;
+  const quantity = params.quantity || 0;
+
+  const automation = {
+    available: false,
+    recommended: false,
+    methods: [],
+    reasoning: "",
+    breakEvenPoint: null
+  };
+
+  // Check if resource has automation options
+  const options = AUTOMATION_OPTIONS[resource];
+  if (!options || !options.automatable) {
+    automation.reasoning = "No automation available for this resource.";
+    return automation;
+  }
+
+  automation.available = true;
+  automation.methods = options.methods;
+
+  // Determine if automation is recommended
+  if (quantity > 128) {
+    automation.recommended = true;
+    automation.reasoning = `Large quantity (${quantity}) suggests automation would save significant time.`;
+  } else if (quantity > 64) {
+    automation.recommended = true;
+    automation.reasoning = `Moderate quantity (${quantity}) - automation may be worthwhile for repeated gathering.`;
+  } else {
+    automation.recommended = false;
+    automation.reasoning = `Small quantity (${quantity}) - manual gathering is more efficient.`;
+  }
+
+  // Calculate break-even point for automation setup
+  if (automation.methods.length > 0) {
+    const bestMethod = automation.methods[0];
+    const setupTime = getAutomationSetupTime(bestMethod.effort);
+    const manualTime = quantity * 250; // Base time per unit
+    const autoTime = quantity * 250 * (1 - bestMethod.laborSavings);
+
+    const timeSaved = manualTime - autoTime;
+    const netBenefit = timeSaved - setupTime;
+
+    automation.breakEvenPoint = {
+      setupTime: Math.round(setupTime / 1000),
+      timeSavedPerOperation: Math.round(timeSaved / 1000),
+      netBenefit: Math.round(netBenefit / 1000),
+      operationsToBreakEven: Math.ceil(setupTime / timeSaved)
+    };
+  }
+
+  return automation;
+}
+
+/**
+ * Get estimated setup time for automation method
+ */
+function getAutomationSetupTime(effort) {
+  const times = {
+    low: 300000,      // 5 minutes
+    medium: 1800000,  // 30 minutes
+    high: 3600000,    // 1 hour
+    very_high: 7200000 // 2 hours
+  };
+  return times[effort] || 1800000;
+}
+
+/**
+ * Generate automation recommendations
+ */
+function generateAutomationRecommendations(automation, params) {
+  const recommendations = [];
+
+  if (!automation.available) {
+    return recommendations;
+  }
+
+  if (automation.recommended && automation.methods.length > 0) {
+    const method = automation.methods[0];
+    recommendations.push(
+      `Consider building a ${method.name} for ${params.resource} (${method.type}, ${method.laborSavings * 100}% labor savings).`
+    );
+
+    if (automation.breakEvenPoint) {
+      const bp = automation.breakEvenPoint;
+      if (bp.operationsToBreakEven <= 3) {
+        recommendations.push(
+          `Automation breaks even after ${bp.operationsToBreakEven} operations (~${bp.setupTime}s setup time).`
+        );
+      }
+    }
+
+    if (method.requirements.length > 0) {
+      recommendations.push(
+        `Required materials: ${method.requirements.slice(0, 3).join(", ")}${method.requirements.length > 3 ? "..." : ""}`
+      );
+    }
+  } else if (automation.available && !automation.recommended) {
+    recommendations.push(
+      `Automation available but not recommended for this quantity. Manual gathering is more efficient.`
+    );
+  }
+
+  return recommendations;
+}
+
+/* =====================================================
+ * YIELD PREDICTION SYSTEM
+ * Fortune enchantments and yield modifiers
+ * ===================================================== */
+
+const ENCHANTMENT_EFFECTS = {
+  fortune_i: {
+    name: "Fortune I",
+    applicable: ["diamond_ore", "coal_ore", "redstone_ore", "lapis_ore", "emerald_ore", "nether_quartz_ore"],
+    yieldMultiplier: 1.33,  // Average 33% increase
+    minYield: 1,
+    maxYield: 2,
+    description: "Increases ore drops"
+  },
+  fortune_ii: {
+    name: "Fortune II",
+    applicable: ["diamond_ore", "coal_ore", "redstone_ore", "lapis_ore", "emerald_ore", "nether_quartz_ore"],
+    yieldMultiplier: 1.75,  // Average 75% increase
+    minYield: 1,
+    maxYield: 3,
+    description: "Significantly increases ore drops"
+  },
+  fortune_iii: {
+    name: "Fortune III",
+    applicable: ["diamond_ore", "coal_ore", "redstone_ore", "lapis_ore", "emerald_ore", "nether_quartz_ore"],
+    yieldMultiplier: 2.2,   // Average 120% increase
+    minYield: 1,
+    maxYield: 4,
+    description: "Greatly increases ore drops"
+  },
+  looting_i: {
+    name: "Looting I",
+    applicable: ["mob_drops"],
+    yieldMultiplier: 1.15,
+    description: "Increases mob loot"
+  },
+  looting_ii: {
+    name: "Looting II",
+    applicable: ["mob_drops"],
+    yieldMultiplier: 1.30,
+    description: "Significantly increases mob loot"
+  },
+  looting_iii: {
+    name: "Looting III",
+    applicable: ["mob_drops"],
+    yieldMultiplier: 1.50,
+    description: "Greatly increases mob loot"
+  }
+};
+
+const CROP_MODIFIERS = {
+  bone_meal: {
+    name: "Bone Meal",
+    applicable: ["wheat", "carrots", "potatoes", "beetroots"],
+    speedMultiplier: 10.0,  // Instant growth
+    description: "Instantly grows crops to maturity"
+  },
+  fortune_crop: {
+    name: "Fortune (on crops)",
+    applicable: ["wheat_seeds", "carrot", "potato"],
+    yieldMultiplier: 1.5,  // Fortune affects seed/item drops
+    description: "Increases crop yield when harvesting"
+  }
+};
+
+/**
+ * Calculate yield predictions with enchantments
+ */
+function calculateYieldPrediction(params, inventoryCheck, context) {
+  const { resource, quantity, resourceProfile } = params;
+  const { primaryToolItem } = inventoryCheck;
+
+  const prediction = {
+    baseYield: quantity || 0,
+    modifiedYield: quantity || 0,
+    multiplier: 1.0,
+    enchantments: [],
+    modifiers: [],
+    recommendations: []
+  };
+
+  // Check for Fortune enchantment on tool
+  if (primaryToolItem && primaryToolItem.enchantments) {
+    for (const [enchant, level] of Object.entries(primaryToolItem.enchantments)) {
+      const enchantKey = `${enchant}_${level}`.toLowerCase();
+      const enchantEffect = ENCHANTMENT_EFFECTS[enchantKey];
+
+      if (enchantEffect && enchantEffect.applicable.includes(resource)) {
+        prediction.multiplier *= enchantEffect.yieldMultiplier;
+        prediction.enchantments.push({
+          name: enchantEffect.name,
+          multiplier: enchantEffect.yieldMultiplier,
+          range: enchantEffect.maxYield ? `${enchantEffect.minYield}-${enchantEffect.maxYield}` : null
+        });
+      }
+    }
+  }
+
+  // Check for crop modifiers
+  if (resourceProfile.type === "crop") {
+    if (context.boneMealAvailable) {
+      prediction.modifiers.push({
+        name: "Bone Meal",
+        effect: "10x faster growth",
+        recommendation: "Use bone meal to skip growth time"
+      });
+    }
+  }
+
+  // Calculate modified yield
+  prediction.modifiedYield = Math.round(prediction.baseYield * prediction.multiplier);
+
+  // Generate recommendations
+  if (prediction.multiplier === 1.0 && resourceProfile.type === "mining") {
+    // Check if Fortune would help
+    const fortuneEffect = ENCHANTMENT_EFFECTS.fortune_iii;
+    if (fortuneEffect.applicable.includes(resource)) {
+      const potentialYield = Math.round(prediction.baseYield * fortuneEffect.yieldMultiplier);
+      const bonusItems = potentialYield - prediction.baseYield;
+
+      prediction.recommendations.push(
+        `Fortune III would yield ~${bonusItems} additional ${resource} (${Math.round((fortuneEffect.yieldMultiplier - 1) * 100)}% increase).`
+      );
+    }
+  }
+
+  if (prediction.enchantments.length > 0) {
+    prediction.recommendations.push(
+      `Current enchantments will yield ~${prediction.modifiedYield} items (${Math.round((prediction.multiplier - 1) * 100)}% bonus).`
+    );
+  }
+
+  if (resourceProfile.type === "crop" && !context.boneMealAvailable && quantity > 64) {
+    prediction.recommendations.push(
+      `Consider bringing bone meal to accelerate crop growth (instant maturity).`
+    );
+  }
+
+  return prediction;
+}
+
+/* =====================================================
+ * ROUTE OPTIMIZATION SYSTEM
+ * Multi-resource gathering and pathfinding
+ * ===================================================== */
+
+/**
+ * Analyze if multiple resources can be gathered in one trip
+ */
+function analyzeMultiResourceOpportunities(task, context) {
+  const opportunities = {
+    nearby: [],
+    compatible: [],
+    recommendations: [],
+    routeOptimization: null
+  };
+
+  // Check if there are other pending tasks
+  const pendingTasks = context?.pendingTasks || context?.taskQueue || [];
+
+  if (pendingTasks.length === 0) {
+    return opportunities;
+  }
+
+  const currentTarget = task.target || {};
+  const currentBiome = task?.metadata?.biome || context?.biome;
+  const currentYLevel = currentTarget.y ?? context?.position?.y;
+
+  // Find nearby compatible tasks
+  for (const pendingTask of pendingTasks) {
+    const pendingTarget = pendingTask.target || {};
+    const pendingBiome = pendingTask?.metadata?.biome;
+
+    // Check spatial proximity (if coordinates available)
+    if (currentTarget.x !== undefined && pendingTarget.x !== undefined) {
+      const distance = Math.sqrt(
+        Math.pow(currentTarget.x - pendingTarget.x, 2) +
+        Math.pow(currentTarget.z - pendingTarget.z, 2)
+      );
+
+      if (distance < 500) {  // Within 500 blocks
+        opportunities.nearby.push({
+          task: pendingTask,
+          distance: Math.round(distance),
+          resource: pendingTask?.metadata?.resource || pendingTask.details
+        });
+      }
+    }
+
+    // Check biome compatibility
+    if (currentBiome && pendingBiome && currentBiome === pendingBiome) {
+      opportunities.compatible.push({
+        task: pendingTask,
+        reason: "same_biome",
+        resource: pendingTask?.metadata?.resource || pendingTask.details
+      });
+    }
+
+    // Check Y-level compatibility (for mining)
+    if (currentYLevel !== undefined && pendingTarget.y !== undefined) {
+      const yDiff = Math.abs(currentYLevel - pendingTarget.y);
+      if (yDiff < 20) {
+        opportunities.compatible.push({
+          task: pendingTask,
+          reason: "same_depth",
+          resource: pendingTask?.metadata?.resource || pendingTask.details
+        });
+      }
+    }
+  }
+
+  // Generate route optimization
+  if (opportunities.nearby.length > 0) {
+    const sortedByDistance = [...opportunities.nearby].sort((a, b) => a.distance - b.distance);
+    opportunities.routeOptimization = {
+      totalStops: sortedByDistance.length + 1,
+      suggestedOrder: [
+        task?.metadata?.resource || task.details,
+        ...sortedByDistance.map(o => o.resource)
+      ],
+      estimatedExtraTime: sortedByDistance.reduce((sum, o) => sum + (o.distance * 50), 0), // 50ms per block
+      travelSavings: calculateTravelSavings(sortedByDistance)
+    };
+  }
+
+  // Generate recommendations
+  if (opportunities.nearby.length > 0) {
+    opportunities.recommendations.push(
+      `${opportunities.nearby.length} gathering task(s) nearby - consider combining into one trip.`
+    );
+
+    if (opportunities.routeOptimization) {
+      const savings = opportunities.routeOptimization.travelSavings;
+      opportunities.recommendations.push(
+        `Multi-resource route saves ~${Math.round(savings / 1000)}s travel time.`
+      );
+    }
+  }
+
+  if (opportunities.compatible.length > 0 && opportunities.nearby.length === 0) {
+    opportunities.recommendations.push(
+      `${opportunities.compatible.length} compatible task(s) in same biome/depth - may be worth combining.`
+    );
+  }
+
+  return opportunities;
+}
+
+/**
+ * Calculate travel time savings from multi-resource route
+ */
+function calculateTravelSavings(nearbyTasks) {
+  if (nearbyTasks.length === 0) return 0;
+
+  // Individual trips: home -> task1 -> home + home -> task2 -> home
+  const individualTripTime = nearbyTasks.reduce((sum, task) => {
+    return sum + (task.distance * 2 * 50); // Round trip
+  }, 0);
+
+  // Combined trip: home -> task1 -> task2 -> ... -> home
+  const combinedTripTime = nearbyTasks.reduce((sum, task) => {
+    return sum + (task.distance * 50); // One way
+  }, 0);
+
+  return individualTripTime - combinedTripTime;
+}
+
+/**
+ * Generate route optimization steps
+ */
+function createRouteOptimizationStep(routeOptimization) {
+  if (!routeOptimization) return null;
+
+  const description = `Multi-resource route: ${routeOptimization.suggestedOrder.join(" → ")}. ` +
+    `Saves ~${Math.round(routeOptimization.travelSavings / 1000)}s travel time vs separate trips.`;
+
+  return createStep({
+    title: "Plan multi-resource route",
+    type: "preparation",
+    description,
+    metadata: {
+      stops: routeOptimization.totalStops,
+      order: routeOptimization.suggestedOrder,
+      timeSavings: routeOptimization.travelSavings
+    }
+  });
+}
+
+/* =====================================================
  * TASK PARAMETER EXTRACTION
  * Parse and normalize all task metadata
  * ===================================================== */
@@ -1827,7 +2400,7 @@ function calculateRealisticDuration(params, inventoryCheck, environmentalContext
 /**
  * Calculate plan metrics with comprehensive analysis
  */
-function calculatePlanMetrics(params, inventoryCheck, environmentalContext, hazards, task, strategy, durabilityPlan, inventoryRequirements) {
+function calculatePlanMetrics(params, inventoryCheck, environmentalContext, hazards, task, strategy, durabilityPlan, inventoryRequirements, automation, yieldPrediction, multiResource) {
   const {
     resource,
     tool,
@@ -1944,6 +2517,24 @@ function calculatePlanMetrics(params, inventoryCheck, environmentalContext, haza
     notes.push(...durabilityPlan.recommendations.slice(0, 2)); // Top 2 durability recommendations
   }
 
+  // Automation notes
+  if (automation && automation.available) {
+    const autoRecs = generateAutomationRecommendations(automation, params);
+    if (autoRecs.length > 0) {
+      notes.push(...autoRecs.slice(0, 2)); // Top 2 automation recommendations
+    }
+  }
+
+  // Yield prediction notes
+  if (yieldPrediction && yieldPrediction.recommendations.length > 0) {
+    notes.push(...yieldPrediction.recommendations.slice(0, 2)); // Top 2 yield recommendations
+  }
+
+  // Multi-resource route notes
+  if (multiResource && multiResource.recommendations.length > 0) {
+    notes.push(...multiResource.recommendations.slice(0, 2)); // Top 2 route recommendations
+  }
+
   // Scheduling notes
   if (weatherSensitive) {
     notes.push("Avoid harvesting during rain to protect crops.");
@@ -2047,8 +2638,40 @@ export function planGatherTask(task, context = {}) {
     inventoryCheck
   );
 
+  // Analyze automation opportunities
+  const automation = analyzeAutomation(params.resourceProfile, params, context);
+
+  // Calculate yield predictions
+  const yieldPrediction = calculateYieldPrediction(params, inventoryCheck, context);
+
+  // Analyze multi-resource opportunities
+  const multiResource = analyzeMultiResourceOpportunities(task, context);
+
   // Generate plan steps with all enhancements
   const allSteps = [];
+
+  // Add automation awareness step if recommended
+  if (automation.recommended && automation.methods.length > 0) {
+    const method = automation.methods[0];
+    allSteps.push(
+      createStep({
+        title: "Consider automation",
+        type: "planning",
+        description: `${method.name} available for ${params.resource} (${method.laborSavings * 100}% labor savings). ${automation.reasoning}`,
+        metadata: {
+          automation: method,
+          breakEvenPoint: automation.breakEvenPoint,
+          recommendations: generateAutomationRecommendations(automation, params)
+        }
+      })
+    );
+  }
+
+  // Add multi-resource route optimization step
+  const routeStep = createRouteOptimizationStep(multiResource.routeOptimization);
+  if (routeStep) {
+    allSteps.push(routeStep);
+  }
 
   // Add safety briefing step if there are hazards
   if (hazards.length > 0) {
@@ -2129,7 +2752,10 @@ export function planGatherTask(task, context = {}) {
     task,
     strategy,
     durabilityPlan,
-    inventoryRequirements
+    inventoryRequirements,
+    automation,
+    yieldPrediction,
+    multiResource
   );
 
   // Build summary with environmental context and strategy
@@ -2176,7 +2802,33 @@ export function planGatherTask(task, context = {}) {
       warnings: inventoryRequirements.warnings,
       recommendations: inventoryRequirements.recommendations,
       organization: inventoryOrganization
-    }
+    },
+    automation: automation.available ? {
+      available: automation.available,
+      recommended: automation.recommended,
+      reasoning: automation.reasoning,
+      methods: automation.methods.map(m => ({
+        name: m.name,
+        type: m.type,
+        laborSavings: m.laborSavings,
+        effort: m.effort
+      })),
+      breakEvenPoint: automation.breakEvenPoint
+    } : null,
+    yieldPrediction: {
+      baseYield: yieldPrediction.baseYield,
+      modifiedYield: yieldPrediction.modifiedYield,
+      multiplier: yieldPrediction.multiplier,
+      enchantments: yieldPrediction.enchantments,
+      modifiers: yieldPrediction.modifiers,
+      recommendations: yieldPrediction.recommendations
+    },
+    multiResource: multiResource.nearby.length > 0 || multiResource.compatible.length > 0 ? {
+      nearbyTasks: multiResource.nearby.length,
+      compatibleTasks: multiResource.compatible.length,
+      recommendations: multiResource.recommendations,
+      routeOptimization: multiResource.routeOptimization
+    } : null
   };
 
   return plan;

@@ -7,6 +7,7 @@ import { interpretCommand } from "./interpreter.js";
 import { generateModelTasks, DEFAULT_AUTONOMY_PROMPT_TEXT } from "./model_director.js";
 import { validateTask } from "./task_schema.js";
 import { planTask } from "./tasks/index.js";
+import { LearningEngine } from "./learning_engine.js";
 
 const TASK_TIMEOUT = 30000; // 30 seconds max per task
 const SIMULATED_TASK_DURATION = 3000;
@@ -60,6 +61,10 @@ export class NPCEngine extends EventEmitter {
     this.requireFeedback = options.requireFeedback ?? true;
     this.modelControlRatio = normalizeControlRatio(options.modelControlRatio);
     this.interpreterOptions = { ...(options.interpreterOptions || {}) };
+    this.learningEngine =
+      options.learningEngine === null
+        ? null
+        : options.learningEngine || new LearningEngine(options.learningOptions || {});
     this.autonomyConfig = null;
     this.autonomyTimer = null;
     this.autonomyRunning = false;
@@ -171,12 +176,28 @@ export class NPCEngine extends EventEmitter {
     this.autonomyRunning = true;
     try {
       const statusSnapshot = this.getStatus();
+      let npcContext = null;
+      if (this.learningEngine) {
+        try {
+          const npcIds = Array.isArray(statusSnapshot?.npcs)
+            ? statusSnapshot.npcs.map(npc => npc.id)
+            : [];
+          npcContext = this.learningEngine.getPlanningContext(npcIds, {
+            includeMemories: true,
+            memoryLimit: 5
+          });
+        } catch (err) {
+          console.error("⚠️  Failed to build NPC learning context:", err.message);
+        }
+      }
+
       const { tasks, rationale } = await generateModelTasks({
         statusSnapshot,
         instructions: this.autonomyConfig.instructions,
         maxTasks: this.autonomyConfig.maxTasks,
         mockResponse: this.autonomyConfig.mockResponse,
-        temperature: this.autonomyConfig.temperature
+        temperature: this.autonomyConfig.temperature,
+        npcContext
       });
 
       if (rationale) {
@@ -507,6 +528,15 @@ export class NPCEngine extends EventEmitter {
       console.log(`ℹ️  Completion metadata for ${npcId}:`, metadata);
     }
 
+    if (this.learningEngine && completedTask) {
+      try {
+        const metrics = buildTaskMetrics(completedTask, metadata, success);
+        this.learningEngine.recordTask(npcId, completedTask.action, success, metrics);
+      } catch (err) {
+        console.error("⚠️  Failed to record learning outcome:", err.message);
+      }
+    }
+
     this.emit("task_completed", {
       npcId,
       success,
@@ -555,7 +585,8 @@ export class NPCEngine extends EventEmitter {
       queueLength: this.taskQueue.length,
       queueByPriority: { high: 0, normal: 0, low: 0 },
       npcs: [],
-      bridgeConnected: Boolean(this.bridge?.isConnected?.())
+      bridgeConnected: Boolean(this.bridge?.isConnected?.()),
+      learningContext: null
     };
 
     for (const npc of this.npcs.values()) {
@@ -576,6 +607,17 @@ export class NPCEngine extends EventEmitter {
       const priority = entry.task.priority || "normal";
       if (status.queueByPriority[priority] != null) {
         status.queueByPriority[priority]++;
+      }
+    }
+
+    if (this.learningEngine) {
+      try {
+        status.learningContext = this.learningEngine.getPlanningContext(
+          status.npcs.map(npc => npc.id),
+          { includeMemories: false }
+        );
+      } catch (err) {
+        console.error("⚠️  Failed to gather learning context for status:", err.message);
       }
     }
 
@@ -727,7 +769,49 @@ function normalizeControlRatio(value) {
   return undefined;
 }
 
-if (process.argv[1].includes("npc_engine.js")) {
+function buildTaskMetrics(task, metadata, success) {
+  const metrics = {};
+
+  const duration = metadata?.duration || metadata?.plan?.estimatedDuration || task?.metadata?.duration;
+  if (Number.isFinite(duration)) {
+    metrics.duration = duration;
+  }
+
+  const output =
+    metadata?.resourcesGathered ??
+    metadata?.blocksMined ??
+    metadata?.itemsCrafted ??
+    task?.metadata?.output ??
+    null;
+  if (Number.isFinite(output)) {
+    metrics.resourcesGathered = output;
+  }
+
+  const errors = metadata?.errors ?? (!success && metadata ? 1 : 0);
+  if (Number.isFinite(errors)) {
+    metrics.errors = errors;
+  }
+
+  const efficiency = metadata?.efficiency || task?.metadata?.efficiency;
+  if (Number.isFinite(efficiency)) {
+    metrics.efficiency = efficiency;
+  }
+
+  if (metadata?.notes) {
+    metrics.metadata = { ...(metrics.metadata || {}), notes: metadata.notes };
+  }
+
+  if (metadata?.resourceList) {
+    metrics.metadata = {
+      ...(metrics.metadata || {}),
+      resourceList: metadata.resourceList
+    };
+  }
+
+  return metrics;
+}
+
+if (process.argv[1] && process.argv[1].includes("npc_engine.js")) {
   const engine = new NPCEngine();
   engine.registerNPC("npc_1", "miner");
   engine.registerNPC("npc_2", "builder");

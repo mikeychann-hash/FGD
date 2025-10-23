@@ -57,6 +57,13 @@ function normalizeOptionalName(value) {
   return normalized === "unspecified item" ? "" : normalized;
 }
 
+function formatList(values = []) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return "";
+  }
+  if (values.length === 1) {
+    return values[0];
+  }
 /**
  * Format array into natural language list
  * @param {string[]} values
@@ -354,6 +361,440 @@ const squadRoleProfiles = {
   }
 };
 
+function normalizeWeatherValue(value) {
+  if (!value || typeof value !== "string") {
+    return "";
+  }
+  return value.toLowerCase();
+}
+
+function determineWeaponRecommendations({ enemyTypes = [], inventory = [], stanceProfile, tactic = "", traits = {}, basePrimary, baseSecondary }) {
+  const normalizedEnemies = enemyTypes.map(name => normalizeItemName(name));
+  const matches = [];
+  const recommendedWeapons = new Set();
+  const availableCheck = weaponName => (weaponName ? hasInventoryItem(inventory, weaponName) : false);
+
+  enemyWeaponMatchups.forEach(matchup => {
+    const hits = normalizedEnemies.filter(name => matchup.enemies.includes(name));
+    if (hits.length > 0) {
+      const weapon = normalizeOptionalName(matchup.weapon);
+      if (weapon) {
+        recommendedWeapons.add(weapon);
+        matches.push({
+          weapon,
+          enemies: hits,
+          reason: matchup.reason,
+          available: availableCheck(weapon)
+        });
+      }
+    }
+  });
+
+  const aggression = typeof traits?.aggression === "number" ? traits.aggression : 0.3;
+  const preferMelee = !tactic.includes("ranged") && (stanceProfile?.name !== "ranged");
+
+  let primary = normalizeOptionalName(basePrimary);
+  let secondary = normalizeOptionalName(baseSecondary);
+
+  if (matches.length > 0) {
+    const priorityMatch = matches.find(entry => entry.available) || matches[0];
+    if (priorityMatch?.weapon) {
+      primary = priorityMatch.weapon;
+    }
+  }
+
+  if (!primary) {
+    if (!preferMelee) {
+      primary = "bow";
+    } else {
+      primary = aggression > 0.6 ? "axe" : "sword";
+    }
+  }
+
+  if (!secondary) {
+    secondary = preferMelee ? (aggression > 0.6 ? "sword" : "shield") : "sword";
+  }
+
+  if (primary) {
+    recommendedWeapons.add(primary);
+  }
+  if (secondary) {
+    recommendedWeapons.add(secondary);
+  }
+
+  return {
+    primary,
+    secondary,
+    loadout: Array.from(recommendedWeapons),
+    matches
+  };
+}
+
+function assignSquadRoles(squadMembers = [], metadataRoles = null, defaultLeader = "") {
+  if (squadMembers.length === 0) {
+    return [];
+  }
+
+  const desiredOrder = ["leader", "tank", "dps", "healer", "scout"];
+  const parsedAssignments = new Map();
+
+  if (metadataRoles) {
+    if (Array.isArray(metadataRoles)) {
+      metadataRoles.forEach(entry => {
+        if (entry && typeof entry === "object") {
+          const name = formatDisplayName(entry.name || entry.npc || entry.member);
+          const role = normalizeOptionalName(entry.role);
+          if (name && role) {
+            parsedAssignments.set(name, role);
+          }
+        } else if (typeof entry === "string") {
+          const [namePart, rolePart] = entry.split(":");
+          const name = formatDisplayName(namePart);
+          const role = normalizeOptionalName(rolePart);
+          if (name && role) {
+            parsedAssignments.set(name, role);
+          }
+        }
+      });
+    } else if (typeof metadataRoles === "object") {
+      Object.entries(metadataRoles).forEach(([nameKey, roleValue]) => {
+        const name = formatDisplayName(nameKey);
+        const role = normalizeOptionalName(roleValue);
+        if (name && role) {
+          parsedAssignments.set(name, role);
+        }
+      });
+    }
+  }
+
+  const assigned = [];
+  const remainingRoles = new Set(desiredOrder);
+
+  squadMembers.forEach(member => {
+    const formattedName = formatDisplayName(member);
+    if (!formattedName) {
+      return;
+    }
+    const explicitRole = parsedAssignments.get(formattedName);
+    if (explicitRole && squadRoleProfiles[explicitRole]) {
+      assigned.push({ name: formattedName, role: explicitRole });
+      remainingRoles.delete(explicitRole);
+    }
+  });
+
+  if (defaultLeader) {
+    const leaderName = formatDisplayName(defaultLeader);
+    const alreadyLeader = assigned.find(entry => entry.role === "leader");
+    if (!alreadyLeader && leaderName) {
+      const targetMember = assigned.find(entry => entry.name === leaderName);
+      if (targetMember) {
+        targetMember.role = "leader";
+        remainingRoles.delete("leader");
+      } else if (squadMembers.includes(defaultLeader)) {
+        assigned.push({ name: leaderName, role: "leader" });
+        remainingRoles.delete("leader");
+      }
+    }
+  }
+
+  squadMembers.forEach(member => {
+    const formattedName = formatDisplayName(member);
+    if (!formattedName) {
+      return;
+    }
+    const alreadyAssigned = assigned.find(entry => entry.name === formattedName);
+    if (alreadyAssigned) {
+      return;
+    }
+    const nextRole = desiredOrder.find(role => remainingRoles.has(role));
+    if (nextRole) {
+      assigned.push({ name: formattedName, role: nextRole });
+      remainingRoles.delete(nextRole);
+    } else {
+      assigned.push({ name: formattedName, role: "support" });
+    }
+  });
+
+  return assigned.map(entry => {
+    const profile = squadRoleProfiles[entry.role];
+    return {
+      ...entry,
+      summary: profile?.summary || "Provides support as needed.",
+      spacing: profile?.defaultSpacing || "maintain flexible positioning"
+    };
+  });
+}
+
+function extractDurabilityEntries(context = {}) {
+  const pools = [
+    context?.bridgeState?.equipmentDurability,
+    context?.bridgeState?.durability,
+    context?.npc?.equipmentDurability,
+    context?.npc?.durability,
+    context?.equipmentDurability
+  ];
+
+  const entries = [];
+
+  pools.forEach(pool => {
+    if (!pool) {
+      return;
+    }
+    if (Array.isArray(pool)) {
+      pool.forEach(item => {
+        if (item && typeof item === "object") {
+          const name = normalizeOptionalName(item.name || item.item || item.id);
+          const current = Number.isFinite(item.current)
+            ? item.current
+            : Number.isFinite(item.durability)
+            ? item.durability
+            : null;
+          const max = Number.isFinite(item.max)
+            ? item.max
+            : Number.isFinite(item.maxDurability)
+            ? item.maxDurability
+            : null;
+          if (name && (Number.isFinite(current) || Number.isFinite(max))) {
+            entries.push({ name, current, max });
+          }
+        } else if (typeof item === "string") {
+          const match = item.match(/([A-Za-z\s:_-]+)\s+durability\s+(?:is\s+)?(?:now\s*)?(\d+)(?:\/(\d+))?/i);
+          if (match) {
+            const name = normalizeOptionalName(match[1]);
+            const current = Number.parseInt(match[2], 10);
+            const max = match[3] ? Number.parseInt(match[3], 10) : null;
+            if (name) {
+              entries.push({ name, current, max });
+            }
+          }
+        }
+      });
+    } else if (typeof pool === "object") {
+      Object.entries(pool).forEach(([rawName, rawValue]) => {
+        const name = normalizeOptionalName(rawName);
+        if (!name) {
+          return;
+        }
+        if (typeof rawValue === "object") {
+          const current = Number.isFinite(rawValue.current)
+            ? rawValue.current
+            : Number.isFinite(rawValue.durability)
+            ? rawValue.durability
+            : null;
+          const max = Number.isFinite(rawValue.max)
+            ? rawValue.max
+            : Number.isFinite(rawValue.maxDurability)
+            ? rawValue.maxDurability
+            : null;
+          if (Number.isFinite(current) || Number.isFinite(max)) {
+            entries.push({ name, current, max });
+          }
+        } else if (Number.isFinite(rawValue)) {
+          entries.push({ name, current: rawValue, max: null });
+        } else if (typeof rawValue === "string") {
+          const match = rawValue.match(/(\d+)(?:\/(\d+))?/);
+          if (match) {
+            const current = Number.parseInt(match[1], 10);
+            const max = match[2] ? Number.parseInt(match[2], 10) : null;
+            entries.push({ name, current, max });
+          }
+        }
+      });
+    }
+  });
+
+  return entries;
+}
+
+function buildDurabilityAlerts(durabilityEntries = [], focusItems = []) {
+  if (durabilityEntries.length === 0) {
+    return [];
+  }
+
+  const normalizedFocus = focusItems.map(normalizeOptionalName).filter(Boolean);
+  const focusSet = new Set(normalizedFocus);
+
+  return durabilityEntries
+    .map(entry => {
+      const ratio = Number.isFinite(entry.current) && Number.isFinite(entry.max) && entry.max > 0
+        ? entry.current / entry.max
+        : null;
+      const isFocus = focusSet.size === 0 || focusSet.has(entry.name);
+      if (!isFocus) {
+        return null;
+      }
+      const level = ratio !== null && ratio <= 0.25 ? "critical" : ratio !== null && ratio <= 0.5 ? "low" : null;
+      if (!level && ratio !== null) {
+        return null;
+      }
+      return {
+        item: entry.name,
+        current: entry.current,
+        max: entry.max,
+        ratio,
+        level: level || "unknown"
+      };
+    })
+    .filter(Boolean);
+}
+
+function collectEnvironmentHazards({ environment = "", enemyTypes = [], context = {} }) {
+  const hazards = new Set();
+  const advice = [];
+  const normalizedEnvironment = normalizeItemName(environment);
+  const hazardFlags = Array.isArray(context?.bridgeState?.hazards)
+    ? context.bridgeState.hazards.map(flag => normalizeItemName(flag))
+    : [];
+
+  hazardFlags.forEach(flag => hazards.add(flag));
+
+  if (normalizedEnvironment.includes("nether")) {
+    hazards.add("fire");
+    hazards.add("lava");
+  }
+  if (normalizedEnvironment.includes("end")) {
+    hazards.add("void fall");
+  }
+  if (normalizedEnvironment.includes("ocean") || normalizedEnvironment.includes("underwater")) {
+    hazards.add("drowning");
+  }
+
+  if (enemyTypes.includes("blaze")) {
+    hazards.add("fire");
+    advice.push("Keep fire resistance handy—blaze volleys stack burn damage quickly.");
+  }
+  if (enemyTypes.includes("witch")) {
+    hazards.add("poison");
+    advice.push("Carry milk or honey to purge poison when witches connect.");
+  }
+  if (enemyTypes.includes("guardian") || enemyTypes.includes("elder guardian")) {
+    hazards.add("mining fatigue");
+  }
+  if (enemyTypes.includes("hoglin") || enemyTypes.includes("ravager")) {
+    hazards.add("knockback");
+    advice.push("Brace near solid walls to prevent knockback launches from hoglin or ravager charges.");
+  }
+
+  const weather = normalizeWeatherValue(context?.weather || context?.bridgeState?.weather);
+  if (weather.includes("storm") || weather.includes("thunder")) {
+    hazards.add("lightning");
+  }
+
+  return {
+    hazards: Array.from(hazards),
+    advice
+  };
+}
+
+function determineStanceTransitions({ initialStance, squadRoles = [], enemyTypes = [] }) {
+  const transitions = [];
+
+  if (initialStance && initialStance !== "aggressive") {
+    transitions.push({
+      from: initialStance,
+      to: "aggressive",
+      trigger: "combat_event",
+      condition: "Primary target health under 20% or enemy count reduced to one",
+      rationale: "Finish remaining enemies quickly once they are weakened."
+    });
+  }
+
+  const hasHealer = squadRoles.some(role => role.role === "healer");
+  const hasTank = squadRoles.some(role => role.role === "tank");
+
+  transitions.push({
+    from: "aggressive",
+    to: "defensive",
+    trigger: "combat_event",
+    condition: "Any ally health below 35% or shield breaks",
+    rationale: "Stabilize line and give healers time to recover."
+  });
+
+  if (hasHealer) {
+    transitions.push({
+      from: initialStance,
+      to: "defensive",
+      trigger: "combat_event",
+      condition: "Healer calls out potion cooldowns or healing resources depleted",
+      rationale: "Shift to defensive stance while support replenishes."
+    });
+  }
+
+  if (enemyTypes.includes("phantom") || enemyTypes.includes("ghast")) {
+    transitions.push({
+      from: initialStance,
+      to: "ranged",
+      trigger: "combat_event",
+      condition: "Airborne threats persist for more than 10 seconds",
+      rationale: "Swap to ranged focus to clear aerial mobs."
+    });
+  }
+
+  if (hasTank) {
+    transitions.push({
+      from: "defensive",
+      to: "guard",
+      trigger: "combat_event",
+      condition: "Tank secures aggro and allies recovered above 70% health",
+      rationale: "Return to zone control once the frontline is stable."
+    });
+  }
+
+  return transitions;
+}
+
+function buildHealthProtocols({ squadRoles = [], fallbackPlan = "", allies = [] }) {
+  const protocols = [];
+  const frontline = squadRoles.find(role => role.role === "tank") || squadRoles.find(role => role.role === "leader");
+
+  if (frontline) {
+    protocols.push({
+      trigger: "combat_update",
+      threshold: 0.35,
+      actor: frontline.name,
+      action: "Signal defensive swap and raise shields",
+      followUp: "npc_engine.replanTask('combat')"
+    });
+  }
+
+  const healer = squadRoles.find(role => role.role === "healer");
+  if (healer) {
+    protocols.push({
+      trigger: "combat_update",
+      threshold: 0.5,
+      actor: healer.name,
+      action: "Deploy splash healing or regeneration and call retreat if cooldowns empty",
+      followUp: "plan_safety.retreat"
+    });
+  }
+
+  protocols.push({
+    trigger: "combat_update",
+    threshold: 0.25,
+    actor: "squad",
+    action: `Fallback to ${fallbackPlan || "a safe rally point"} immediately if no healer response.`,
+    followUp: "plan_safety.retreat"
+  });
+
+  if (Array.isArray(allies) && allies.length > 0) {
+    allies.forEach(ally => {
+      if (!ally?.name || !Number.isFinite(ally?.maxHealth)) {
+        return;
+      }
+      const threshold = ally.maxHealth * 0.3;
+      protocols.push({
+        trigger: "combat_update",
+        thresholdAbsolute: threshold,
+        actor: formatDisplayName(ally.name),
+        action: "Auto-trigger shield wall and rotate to rear if health dips under 30%",
+        followUp: "npc_engine.replanTask('combat')"
+      });
+    });
+  }
+
+  return protocols;
+}
+
 const stanceProfiles = {
   aggressive: {
     name: "aggressive",
@@ -528,6 +969,18 @@ function parseTaskConfiguration(task, context) {
   const tactic = normalizeItemName(task?.metadata?.tactic || "melee");
   const enemyCount = resolveQuantity(task?.metadata?.count ?? task?.metadata?.enemyCount, 1) || 1;
   const support = normalizeOptionalName(task?.metadata?.support || "");
+  const environment = normalizeItemName(
+    task?.metadata?.environment ||
+      context?.environment ||
+      context?.bridgeState?.environment?.biome ||
+      "overworld"
+  );
+  const timeOfDay = normalizeOptionalName(
+    task?.metadata?.timeOfDay || context?.timeOfDay || context?.bridgeState?.timeOfDay
+  );
+  const weather = normalizeOptionalName(
+    task?.metadata?.weather || context?.weather || context?.bridgeState?.weather
+  );
   
   const environment = normalizeItemName(
     task?.metadata?.environment ||
@@ -550,6 +1003,7 @@ function parseTaskConfiguration(task, context) {
     context?.stance ||
     (tactic.includes("ranged") ? "ranged" : "guard")
   ) || "guard";
+  const stanceProfile = stanceProfiles[stanceKey] || stanceProfiles.guard;
   
   const stanceProfile = stanceProfiles[stanceKey] || stanceProfiles.guard;
   
@@ -561,6 +1015,14 @@ function parseTaskConfiguration(task, context) {
     : Array.isArray(task?.metadata?.team)
     ? task.metadata.team
     : [];
+  const squadMembers = squadMembersRaw
+    .map(entry => {
+      if (!entry) {
+        return null;
+      }
+      if (typeof entry === "string") {
+        return entry;
+      }
   
   const squadMembers = squadMembersRaw
     .map(entry => {
@@ -571,6 +1033,24 @@ function parseTaskConfiguration(task, context) {
       }
       return null;
     })
+    .filter(Boolean);
+  const squadDisplayNames = squadMembers.map(formatDisplayName);
+  const explicitLeaderName = task?.metadata?.squadLeader || task?.metadata?.leader;
+  const candidateLeaderName = explicitLeaderName
+    ? formatDisplayName(explicitLeaderName)
+    : squadDisplayNames[0] || (support ? formatDisplayName(support) : "");
+  const assignedRoles = assignSquadRoles(
+    squadDisplayNames,
+    task?.metadata?.squadRoles,
+    candidateLeaderName
+  );
+  const squadLeaderName = assignedRoles.find(role => role.role === "leader")?.name || candidateLeaderName;
+  const flankers = assignedRoles.length > 0
+    ? assignedRoles.filter(role => ["dps", "scout"].includes(role.role)).map(role => role.name)
+    : squadDisplayNames.slice(1, 3);
+  const coverMembers = assignedRoles.length > 0
+    ? assignedRoles.filter(role => ["healer", "support"].includes(role.role)).map(role => role.name)
+    : squadDisplayNames.slice(3);
     .filter(Boolean)
     .map(formatDisplayName);
   
@@ -1054,6 +1534,26 @@ function collectCountermeasureItems(config) {
       });
     }
   });
+
+  const inventory = extractInventory(context);
+
+  const environmentProfile = environmentProfiles.find(profile => {
+    try {
+      return profile.matches(environment);
+    } catch (error) {
+      return false;
+    }
+  });
+
+  const environmentHazards = collectEnvironmentHazards({
+    environment,
+    enemyTypes,
+    context: { ...context, weather }
+  });
+  const allies = Array.isArray(context?.bridgeState?.allies)
+    ? context.bridgeState.allies
+    : [];
+
   
   if (environmentProfile?.counterItems) {
     environmentProfile.counterItems.forEach(item => {
@@ -1067,6 +1567,51 @@ function collectCountermeasureItems(config) {
   return Array.from(recommendedCounterItems);
 }
 
+  const stanceWeaponPreference = stanceProfile?.weaponPreference || {};
+  const stanceExtras = Array.isArray(stanceWeaponPreference.extras)
+    ? stanceWeaponPreference.extras.map(normalizeOptionalName).filter(Boolean)
+    : [];
+  const weaponRecommendations = determineWeaponRecommendations({
+    enemyTypes,
+    inventory,
+    stanceProfile,
+    tactic,
+    traits: context?.npc?.traits,
+    basePrimary: stanceWeaponPreference.primary || (tactic.includes("ranged") ? "bow" : "sword"),
+    baseSecondary: stanceWeaponPreference.secondary || (tactic.includes("shield") ? "shield" : "sword")
+  });
+
+  const primaryWeapon = normalizeOptionalName(
+    task?.metadata?.primaryWeapon ||
+      weaponRecommendations.primary ||
+      stanceWeaponPreference.primary ||
+      (tactic.includes("ranged") ? "bow" : "sword")
+  );
+  const secondaryWeapon = normalizeOptionalName(
+    task?.metadata?.secondaryWeapon ||
+      weaponRecommendations.secondary ||
+      stanceWeaponPreference.secondary ||
+      (tactic.includes("shield") ? "shield" : "sword")
+  );
+
+  const requiredEquipment = Array.from(
+    new Set([primaryWeapon, secondaryWeapon, "armor", ...stanceExtras, ...weaponRecommendations.loadout].filter(Boolean))
+  );
+  const stanceWeaponsDisplay = [primaryWeapon, secondaryWeapon, ...stanceExtras]
+    .filter(Boolean)
+    .map(formatDisplayName);
+
+  const potions = Array.isArray(task?.metadata?.potions)
+    ? task.metadata.potions.map(normalizeItemName)
+    : task?.metadata?.potions
+    ? [normalizeItemName(task.metadata.potions)]
+    : [];
+  const missingEquipment = requiredEquipment.filter(item => !hasInventoryItem(inventory, item));
+  const missingPotions = potions.filter(item => !hasInventoryItem(inventory, item));
+  const counterItems = Array.from(recommendedCounterItems);
+  const missingCounterItems = counterItems.filter(item => !hasInventoryItem(inventory, item));
+  const missingPotionsSummary = formatRequirementList(missingPotions);
+  const counterItemsSummary = formatRequirementList(counterItems);
 // ============================================================================
 // STEP BUILDERS
 // ============================================================================
@@ -1076,6 +1621,27 @@ function collectCountermeasureItems(config) {
  */
 function buildPreparationSteps(config) {
   const steps = [];
+
+  const weaponMatchDescription = weaponRecommendations.matches
+    .map(match => {
+      const enemyList = formatList(match.enemies.map(formatDisplayName));
+      const availability = match.available ? "" : " (retrieve or craft first)";
+      return `${formatDisplayName(match.weapon)} vs ${enemyList}${availability}.`;
+    })
+    .join(" ");
+  const durabilityEntries = extractDurabilityEntries(context);
+  const durabilityAlerts = buildDurabilityAlerts(durabilityEntries, requiredEquipment);
+  const stanceTransitions = determineStanceTransitions({
+    initialStance: stanceProfile?.name,
+    squadRoles: assignedRoles,
+    enemyTypes
+  });
+  const healthProtocols = buildHealthProtocols({
+    squadRoles: assignedRoles,
+    fallbackPlan: backupPlan,
+    allies
+  });
+
   const {
     target,
     requiredEquipment,
@@ -1108,6 +1674,8 @@ function buildPreparationSteps(config) {
       }
     })
   );
+
+  if (weaponRecommendations.matches.length > 0) {
   
   // Weapon alignments
   if (weaponRecommendations.matches.length > 0) {
@@ -1128,6 +1696,7 @@ function buildPreparationSteps(config) {
       })
     );
   }
+
   
   // Potions
   if (potions.length > 0) {
@@ -1241,6 +1810,21 @@ function buildTacticalSteps(config) {
       })
     );
   }
+
+  if (stanceProfile?.description) {
+    const stanceDescriptionParts = [
+      `${formatDisplayName(stanceProfile.name)} stance: ${stanceProfile.description}`
+    ];
+    if (stanceProfile.engagementDistance) {
+      stanceDescriptionParts.push(`Maintain ${stanceProfile.engagementDistance}.`);
+    }
+    if (stanceWeaponsDisplay.length > 0) {
+      stanceDescriptionParts.push(`Favor ${formatList(stanceWeaponsDisplay)} for primary damage.`);
+    }
+    if (stanceProfile.squadAdvice) {
+      stanceDescriptionParts.push(stanceProfile.squadAdvice);
+    }
+
   
   // Stance adoption
   if (stanceProfile?.description) {
@@ -1259,6 +1843,7 @@ function buildTacticalSteps(config) {
       createStep({
         title: "Adopt stance",
         type: "strategy",
+        description: stanceDescriptionParts.join(" "),
         description: stanceDescription,
         metadata: {
           stance: stanceProfile.name,
@@ -1272,6 +1857,14 @@ function buildTacticalSteps(config) {
       })
     );
   }
+
+  if (stanceTransitions.length > 0) {
+    const transitionDescription = stanceTransitions
+      .map(
+        transition =>
+          `Swap from ${formatDisplayName(transition.from)} to ${formatDisplayName(transition.to)} when ${transition.condition}.`
+      )
+      .join(" ");
   
   // Stance transitions
   if (stanceTransitions.length > 0) {
@@ -1294,6 +1887,7 @@ function buildTacticalSteps(config) {
       })
     );
   }
+
   
   // Durability monitoring
   if (durabilityAlerts.length > 0) {
@@ -1317,6 +1911,38 @@ function buildTacticalSteps(config) {
       })
     );
   }
+
+  if (healthProtocols.length > 0) {
+    const protocolDescription = healthProtocols
+      .map(protocol => {
+        const thresholdText = protocol.thresholdAbsolute
+          ? `below ${Math.round(protocol.thresholdAbsolute)}`
+          : `${Math.round((protocol.threshold || 0) * 100)}%`; 
+        return `${protocol.actor} reacts if health ${protocol.thresholdAbsolute ? "drops" : "falls"} ${thresholdText}: ${protocol.action}.`;
+      })
+      .join(" ");
+    steps.push(
+      createStep({
+        title: "Stabilize when injured",
+        type: "contingency",
+        description: `Leverage safety sub-plans when health thresholds are crossed. ${protocolDescription}`,
+        metadata: {
+          protocols: healthProtocols,
+          replan: "combat_update"
+        }
+      })
+    );
+  }
+
+  const engageDescriptionParts = [
+    `Engage ${target} near ${targetDescription} using ${tactic} tactics while maintaining spacing to avoid damage.`
+  ];
+
+  if (prioritizedEnemies.length > 1) {
+    engageDescriptionParts.push(
+      `Eliminate threats following the priority order: ${prioritizedEnemies
+        .map(detail => detail.displayName)
+        .join(", ")}.`
   
   // Environmental conditions
   const conditionAdvice = [];
@@ -1356,6 +1982,47 @@ function buildTacticalSteps(config) {
   return steps;
 }
 
+  if (stanceProfile?.engagementDistance) {
+    engageDescriptionParts.push(`Maintain ${stanceProfile.engagementDistance} as part of the ${formatDisplayName(stanceProfile.name)} stance.`);
+  }
+  if (stanceWeaponsDisplay.length > 0) {
+    engageDescriptionParts.push(`Keep ${formatList(stanceWeaponsDisplay)} ready for focus targets.`);
+  }
+
+  const conditionAdvice = [];
+  const weatherValue = weather || "";
+  if (timeOfDay === "night") {
+    conditionAdvice.push("Night visibility is low—carry torches and leverage shields against surprise hits.");
+  }
+  if (timeOfDay === "night" && enemyTypes.includes("skeleton")) {
+    conditionAdvice.push("Avoid trading open-field shots with skeletons at night; pull them into cover or wait for dawn.");
+  }
+  if (timeOfDay === "day" && enemyTypes.includes("zombie")) {
+    conditionAdvice.push("Use daylight to weaken zombies in exposed areas when possible.");
+  }
+  if (weatherValue.includes("storm") || weatherValue.includes("thunder")) {
+    conditionAdvice.push("Thunderstorms spawn extra mobs and can trigger charged creepers—limit time in open terrain.");
+  }
+  if (weatherValue.includes("rain") && enemyTypes.includes("blaze")) {
+    conditionAdvice.push("Rain hampers blaze fireballs—fight them outdoors to capitalize on the weather.");
+  }
+  if (environmentHazards.advice.length > 0) {
+    conditionAdvice.push(...environmentHazards.advice);
+  }
+
+  if (conditionAdvice.length > 0) {
+    steps.push(
+      createStep({
+        title: "Adapt to conditions",
+        type: "awareness",
+        description: conditionAdvice.join(" "),
+        metadata: { timeOfDay, weather, hazards: environmentHazards.hazards }
+      })
+    );
+  }
+
+  if (squadLeaderName || squadDisplayNames.length > 0) {
+    const squadDescriptionParts = [];
 /**
  * Build coordination steps
  */
@@ -1397,6 +2064,7 @@ function buildCoordinationSteps(config) {
       squadDescriptionParts.push("Coordinate roles to maintain pressure on the primary target.");
     }
     squadDescriptionParts.push("Sync callouts using Collab Engine tactics for focus fire and retreats.");
+
     
     steps.push(
       createStep({
@@ -1407,6 +2075,7 @@ function buildCoordinationSteps(config) {
           leader: squadLeaderName,
           flankers,
           cover: coverMembers,
+          squad: squadDisplayNames,
           squad: squadMembers,
           stance: stanceProfile.name,
           roles: assignedRoles
@@ -1414,6 +2083,7 @@ function buildCoordinationSteps(config) {
       })
     );
   }
+
   
   // Health protocols
   if (healthProtocols.length > 0) {
@@ -1516,6 +2186,9 @@ function buildActionSteps(config) {
       }
     })
   );
+
+  if (support) {
+    const supportDisplay = formatDisplayName(support);
   
   // Support coordination
   if (support) {
@@ -1523,8 +2196,8 @@ function buildActionSteps(config) {
       createStep({
         title: "Coordinate support",
         type: "communication",
-        description: `Coordinate with ${support} for focus fire or healing as needed.`,
-        metadata: { support }
+        description: `Coordinate with ${supportDisplay} for focus fire or healing as needed.`,
+        metadata: { support: supportDisplay }
       })
     );
   }
@@ -1604,6 +2277,14 @@ function buildRisks(config) {
   if (missingCounterItems.length > 0) {
     risks.push("Missing specialized countermeasures leaves you vulnerable to unique enemy abilities.");
   }
+  if (weaponRecommendations.matches.some(match => !match.available)) {
+    risks.push("Optimal weapon enchantments are missing; expect longer time-to-kill on priority targets.");
+  }
+  if (durabilityAlerts.some(alert => alert.level === "critical")) {
+    risks.push("Critical durability reported—swap or repair weapons before they break mid-fight.");
+  } else if (durabilityAlerts.some(alert => alert.level === "low")) {
+    risks.push("Several weapons are at half durability; carry backups in case they fail mid-combat.");
+  }
   if (weaponRecommendations.matches.some(m => !m.available)) {
     risks.push("Optimal weapon enchantments are missing; expect longer time-to-kill on priority targets.");
   }
@@ -1631,6 +2312,10 @@ function buildRisks(config) {
     lightning: "Lightning strikes likely during storms—avoid tall metal structures.",
     "void fall": "Void exposure—any knockback could be fatal without slow falling."
   };
+  const combinedHazards = new Set([...(environmentProfile?.hazards || []), ...(environmentHazards.hazards || [])]);
+  combinedHazards.forEach(hazard => {
+    const normalizedHazard = normalizeItemName(hazard);
+    const message = hazardRiskMessages[normalizedHazard];
   
   const combinedHazards = new Set([
     ...(environmentProfile?.hazards || []),
@@ -1738,6 +2423,83 @@ function buildNotes(config) {
       squadNoteParts.push(`Assignments: ${squadRoleDetails}`);
     }
     notes.push(`Squad roles (${formatDisplayName(stanceProfile.name)} stance): ${squadNoteParts.join("; ")}.`);
+  }
+  if (timeOfDay) {
+    const timeNote = `Time of day: ${formatDisplayName(timeOfDay)}.`;
+    if (!notes.includes(timeNote)) {
+      notes.push(timeNote);
+    }
+  }
+  if (weather) {
+    const weatherNote = `Weather: ${formatDisplayName(weather)}.`;
+    if (!notes.includes(weatherNote)) {
+      notes.push(weatherNote);
+    }
+  }
+  if (weaponRecommendations.matches.length > 0) {
+    const weaponNote = `Weapon counters: ${weaponRecommendations.matches
+      .map(match => `${formatDisplayName(match.weapon)} vs ${formatList(match.enemies.map(formatDisplayName))}`)
+      .join("; ")}.`;
+    if (!notes.includes(weaponNote)) {
+      notes.push(weaponNote);
+    }
+  }
+  if (stanceTransitions.length > 0) {
+    const transitionNote = `Stance transitions queued: ${stanceTransitions
+      .map(transition => `${formatDisplayName(transition.from)}→${formatDisplayName(transition.to)} when ${transition.condition}`)
+      .join("; ")}.`;
+    if (!notes.includes(transitionNote)) {
+      notes.push(transitionNote);
+    }
+  }
+  if (healthProtocols.length > 0) {
+    const protocolNote = `Health triggers: ${healthProtocols
+      .map(protocol => {
+        const thresholdText = protocol.thresholdAbsolute
+          ? `${Math.round(protocol.thresholdAbsolute)} HP`
+          : `${Math.round((protocol.threshold || 0) * 100)}%`;
+        return `${protocol.actor} → ${protocol.action} @ ${thresholdText}`;
+      })
+      .join("; ")}.`;
+    if (!notes.includes(protocolNote)) {
+      notes.push(protocolNote);
+    }
+  }
+  if (durabilityAlerts.length > 0) {
+    const durabilityNote = `Durability alerts: ${durabilityAlerts
+      .map(alert => `${formatDisplayName(alert.item)} ${alert.level}${alert.max ? ` (${alert.current}/${alert.max})` : ""}`)
+      .join("; ")}.`;
+    if (!notes.includes(durabilityNote)) {
+      notes.push(durabilityNote);
+    }
+  }
+  if (environmentHazards.hazards.length > 0) {
+    const hazardNote = `Hazard flags: ${environmentHazards.hazards.map(formatDisplayName).join(", ")}.`;
+    if (!notes.includes(hazardNote)) {
+      notes.push(hazardNote);
+    }
+  }
+  if (squadDisplayNames.length > 0) {
+    const squadRoleDetails = assignedRoles.length > 0
+      ? assignedRoles.map(role => `${role.name}=${formatDisplayName(role.role)}`).join(", ")
+      : [];
+    const squadNoteParts = [];
+    if (squadLeaderName) {
+      squadNoteParts.push(`Lead: ${squadLeaderName}`);
+    }
+    if (flankers.length > 0) {
+      squadNoteParts.push(`Flankers: ${formatList(flankers)}`);
+    }
+    if (coverMembers.length > 0) {
+      squadNoteParts.push(`Cover: ${formatList(coverMembers)}`);
+    }
+    if (squadRoleDetails && squadRoleDetails.length > 0) {
+      squadNoteParts.push(`Assignments: ${squadRoleDetails}`);
+    }
+    const squadNote = `Squad roles (${formatDisplayName(stanceProfile.name)} stance): ${squadNoteParts.join("; ")}.`;
+    if (!notes.includes(squadNote)) {
+      notes.push(squadNote);
+    }
   }
   
   return notes;

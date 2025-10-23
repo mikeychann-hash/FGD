@@ -1,5 +1,5 @@
 // tasks/plan_combat.js
-// Planning logic for combat engagements
+// Planning logic for combat engagements - REFACTORED
 
 import {
   createPlan,
@@ -12,10 +12,34 @@ import {
   resolveQuantity
 } from "./helpers.js";
 
+// ============================================================================
+// CONFIGURATION CONSTANTS
+// ============================================================================
+
+const COMBAT_CONFIG = {
+  BASE_DURATION_MS: 9000,
+  DURATION_PER_ENEMY_MS: 1200,
+  DURABILITY_CRITICAL_THRESHOLD: 0.25,
+  DURABILITY_LOW_THRESHOLD: 0.50,
+  HEALTH_CRITICAL_THRESHOLD: 0.25,
+  HEALTH_LOW_THRESHOLD: 0.35,
+  HEALTH_HEALER_THRESHOLD: 0.50,
+  HEALTH_ALLY_THRESHOLD: 0.30
+};
+
+const ROLE_ORDER = ["leader", "tank", "dps", "healer", "scout"];
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+/**
+ * Format a display name with proper capitalization
+ * @param {string} name
+ * @returns {string}
+ */
 function formatDisplayName(name) {
-  if (!name) {
-    return "Unknown";
-  }
+  if (!name) return "Unknown";
   return name
     .split(" ")
     .filter(Boolean)
@@ -23,6 +47,11 @@ function formatDisplayName(name) {
     .join(" ");
 }
 
+/**
+ * Normalize optional name, returns empty string for "unspecified item"
+ * @param {string} value
+ * @returns {string}
+ */
 function normalizeOptionalName(value) {
   const normalized = normalizeItemName(value);
   return normalized === "unspecified item" ? "" : normalized;
@@ -35,9 +64,53 @@ function formatList(values = []) {
   if (values.length === 1) {
     return values[0];
   }
+/**
+ * Format array into natural language list
+ * @param {string[]} values
+ * @returns {string}
+ */
+function formatList(values = []) {
+  if (!Array.isArray(values) || values.length === 0) return "";
+  if (values.length === 1) return values[0];
   const last = values[values.length - 1];
   return `${values.slice(0, -1).join(", ")} and ${last}`;
 }
+
+/**
+ * Build description from parts, filtering out falsy values
+ * @param {Array<string|false|null|undefined>} parts
+ * @returns {string}
+ */
+function buildDescription(parts) {
+  return parts.filter(Boolean).join(" ");
+}
+
+/**
+ * Calculate durability ratio safely
+ * @param {number} current
+ * @param {number} max
+ * @returns {number|null}
+ */
+function calculateDurabilityRatio(current, max) {
+  if (!Number.isFinite(current) || !Number.isFinite(max) || max <= 0) {
+    return null;
+  }
+  return current / max;
+}
+
+/**
+ * Normalize weather value
+ * @param {string} value
+ * @returns {string}
+ */
+function normalizeWeatherValue(value) {
+  if (!value || typeof value !== "string") return "";
+  return value.toLowerCase();
+}
+
+// ============================================================================
+// DATA PROFILES
+// ============================================================================
 
 const enemyProfiles = {
   "charged creeper": {
@@ -82,13 +155,13 @@ const enemyProfiles = {
     dodge: "Block tunnel entries and backstep during leap attacks.",
     risk: "Poison stacks can be lethal without milk or regeneration."
   },
-  "enderman": {
+  enderman: {
     priority: 2,
     reason: "High damage teleporting strikes once provoked.",
     dodge: "Fight under a two-block shelter and avoid prolonged eye contact.",
     risk: "Teleporting hits bypass shields if player is exposed."
   },
-  "wither": {
+  wither: {
     priority: 1,
     reason: "Boss-level destruction and wither skull projectiles.",
     dodge: "Use cover to block skulls, strafe constantly, and drink milk to clear wither.",
@@ -100,7 +173,7 @@ const enemyProfiles = {
     dodge: "Break line of sight behind blocks to interrupt the laser.",
     risk: "Mining fatigue prevents quick retreat or potion brewing underwater."
   },
-  "guardian": {
+  guardian: {
     priority: 2,
     reason: "High ranged laser damage underwater.",
     dodge: "Use cover pillars to reset laser charge and strafe underwater.",
@@ -160,13 +233,13 @@ const enemyProfiles = {
     dodge: "Dive under trident arcs and close distance quickly when they throw.",
     risk: "Trident hits can be lethal without armor."
   },
-  "stray": {
+  stray: {
     priority: 2,
     reason: "Applies slowness arrows making dodging harder.",
     dodge: "Use cover and shields, then rush before additional arrows land.",
     risk: "Slowness makes retreat difficult in open biomes."
   },
-  "hoglin": {
+  hoglin: {
     priority: 2,
     reason: "Charges deal high knockback and damage.",
     dodge: "Sidestep charges and counterattack while it recoils.",
@@ -178,13 +251,13 @@ const enemyProfiles = {
     dodge: "Use shields and sprint strafe to avoid consecutive hits.",
     risk: "Two hits can defeat even armored fighters."
   },
-  "zoglin": {
+  zoglin: {
     priority: 2,
     reason: "Aggressive knockback even to armored players.",
     dodge: "Circle strafe and strike after it lunges past you.",
     risk: "Knockback can cause fall damage or lava spills."
   },
-  "phantom": {
+  phantom: {
     priority: 3,
     reason: "Aerial dives harass from above when sleep deprived.",
     dodge: "Look up and strafe when they swoop, striking during their dive path.",
@@ -807,7 +880,89 @@ const environmentProfiles = [
   }
 ];
 
-export function planCombatTask(task, context = {}) {
+// ============================================================================
+// PARSERS
+// ============================================================================
+
+const DurabilityParser = {
+  fromObject(item) {
+    const name = normalizeOptionalName(item.name || item.item || item.id);
+    const current = Number.isFinite(item.current)
+      ? item.current
+      : Number.isFinite(item.durability)
+      ? item.durability
+      : null;
+    const max = Number.isFinite(item.max)
+      ? item.max
+      : Number.isFinite(item.maxDurability)
+      ? item.maxDurability
+      : null;
+    
+    if (name && (Number.isFinite(current) || Number.isFinite(max))) {
+      return { name, current, max };
+    }
+    return null;
+  },
+
+  fromString(str) {
+    const match = str.match(/([A-Za-z\s:_-]+)\s+durability\s+(?:is\s+)?(?:now\s*)?(\d+)(?:\/(\d+))?/i);
+    if (match) {
+      const name = normalizeOptionalName(match[1]);
+      const current = Number.parseInt(match[2], 10);
+      const max = match[3] ? Number.parseInt(match[3], 10) : null;
+      if (name) {
+        return { name, current, max };
+      }
+    }
+    return null;
+  },
+
+  fromArrayOrObject(pool) {
+    if (Array.isArray(pool)) {
+      return pool.map(item => {
+        if (typeof item === "string") return this.fromString(item);
+        if (typeof item === "object") return this.fromObject(item);
+        return null;
+      }).filter(Boolean);
+    }
+    
+    if (typeof pool === "object") {
+      return Object.entries(pool).map(([rawName, rawValue]) => {
+        const name = normalizeOptionalName(rawName);
+        if (!name) return null;
+        
+        if (typeof rawValue === "object") {
+          return this.fromObject({ name, ...rawValue });
+        }
+        if (Number.isFinite(rawValue)) {
+          return { name, current: rawValue, max: null };
+        }
+        if (typeof rawValue === "string") {
+          const match = rawValue.match(/(\d+)(?:\/(\d+))?/);
+          if (match) {
+            return {
+              name,
+              current: Number.parseInt(match[1], 10),
+              max: match[2] ? Number.parseInt(match[2], 10) : null
+            };
+          }
+        }
+        return null;
+      }).filter(Boolean);
+    }
+    
+    return [];
+  }
+};
+
+// ============================================================================
+// CORE LOGIC FUNCTIONS
+// ============================================================================
+
+/**
+ * Parse and normalize task configuration
+ */
+function parseTaskConfiguration(task, context) {
   const target = normalizeItemName(task?.metadata?.targetEntity || task.details || "hostile mob");
   const targetDescription = describeTarget(task.target);
   const backupPlan = normalizeItemName(task?.metadata?.fallback || "retreat to base");
@@ -826,6 +981,22 @@ export function planCombatTask(task, context = {}) {
   const weather = normalizeOptionalName(
     task?.metadata?.weather || context?.weather || context?.bridgeState?.weather
   );
+  
+  const environment = normalizeItemName(
+    task?.metadata?.environment ||
+    context?.environment ||
+    context?.bridgeState?.environment?.biome ||
+    "overworld"
+  );
+  
+  const timeOfDay = normalizeOptionalName(
+    task?.metadata?.timeOfDay || context?.timeOfDay || context?.bridgeState?.timeOfDay
+  );
+  
+  const weather = normalizeOptionalName(
+    task?.metadata?.weather || context?.weather || context?.bridgeState?.weather
+  );
+  
   const stanceKey = normalizeOptionalName(
     task?.metadata?.stance ||
     context?.npc?.stance ||
@@ -833,6 +1004,10 @@ export function planCombatTask(task, context = {}) {
     (tactic.includes("ranged") ? "ranged" : "guard")
   ) || "guard";
   const stanceProfile = stanceProfiles[stanceKey] || stanceProfiles.guard;
+  
+  const stanceProfile = stanceProfiles[stanceKey] || stanceProfiles.guard;
+  
+  // Parse squad members
   const squadMembersRaw = Array.isArray(task?.metadata?.squadMembers)
     ? task.metadata.squadMembers
     : Array.isArray(task?.metadata?.squad)
@@ -848,6 +1023,11 @@ export function planCombatTask(task, context = {}) {
       if (typeof entry === "string") {
         return entry;
       }
+  
+  const squadMembers = squadMembersRaw
+    .map(entry => {
+      if (!entry) return null;
+      if (typeof entry === "string") return entry;
       if (typeof entry === "object") {
         return entry.name || entry.label || entry.id || entry.role || null;
       }
@@ -871,68 +1051,478 @@ export function planCombatTask(task, context = {}) {
   const coverMembers = assignedRoles.length > 0
     ? assignedRoles.filter(role => ["healer", "support"].includes(role.role)).map(role => role.name)
     : squadDisplayNames.slice(3);
+    .filter(Boolean)
+    .map(formatDisplayName);
+  
+  // Parse enemy types
   const additionalTargets = [];
-
   if (Array.isArray(task?.metadata?.enemyTypes)) {
-    additionalTargets.push(...task.metadata.enemyTypes.map(normalizeItemName));
+    additionalTargets.push(...task.metadata.enemyTypes);
   }
   if (Array.isArray(task?.metadata?.additionalHostiles)) {
-    additionalTargets.push(...task.metadata.additionalHostiles.map(normalizeItemName));
+    additionalTargets.push(...task.metadata.additionalHostiles);
   }
   if (typeof task?.metadata?.secondaryTarget === "string") {
-    additionalTargets.push(normalizeItemName(task.metadata.secondaryTarget));
+    additionalTargets.push(task.metadata.secondaryTarget);
   }
+  
+  const enemyTypes = [...new Set([target, ...additionalTargets].filter(Boolean))].map(normalizeItemName);
+  
+  // Parse potions
+  const potions = Array.isArray(task?.metadata?.potions)
+    ? task.metadata.potions.map(normalizeItemName)
+    : task?.metadata?.potions
+    ? [normalizeItemName(task.metadata.potions)]
+    : [];
+  
+  const inventory = extractInventory(context);
+  
+  const allies = Array.isArray(context?.bridgeState?.allies)
+    ? context.bridgeState.allies
+    : [];
+  
+  return {
+    task,
+    context,
+    target,
+    targetDescription,
+    backupPlan,
+    tactic,
+    enemyCount,
+    support,
+    environment,
+    timeOfDay,
+    weather,
+    stanceKey,
+    stanceProfile,
+    squadMembers,
+    enemyTypes,
+    potions,
+    inventory,
+    allies
+  };
+}
 
-  const enemyTypes = [...new Set([target, ...additionalTargets].filter(Boolean))];
+/**
+ * Get enemy details with profiles
+ */
+function getEnemyDetails(enemyTypes, explicitPriority = []) {
   const enemyDetails = enemyTypes.map(name => ({
     name,
     displayName: formatDisplayName(name),
     ...(enemyProfiles[name] || defaultEnemyProfile)
   }));
-
-  const explicitPriority = Array.isArray(task?.metadata?.priorityTargets)
-    ? task.metadata.priorityTargets.map(normalizeItemName).filter(Boolean)
-    : [];
-
+  
   const explicitSet = new Set(explicitPriority);
   const explicitDetails = explicitPriority
-    .map(name => enemyDetails.find(detail => detail.name === name) || {
+    .map(name => enemyDetails.find(d => d.name === name) || {
       name,
       displayName: formatDisplayName(name),
       ...defaultEnemyProfile
     });
-
-  const remainingEnemies = enemyDetails.filter(detail => !explicitSet.has(detail.name));
-
-  const prioritizedEnemies = [
-    ...explicitDetails,
-    ...remainingEnemies.sort((a, b) => {
-      if (a.priority !== b.priority) {
-        return a.priority - b.priority;
-      }
+  
+  const remainingEnemies = enemyDetails
+    .filter(d => !explicitSet.has(d.name))
+    .sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority;
       return a.displayName.localeCompare(b.displayName);
-    })
+    });
+  
+  return [...explicitDetails, ...remainingEnemies];
+}
+
+/**
+ * Determine weapon recommendations based on enemies and stance
+ */
+function determineWeaponRecommendations(config) {
+  const { enemyTypes, inventory, stanceProfile, tactic, context } = config;
+  const matches = [];
+  const recommendedWeapons = new Set();
+  const availableCheck = weapon => weapon ? hasInventoryItem(inventory, weapon) : false;
+  
+  // Find matching weapon counters
+  const enemySet = new Set(enemyTypes);
+  enemyWeaponMatchups.forEach(matchup => {
+    const hits = matchup.enemies.filter(e => enemySet.has(e));
+    if (hits.length > 0) {
+      const weapon = normalizeOptionalName(matchup.weapon);
+      if (weapon) {
+        recommendedWeapons.add(weapon);
+        matches.push({
+          weapon,
+          enemies: hits,
+          reason: matchup.reason,
+          available: availableCheck(weapon)
+        });
+      }
+    }
+  });
+  
+  const aggression = typeof context?.npc?.traits?.aggression === "number" 
+    ? context.npc.traits.aggression 
+    : 0.3;
+  const preferMelee = !tactic.includes("ranged") && stanceProfile?.name !== "ranged";
+  
+  const stanceWeaponPreference = stanceProfile?.weaponPreference || {};
+  
+  let primary = normalizeOptionalName(config.basePrimary);
+  let secondary = normalizeOptionalName(config.baseSecondary);
+  
+  // Use priority match if available
+  if (matches.length > 0) {
+    const priorityMatch = matches.find(m => m.available) || matches[0];
+    if (priorityMatch?.weapon) {
+      primary = priorityMatch.weapon;
+    }
+  }
+  
+  // Fallbacks
+  if (!primary) {
+    primary = preferMelee
+      ? (aggression > 0.6 ? "axe" : "sword")
+      : "bow";
+  }
+  
+  if (!secondary) {
+    secondary = preferMelee
+      ? (aggression > 0.6 ? "sword" : "shield")
+      : "sword";
+  }
+  
+  if (primary) recommendedWeapons.add(primary);
+  if (secondary) recommendedWeapons.add(secondary);
+  
+  const stanceExtras = Array.isArray(stanceWeaponPreference.extras)
+    ? stanceWeaponPreference.extras.map(normalizeOptionalName).filter(Boolean)
+    : [];
+  
+  stanceExtras.forEach(w => recommendedWeapons.add(w));
+  
+  return {
+    primary,
+    secondary,
+    loadout: Array.from(recommendedWeapons),
+    matches,
+    stanceExtras
+  };
+}
+
+/**
+ * Assign squad roles to members
+ */
+function assignSquadRoles(squadMembers, metadataRoles, defaultLeader) {
+  if (squadMembers.length === 0) return [];
+  
+  const parsedAssignments = new Map();
+  
+  // Parse metadata roles
+  if (metadataRoles) {
+    if (Array.isArray(metadataRoles)) {
+      metadataRoles.forEach(entry => {
+        if (entry && typeof entry === "object") {
+          const name = formatDisplayName(entry.name || entry.npc || entry.member);
+          const role = normalizeOptionalName(entry.role);
+          if (name && role) parsedAssignments.set(name, role);
+        } else if (typeof entry === "string") {
+          const [namePart, rolePart] = entry.split(":");
+          const name = formatDisplayName(namePart);
+          const role = normalizeOptionalName(rolePart);
+          if (name && role) parsedAssignments.set(name, role);
+        }
+      });
+    } else if (typeof metadataRoles === "object") {
+      Object.entries(metadataRoles).forEach(([nameKey, roleValue]) => {
+        const name = formatDisplayName(nameKey);
+        const role = normalizeOptionalName(roleValue);
+        if (name && role) parsedAssignments.set(name, role);
+      });
+    }
+  }
+  
+  const assigned = [];
+  const remainingRoles = new Set(ROLE_ORDER);
+  
+  // Assign explicit roles first
+  squadMembers.forEach(member => {
+    const explicitRole = parsedAssignments.get(member);
+    if (explicitRole && squadRoleProfiles[explicitRole]) {
+      assigned.push({ name: member, role: explicitRole });
+      remainingRoles.delete(explicitRole);
+    }
+  });
+  
+  // Handle default leader
+  if (defaultLeader) {
+    const alreadyLeader = assigned.find(e => e.role === "leader");
+    if (!alreadyLeader) {
+      const targetMember = assigned.find(e => e.name === defaultLeader);
+      if (targetMember) {
+        targetMember.role = "leader";
+        remainingRoles.delete("leader");
+      } else if (squadMembers.includes(defaultLeader)) {
+        assigned.push({ name: defaultLeader, role: "leader" });
+        remainingRoles.delete("leader");
+      }
+    }
+  }
+  
+  // Assign remaining members
+  squadMembers.forEach(member => {
+    if (assigned.find(e => e.name === member)) return;
+    
+    const nextRole = ROLE_ORDER.find(role => remainingRoles.has(role));
+    if (nextRole) {
+      assigned.push({ name: member, role: nextRole });
+      remainingRoles.delete(nextRole);
+    } else {
+      assigned.push({ name: member, role: "support" });
+    }
+  });
+  
+  // Add profile details
+  return assigned.map(entry => {
+    const profile = squadRoleProfiles[entry.role];
+    return {
+      ...entry,
+      summary: profile?.summary || "Provides support as needed.",
+      spacing: profile?.defaultSpacing || "maintain flexible positioning"
+    };
+  });
+}
+
+/**
+ * Extract durability entries from context
+ */
+function extractDurabilityEntries(context) {
+  const pools = [
+    context?.bridgeState?.equipmentDurability,
+    context?.bridgeState?.durability,
+    context?.npc?.equipmentDurability,
+    context?.npc?.durability,
+    context?.equipmentDurability
   ];
+  
+  return pools.flatMap(pool => pool ? DurabilityParser.fromArrayOrObject(pool) : []);
+}
 
-  const priorityDescription = prioritizedEnemies.length > 1
-    ? prioritizedEnemies
-        .map((detail, index) => `${index + 1}. ${detail.displayName} - ${detail.reason}`)
-        .join("; ")
-    : `Focus on eliminating ${prioritizedEnemies[0]?.displayName || formatDisplayName(target)} quickly.`;
+/**
+ * Build durability alerts for focused items
+ */
+function buildDurabilityAlerts(durabilityEntries, focusItems) {
+  if (durabilityEntries.length === 0) return [];
+  
+  const focusSet = new Set(focusItems.map(normalizeOptionalName).filter(Boolean));
+  
+  return durabilityEntries
+    .map(entry => {
+      const ratio = calculateDurabilityRatio(entry.current, entry.max);
+      const isFocus = focusSet.size === 0 || focusSet.has(entry.name);
+      
+      if (!isFocus) return null;
+      
+      const level = ratio !== null && ratio <= COMBAT_CONFIG.DURABILITY_CRITICAL_THRESHOLD
+        ? "critical"
+        : ratio !== null && ratio <= COMBAT_CONFIG.DURABILITY_LOW_THRESHOLD
+        ? "low"
+        : null;
+      
+      if (!level && ratio !== null) return null;
+      
+      return {
+        item: entry.name,
+        current: entry.current,
+        max: entry.max,
+        ratio,
+        level: level || "unknown"
+      };
+    })
+    .filter(Boolean);
+}
 
-  const dodgeAdviceList = prioritizedEnemies.map(detail => ({
-    enemy: detail.displayName,
-    dodge: detail.dodge
-  }));
+/**
+ * Collect environment hazards from various sources
+ */
+function collectEnvironmentHazards(config) {
+  const { environment, enemyTypes, context, weather } = config;
+  const hazards = new Set();
+  const advice = [];
+  
+  const hazardFlags = Array.isArray(context?.bridgeState?.hazards)
+    ? context.bridgeState.hazards.map(normalizeItemName)
+    : [];
+  
+  hazardFlags.forEach(flag => hazards.add(flag));
+  
+  // Environment-based hazards
+  if (environment.includes("nether")) {
+    hazards.add("fire");
+    hazards.add("lava");
+  }
+  if (environment.includes("end")) {
+    hazards.add("void fall");
+  }
+  if (environment.includes("ocean") || environment.includes("underwater")) {
+    hazards.add("drowning");
+  }
+  
+  // Enemy-based hazards
+  const enemySet = new Set(enemyTypes);
+  
+  if (enemySet.has("blaze")) {
+    hazards.add("fire");
+    advice.push("Keep fire resistance handy—blaze volleys stack burn damage quickly.");
+  }
+  if (enemySet.has("witch")) {
+    hazards.add("poison");
+    advice.push("Carry milk or honey to purge poison when witches connect.");
+  }
+  if (enemySet.has("guardian") || enemySet.has("elder guardian")) {
+    hazards.add("mining fatigue");
+  }
+  if (enemySet.has("hoglin") || enemySet.has("ravager")) {
+    hazards.add("knockback");
+    advice.push("Brace near solid walls to prevent knockback launches from hoglin or ravager charges.");
+  }
+  
+  // Weather hazards
+  const weatherNormalized = normalizeWeatherValue(weather);
+  if (weatherNormalized.includes("storm") || weatherNormalized.includes("thunder")) {
+    hazards.add("lightning");
+  }
+  
+  return {
+    hazards: Array.from(hazards),
+    advice
+  };
+}
 
-  const dodgeDescription = dodgeAdviceList.length > 0
-    ? dodgeAdviceList
-        .map(entry => `${entry.enemy}: ${entry.dodge}`)
-        .join(" ")
-    : "Maintain spacing, strafe, and disengage if health drops critically.";
+/**
+ * Determine stance transitions based on combat state
+ */
+function determineStanceTransitions(config) {
+  const { initialStance, squadRoles, enemyTypes } = config;
+  const transitions = [];
+  
+  if (initialStance && initialStance !== "aggressive") {
+    transitions.push({
+      from: initialStance,
+      to: "aggressive",
+      trigger: "combat_event",
+      condition: "Primary target health under 20% or enemy count reduced to one",
+      rationale: "Finish remaining enemies quickly once they are weakened."
+    });
+  }
+  
+  const roleMap = new Map(squadRoles.map(r => [r.role, r]));
+  const hasHealer = roleMap.has("healer");
+  const hasTank = roleMap.has("tank");
+  
+  transitions.push({
+    from: "aggressive",
+    to: "defensive",
+    trigger: "combat_event",
+    condition: "Any ally health below 35% or shield breaks",
+    rationale: "Stabilize line and give healers time to recover."
+  });
+  
+  if (hasHealer) {
+    transitions.push({
+      from: initialStance,
+      to: "defensive",
+      trigger: "combat_event",
+      condition: "Healer calls out potion cooldowns or healing resources depleted",
+      rationale: "Shift to defensive stance while support replenishes."
+    });
+  }
+  
+  const enemySet = new Set(enemyTypes);
+  if (enemySet.has("phantom") || enemySet.has("ghast")) {
+    transitions.push({
+      from: initialStance,
+      to: "ranged",
+      trigger: "combat_event",
+      condition: "Airborne threats persist for more than 10 seconds",
+      rationale: "Swap to ranged focus to clear aerial mobs."
+    });
+  }
+  
+  if (hasTank) {
+    transitions.push({
+      from: "defensive",
+      to: "guard",
+      trigger: "combat_event",
+      condition: "Tank secures aggro and allies recovered above 70% health",
+      rationale: "Return to zone control once the frontline is stable."
+    });
+  }
+  
+  return transitions;
+}
 
+/**
+ * Build health management protocols
+ */
+function buildHealthProtocols(config) {
+  const { squadRoles, fallbackPlan, allies } = config;
+  const protocols = [];
+  
+  const roleMap = new Map(squadRoles.map(r => [r.role, r]));
+  const frontline = roleMap.get("tank") || roleMap.get("leader");
+  
+  if (frontline) {
+    protocols.push({
+      trigger: "combat_update",
+      threshold: COMBAT_CONFIG.HEALTH_LOW_THRESHOLD,
+      actor: frontline.name,
+      action: "Signal defensive swap and raise shields",
+      followUp: "npc_engine.replanTask('combat')"
+    });
+  }
+  
+  const healer = roleMap.get("healer");
+  if (healer) {
+    protocols.push({
+      trigger: "combat_update",
+      threshold: COMBAT_CONFIG.HEALTH_HEALER_THRESHOLD,
+      actor: healer.name,
+      action: "Deploy splash healing or regeneration and call retreat if cooldowns empty",
+      followUp: "plan_safety.retreat"
+    });
+  }
+  
+  protocols.push({
+    trigger: "combat_update",
+    threshold: COMBAT_CONFIG.HEALTH_CRITICAL_THRESHOLD,
+    actor: "squad",
+    action: `Fallback to ${fallbackPlan || "a safe rally point"} immediately if no healer response.`,
+    followUp: "plan_safety.retreat"
+  });
+  
+  if (Array.isArray(allies)) {
+    allies.forEach(ally => {
+      if (!ally?.name || !Number.isFinite(ally?.maxHealth)) return;
+      
+      const threshold = ally.maxHealth * COMBAT_CONFIG.HEALTH_ALLY_THRESHOLD;
+      protocols.push({
+        trigger: "combat_update",
+        thresholdAbsolute: threshold,
+        actor: formatDisplayName(ally.name),
+        action: "Auto-trigger shield wall and rotate to rear if health dips under 30%",
+        followUp: "npc_engine.replanTask('combat')"
+      });
+    });
+  }
+  
+  return protocols;
+}
+
+/**
+ * Collect recommended countermeasure items
+ */
+function collectCountermeasureItems(config) {
+  const { enemyTypes, environmentProfile } = config;
   const recommendedCounterItems = new Set();
-
+  
   enemyTypes.forEach(name => {
     const counters = enemyCountermeasures[name];
     if (Array.isArray(counters)) {
@@ -964,6 +1554,7 @@ export function planCombatTask(task, context = {}) {
     ? context.bridgeState.allies
     : [];
 
+  
   if (environmentProfile?.counterItems) {
     environmentProfile.counterItems.forEach(item => {
       const normalized = normalizeItemName(item);
@@ -972,6 +1563,9 @@ export function planCombatTask(task, context = {}) {
       }
     });
   }
+  
+  return Array.from(recommendedCounterItems);
+}
 
   const stanceWeaponPreference = stanceProfile?.weaponPreference || {};
   const stanceExtras = Array.isArray(stanceWeaponPreference.extras)
@@ -1018,7 +1612,14 @@ export function planCombatTask(task, context = {}) {
   const missingCounterItems = counterItems.filter(item => !hasInventoryItem(inventory, item));
   const missingPotionsSummary = formatRequirementList(missingPotions);
   const counterItemsSummary = formatRequirementList(counterItems);
+// ============================================================================
+// STEP BUILDERS
+// ============================================================================
 
+/**
+ * Build preparation steps
+ */
+function buildPreparationSteps(config) {
   const steps = [];
 
   const weaponMatchDescription = weaponRecommendations.matches
@@ -1041,13 +1642,26 @@ export function planCombatTask(task, context = {}) {
     allies
   });
 
+  const {
+    target,
+    requiredEquipment,
+    missingEquipment,
+    weaponRecommendations,
+    potions,
+    missingPotions,
+    counterItems,
+    missingCounterItems,
+    task
+  } = config;
+  
+  // Equipment preparation
   const missingEquipmentSummary = formatRequirementList(missingEquipment);
   const prepareDescription = missingEquipment.length > 0
     ? missingEquipmentSummary
       ? `Acquire combat gear (${missingEquipmentSummary}) and equip before engaging ${target}.`
       : `Acquire necessary combat gear and equip before engaging ${target}.`
     : `Equip enchanted weapons, shields, armor, and carry potions or golden apples before engaging ${target}.`;
-
+  
   steps.push(
     createStep({
       title: "Prepare",
@@ -1062,6 +1676,17 @@ export function planCombatTask(task, context = {}) {
   );
 
   if (weaponRecommendations.matches.length > 0) {
+  
+  // Weapon alignments
+  if (weaponRecommendations.matches.length > 0) {
+    const weaponMatchDescription = weaponRecommendations.matches
+      .map(match => {
+        const enemyList = formatList(match.enemies.map(formatDisplayName));
+        const availability = match.available ? "" : " (retrieve or craft first)";
+        return `${formatDisplayName(match.weapon)} vs ${enemyList}${availability}.`;
+      })
+      .join(" ");
+    
     steps.push(
       createStep({
         title: "Align weapons to targets",
@@ -1072,22 +1697,25 @@ export function planCombatTask(task, context = {}) {
     );
   }
 
+  
+  // Potions
   if (potions.length > 0) {
+    const missingPotionsSummary = formatRequirementList(missingPotions);
     steps.push(
       createStep({
         title: "Buff up",
         type: "preparation",
-        description:
-          missingPotions.length > 0
-            ? missingPotionsSummary
-              ? `Brew or retrieve potions (${missingPotionsSummary}) prior to combat.`
-              : "Brew or retrieve potions prior to combat."
-            : `Consume or carry potions (${potions.join(", ")}) to gain advantages.`,
+        description: missingPotions.length > 0
+          ? missingPotionsSummary
+            ? `Brew or retrieve potions (${missingPotionsSummary}) prior to combat.`
+            : "Brew or retrieve potions prior to combat."
+          : `Consume or carry potions (${potions.join(", ")}) to gain advantages.`,
         metadata: { potions, missing: missingPotions }
       })
     );
   }
-
+  
+  // Traps
   if (task?.metadata?.traps) {
     steps.push(
       createStep({
@@ -1098,24 +1726,54 @@ export function planCombatTask(task, context = {}) {
       })
     );
   }
-
+  
+  // Countermeasures
   if (counterItems.length > 0) {
+    const counterItemsSummary = formatRequirementList(counterItems);
     steps.push(
       createStep({
         title: "Prepare countermeasures",
         type: "preparation",
-        description:
-          missingCounterItems.length > 0
-            ? counterItemsSummary
-              ? `Secure specialized countermeasures (${counterItemsSummary}) before engaging.`
-              : "Secure specialized countermeasures before engaging."
-            : `Equip specialized countermeasures (${counterItemsSummary}) to neutralize enemy abilities.`,
+        description: missingCounterItems.length > 0
+          ? counterItemsSummary
+            ? `Secure specialized countermeasures (${counterItemsSummary}) before engaging.`
+            : "Secure specialized countermeasures before engaging."
+          : `Equip specialized countermeasures (${counterItemsSummary}) to neutralize enemy abilities.`,
         metadata: { counterItems, missing: missingCounterItems }
       })
     );
   }
+  
+  return steps;
+}
 
+/**
+ * Build tactical steps
+ */
+function buildTacticalSteps(config) {
+  const steps = [];
+  const {
+    prioritizedEnemies,
+    stanceProfile,
+    primaryWeapon,
+    secondaryWeapon,
+    stanceExtras,
+    stanceTransitions,
+    durabilityAlerts,
+    timeOfDay,
+    weather,
+    environmentHazards,
+    enemyTypes
+  } = config;
+  
+  // Priority targets
   if (prioritizedEnemies.length > 0) {
+    const priorityDescription = prioritizedEnemies.length > 1
+      ? prioritizedEnemies
+          .map((detail, index) => `${index + 1}. ${detail.displayName} - ${detail.reason}`)
+          .join("; ")
+      : `Focus on eliminating ${prioritizedEnemies[0]?.displayName || "target"} quickly.`;
+    
     steps.push(
       createStep({
         title: "Prioritize threats",
@@ -1131,8 +1789,18 @@ export function planCombatTask(task, context = {}) {
       })
     );
   }
-
+  
+  // Dodge tactics
+  const dodgeAdviceList = prioritizedEnemies.map(detail => ({
+    enemy: detail.displayName,
+    dodge: detail.dodge
+  }));
+  
   if (dodgeAdviceList.length > 0) {
+    const dodgeDescription = dodgeAdviceList
+      .map(entry => `${entry.enemy}: ${entry.dodge}`)
+      .join(" ");
+    
     steps.push(
       createStep({
         title: "Position and dodge",
@@ -1157,11 +1825,26 @@ export function planCombatTask(task, context = {}) {
       stanceDescriptionParts.push(stanceProfile.squadAdvice);
     }
 
+  
+  // Stance adoption
+  if (stanceProfile?.description) {
+    const stanceWeaponsDisplay = [primaryWeapon, secondaryWeapon, ...stanceExtras]
+      .filter(Boolean)
+      .map(formatDisplayName);
+    
+    const stanceDescription = buildDescription([
+      `${formatDisplayName(stanceProfile.name)} stance: ${stanceProfile.description}`,
+      stanceProfile.engagementDistance && `Maintain ${stanceProfile.engagementDistance}.`,
+      stanceWeaponsDisplay.length > 0 && `Favor ${formatList(stanceWeaponsDisplay)} for primary damage.`,
+      stanceProfile.squadAdvice
+    ]);
+    
     steps.push(
       createStep({
         title: "Adopt stance",
         type: "strategy",
         description: stanceDescriptionParts.join(" "),
+        description: stanceDescription,
         metadata: {
           stance: stanceProfile.name,
           engagementDistance: stanceProfile.engagementDistance,
@@ -1182,6 +1865,15 @@ export function planCombatTask(task, context = {}) {
           `Swap from ${formatDisplayName(transition.from)} to ${formatDisplayName(transition.to)} when ${transition.condition}.`
       )
       .join(" ");
+  
+  // Stance transitions
+  if (stanceTransitions.length > 0) {
+    const transitionDescription = stanceTransitions
+      .map(t => 
+        `Swap from ${formatDisplayName(t.from)} to ${formatDisplayName(t.to)} when ${t.condition}.`
+      )
+      .join(" ");
+    
     steps.push(
       createStep({
         title: "Plan stance transitions",
@@ -1196,6 +1888,8 @@ export function planCombatTask(task, context = {}) {
     );
   }
 
+  
+  // Durability monitoring
   if (durabilityAlerts.length > 0) {
     const durabilityDescription = durabilityAlerts
       .map(alert => {
@@ -1207,6 +1901,7 @@ export function planCombatTask(task, context = {}) {
         return `${formatDisplayName(alert.item)} ${alert.level} — ${ratioText}.`;
       })
       .join(" ");
+    
     steps.push(
       createStep({
         title: "Monitor weapon durability",
@@ -1248,8 +1943,44 @@ export function planCombatTask(task, context = {}) {
       `Eliminate threats following the priority order: ${prioritizedEnemies
         .map(detail => detail.displayName)
         .join(", ")}.`
+  
+  // Environmental conditions
+  const conditionAdvice = [];
+  const weatherValue = weather || "";
+  const enemySet = new Set(enemyTypes);
+  
+  if (timeOfDay === "night") {
+    conditionAdvice.push("Night visibility is low—carry torches and leverage shields against surprise hits.");
+  }
+  if (timeOfDay === "night" && enemySet.has("skeleton")) {
+    conditionAdvice.push("Avoid trading open-field shots with skeletons at night; pull them into cover or wait for dawn.");
+  }
+  if (timeOfDay === "day" && enemySet.has("zombie")) {
+    conditionAdvice.push("Use daylight to weaken zombies in exposed areas when possible.");
+  }
+  if (weatherValue.includes("storm") || weatherValue.includes("thunder")) {
+    conditionAdvice.push("Thunderstorms spawn extra mobs and can trigger charged creepers—limit time in open terrain.");
+  }
+  if (weatherValue.includes("rain") && enemySet.has("blaze")) {
+    conditionAdvice.push("Rain hampers blaze fireballs—fight them outdoors to capitalize on the weather.");
+  }
+  if (environmentHazards.advice.length > 0) {
+    conditionAdvice.push(...environmentHazards.advice);
+  }
+  
+  if (conditionAdvice.length > 0) {
+    steps.push(
+      createStep({
+        title: "Adapt to conditions",
+        type: "awareness",
+        description: conditionAdvice.join(" "),
+        metadata: { timeOfDay, weather, hazards: environmentHazards.hazards }
+      })
     );
   }
+  
+  return steps;
+}
 
   if (stanceProfile?.engagementDistance) {
     engageDescriptionParts.push(`Maintain ${stanceProfile.engagementDistance} as part of the ${formatDisplayName(stanceProfile.name)} stance.`);
@@ -1292,6 +2023,28 @@ export function planCombatTask(task, context = {}) {
 
   if (squadLeaderName || squadDisplayNames.length > 0) {
     const squadDescriptionParts = [];
+/**
+ * Build coordination steps
+ */
+function buildCoordinationSteps(config) {
+  const steps = [];
+  const {
+    squadLeaderName,
+    flankers,
+    coverMembers,
+    assignedRoles,
+    stanceProfile,
+    squadMembers,
+    healthProtocols,
+    environmentProfile,
+    environment,
+    environmentHazards
+  } = config;
+  
+  // Squad coordination
+  if (squadLeaderName || squadMembers.length > 0) {
+    const squadDescriptionParts = [];
+    
     if (squadLeaderName) {
       squadDescriptionParts.push(`Designate ${squadLeaderName} as squad lead to call focus targets.`);
     }
@@ -1312,6 +2065,7 @@ export function planCombatTask(task, context = {}) {
     }
     squadDescriptionParts.push("Sync callouts using Collab Engine tactics for focus fire and retreats.");
 
+    
     steps.push(
       createStep({
         title: "Coordinate squad",
@@ -1322,6 +2076,7 @@ export function planCombatTask(task, context = {}) {
           flankers,
           cover: coverMembers,
           squad: squadDisplayNames,
+          squad: squadMembers,
           stance: stanceProfile.name,
           roles: assignedRoles
         }
@@ -1329,6 +2084,32 @@ export function planCombatTask(task, context = {}) {
     );
   }
 
+  
+  // Health protocols
+  if (healthProtocols.length > 0) {
+    const protocolDescription = healthProtocols
+      .map(protocol => {
+        const thresholdText = protocol.thresholdAbsolute
+          ? `below ${Math.round(protocol.thresholdAbsolute)}`
+          : `${Math.round((protocol.threshold || 0) * 100)}%`;
+        return `${protocol.actor} reacts if health ${protocol.thresholdAbsolute ? "drops" : "falls"} ${thresholdText}: ${protocol.action}.`;
+      })
+      .join(" ");
+    
+    steps.push(
+      createStep({
+        title: "Stabilize when injured",
+        type: "contingency",
+        description: `Leverage safety sub-plans when health thresholds are crossed. ${protocolDescription}`,
+        metadata: {
+          protocols: healthProtocols,
+          replan: "combat_update"
+        }
+      })
+    );
+  }
+  
+  // Battlefield control
   if (environmentProfile?.description) {
     steps.push(
       createStep({
@@ -1345,7 +2126,54 @@ export function planCombatTask(task, context = {}) {
       })
     );
   }
+  
+  return steps;
+}
 
+/**
+ * Build action and contingency steps
+ */
+function buildActionSteps(config) {
+  const steps = [];
+  const {
+    target,
+    targetDescription,
+    tactic,
+    enemyCount,
+    prioritizedEnemies,
+    stanceProfile,
+    primaryWeapon,
+    secondaryWeapon,
+    stanceExtras,
+    support,
+    backupPlan
+  } = config;
+  
+  // Main engagement
+  const stanceWeaponsDisplay = [primaryWeapon, secondaryWeapon, ...stanceExtras]
+    .filter(Boolean)
+    .map(formatDisplayName);
+  
+  const engageDescriptionParts = [
+    `Engage ${target} near ${targetDescription} using ${tactic} tactics while maintaining spacing to avoid damage.`
+  ];
+  
+  if (prioritizedEnemies.length > 1) {
+    engageDescriptionParts.push(
+      `Eliminate threats following the priority order: ${prioritizedEnemies.map(d => d.displayName).join(", ")}.`
+    );
+  }
+  
+  if (stanceProfile?.engagementDistance) {
+    engageDescriptionParts.push(
+      `Maintain ${stanceProfile.engagementDistance} as part of the ${formatDisplayName(stanceProfile.name)} stance.`
+    );
+  }
+  
+  if (stanceWeaponsDisplay.length > 0) {
+    engageDescriptionParts.push(`Keep ${formatList(stanceWeaponsDisplay)} ready for focus targets.`);
+  }
+  
   steps.push(
     createStep({
       title: "Engage",
@@ -1354,13 +2182,16 @@ export function planCombatTask(task, context = {}) {
       metadata: {
         enemyCount,
         tactic,
-        priorityOrder: prioritizedEnemies.map(detail => detail.displayName)
+        priorityOrder: prioritizedEnemies.map(d => d.displayName)
       }
     })
   );
 
   if (support) {
     const supportDisplay = formatDisplayName(support);
+  
+  // Support coordination
+  if (support) {
     steps.push(
       createStep({
         title: "Coordinate support",
@@ -1370,7 +2201,8 @@ export function planCombatTask(task, context = {}) {
       })
     );
   }
-
+  
+  // Cleanup
   steps.push(
     createStep({
       title: "Secure area",
@@ -1378,7 +2210,8 @@ export function planCombatTask(task, context = {}) {
       description: `Light up surroundings, eliminate remaining threats, and collect drops from ${target}.`
     })
   );
-
+  
+  // Fallback
   steps.push(
     createStep({
       title: "Fallback plan",
@@ -1387,22 +2220,34 @@ export function planCombatTask(task, context = {}) {
       metadata: { fallback: backupPlan }
     })
   );
+  
+  return steps;
+}
 
-  const estimatedDuration = 9000 + enemyCount * 1200;
-  const resources = [
-    ...new Set(
-      [
-        ...requiredEquipment,
-        ...potions,
-        ...counterItems,
-        ...prioritizedEnemies.map(detail => detail.displayName.toLowerCase()),
-        target,
-        support
-      ].filter(name => name && name !== "unspecified item")
-    )
-  ];
+// ============================================================================
+// RISK AND NOTES BUILDERS
+// ============================================================================
 
+/**
+ * Build risks array
+ */
+function buildRisks(config) {
   const risks = [];
+  const {
+    missingEquipment,
+    enemyCount,
+    environment,
+    timeOfDay,
+    weather,
+    stanceKey,
+    missingCounterItems,
+    weaponRecommendations,
+    durabilityAlerts,
+    prioritizedEnemies,
+    environmentProfile,
+    environmentHazards
+  } = config;
+  
   if (missingEquipment.length > 0) {
     risks.push("Missing equipment could reduce combat effectiveness.");
   }
@@ -1415,11 +2260,14 @@ export function planCombatTask(task, context = {}) {
   if (timeOfDay === "night") {
     risks.push("Nighttime reduces visibility and increases hostile spawn rates.");
   }
+  
+  const weatherValue = weather || "";
   if (weatherValue.includes("storm") || weatherValue.includes("thunder")) {
     risks.push("Thunderstorms may summon charged creepers and lightning strikes.");
   } else if (weatherValue.includes("rain")) {
     risks.push("Rain reduces visibility and can slow movement on uneven terrain.");
   }
+  
   if (stanceKey === "aggressive") {
     risks.push("Aggressive stance exposes the leader to burst damage if support lags.");
   }
@@ -1437,11 +2285,23 @@ export function planCombatTask(task, context = {}) {
   } else if (durabilityAlerts.some(alert => alert.level === "low")) {
     risks.push("Several weapons are at half durability; carry backups in case they fail mid-combat.");
   }
+  if (weaponRecommendations.matches.some(m => !m.available)) {
+    risks.push("Optimal weapon enchantments are missing; expect longer time-to-kill on priority targets.");
+  }
+  if (durabilityAlerts.some(a => a.level === "critical")) {
+    risks.push("Critical durability reported—swap or repair weapons before they break mid-fight.");
+  } else if (durabilityAlerts.some(a => a.level === "low")) {
+    risks.push("Several weapons are at half durability; carry backups in case they fail mid-combat.");
+  }
+  
+  // Enemy-specific risks
   prioritizedEnemies.forEach(detail => {
     if (detail.risk && !risks.includes(detail.risk)) {
       risks.push(detail.risk);
     }
   });
+  
+  // Hazard risks
   const hazardRiskMessages = {
     fire: "Fire hazard present—maintain fire resistance and extinguishers.",
     lava: "Lava exposure nearby—carry blocks and avoid knockback toward edges.",
@@ -1456,14 +2316,48 @@ export function planCombatTask(task, context = {}) {
   combinedHazards.forEach(hazard => {
     const normalizedHazard = normalizeItemName(hazard);
     const message = hazardRiskMessages[normalizedHazard];
+  
+  const combinedHazards = new Set([
+    ...(environmentProfile?.hazards || []),
+    ...(environmentHazards.hazards || [])
+  ]);
+  
+  combinedHazards.forEach(hazard => {
+    const normalized = normalizeItemName(hazard);
+    const message = hazardRiskMessages[normalized];
     if (message && !risks.includes(message)) {
       risks.push(message);
     } else if (!message && hazard && !risks.includes(hazard)) {
       risks.push(`Environmental hazard: ${formatDisplayName(hazard)} may disrupt combat.`);
     }
   });
+  
+  return risks;
+}
 
+/**
+ * Build notes array
+ */
+function buildNotes(config) {
   const notes = [];
+  const {
+    task,
+    environmentProfile,
+    timeOfDay,
+    weather,
+    weaponRecommendations,
+    stanceTransitions,
+    healthProtocols,
+    durabilityAlerts,
+    environmentHazards,
+    squadMembers,
+    squadLeaderName,
+    flankers,
+    coverMembers,
+    assignedRoles,
+    stanceProfile
+  } = config;
+  
   if (task?.metadata?.lootPriority) {
     notes.push(`Collect priority loot: ${task.metadata.lootPriority}.`);
   }
@@ -1471,10 +2365,64 @@ export function planCombatTask(task, context = {}) {
     notes.push(`Disable spawner at ${describeTarget(task.metadata.spawnControl)} if possible.`);
   }
   if (environmentProfile?.description) {
-    const battlefieldNote = `Battlefield control guidance: ${environmentProfile.description}`;
-    if (!notes.includes(battlefieldNote)) {
-      notes.push(battlefieldNote);
+    notes.push(`Battlefield control guidance: ${environmentProfile.description}`);
+  }
+  if (timeOfDay) {
+    notes.push(`Time of day: ${formatDisplayName(timeOfDay)}.`);
+  }
+  if (weather) {
+    notes.push(`Weather: ${formatDisplayName(weather)}.`);
+  }
+  if (weaponRecommendations.matches.length > 0) {
+    const weaponNote = `Weapon counters: ${weaponRecommendations.matches
+      .map(m => `${formatDisplayName(m.weapon)} vs ${formatList(m.enemies.map(formatDisplayName))}`)
+      .join("; ")}.`;
+    notes.push(weaponNote);
+  }
+  if (stanceTransitions.length > 0) {
+    const transitionNote = `Stance transitions queued: ${stanceTransitions
+      .map(t => `${formatDisplayName(t.from)}→${formatDisplayName(t.to)} when ${t.condition}`)
+      .join("; ")}.`;
+    notes.push(transitionNote);
+  }
+  if (healthProtocols.length > 0) {
+    const protocolNote = `Health triggers: ${healthProtocols
+      .map(p => {
+        const thresholdText = p.thresholdAbsolute
+          ? `${Math.round(p.thresholdAbsolute)} HP`
+          : `${Math.round((p.threshold || 0) * 100)}%`;
+        return `${p.actor} → ${p.action} @ ${thresholdText}`;
+      })
+      .join("; ")}.`;
+    notes.push(protocolNote);
+  }
+  if (durabilityAlerts.length > 0) {
+    const durabilityNote = `Durability alerts: ${durabilityAlerts
+      .map(a => `${formatDisplayName(a.item)} ${a.level}${a.max ? ` (${a.current}/${a.max})` : ""}`)
+      .join("; ")}.`;
+    notes.push(durabilityNote);
+  }
+  if (environmentHazards.hazards.length > 0) {
+    notes.push(`Hazard flags: ${environmentHazards.hazards.map(formatDisplayName).join(", ")}.`);
+  }
+  if (squadMembers.length > 0) {
+    const squadRoleDetails = assignedRoles.length > 0
+      ? assignedRoles.map(r => `${r.name}=${formatDisplayName(r.role)}`).join(", ")
+      : "";
+    const squadNoteParts = [];
+    if (squadLeaderName) {
+      squadNoteParts.push(`Lead: ${squadLeaderName}`);
     }
+    if (flankers.length > 0) {
+      squadNoteParts.push(`Flankers: ${formatList(flankers)}`);
+    }
+    if (coverMembers.length > 0) {
+      squadNoteParts.push(`Cover: ${formatList(coverMembers)}`);
+    }
+    if (squadRoleDetails) {
+      squadNoteParts.push(`Assignments: ${squadRoleDetails}`);
+    }
+    notes.push(`Squad roles (${formatDisplayName(stanceProfile.name)} stance): ${squadNoteParts.join("; ")}.`);
   }
   if (timeOfDay) {
     const timeNote = `Time of day: ${formatDisplayName(timeOfDay)}.`;
@@ -1553,10 +2501,193 @@ export function planCombatTask(task, context = {}) {
       notes.push(squadNote);
     }
   }
+  
+  return notes;
+}
 
+// ============================================================================
+// MAIN EXPORT FUNCTION
+// ============================================================================
+
+/**
+ * Plan a combat task with comprehensive tactics and coordination
+ * @param {Object} task - Combat task with metadata
+ * @param {Object} context - Environment and NPC context
+ * @returns {Object} Complete combat plan
+ */
+export function planCombatTask(task, context = {}) {
+  // Parse configuration
+  const config = parseTaskConfiguration(task, context);
+  
+  // Get explicit priority targets
+  const explicitPriority = Array.isArray(task?.metadata?.priorityTargets)
+    ? task.metadata.priorityTargets.map(normalizeItemName).filter(Boolean)
+    : [];
+  
+  // Get enemy details and prioritize
+  const prioritizedEnemies = getEnemyDetails(config.enemyTypes, explicitPriority);
+  
+  // Find environment profile
+  const environmentProfile = environmentProfiles.find(profile => {
+    try {
+      return profile.matches(config.environment);
+    } catch {
+      return false;
+    }
+  });
+  
+  // Collect environment hazards
+  const environmentHazards = collectEnvironmentHazards({
+    environment: config.environment,
+    enemyTypes: config.enemyTypes,
+    context: config.context,
+    weather: config.weather
+  });
+  
+  // Determine weapon recommendations
+  const stanceWeaponPreference = config.stanceProfile?.weaponPreference || {};
+  const weaponRecommendations = determineWeaponRecommendations({
+    enemyTypes: config.enemyTypes,
+    inventory: config.inventory,
+    stanceProfile: config.stanceProfile,
+    tactic: config.tactic,
+    context: config.context,
+    basePrimary: task?.metadata?.primaryWeapon || 
+                 stanceWeaponPreference.primary || 
+                 (config.tactic.includes("ranged") ? "bow" : "sword"),
+    baseSecondary: task?.metadata?.secondaryWeapon || 
+                   stanceWeaponPreference.secondary || 
+                   (config.tactic.includes("shield") ? "shield" : "sword")
+  });
+  
+  const primaryWeapon = weaponRecommendations.primary;
+  const secondaryWeapon = weaponRecommendations.secondary;
+  const stanceExtras = weaponRecommendations.stanceExtras;
+  
+  // Build required equipment list
+  const requiredEquipment = Array.from(
+    new Set([
+      primaryWeapon,
+      secondaryWeapon,
+      "armor",
+      ...stanceExtras,
+      ...weaponRecommendations.loadout
+    ].filter(Boolean))
+  );
+  
+  // Collect countermeasure items
+  const counterItems = collectCountermeasureItems({
+    enemyTypes: config.enemyTypes,
+    environmentProfile
+  });
+  
+  // Check inventory
+  const missingEquipment = requiredEquipment.filter(item => 
+    !hasInventoryItem(config.inventory, item)
+  );
+  const missingPotions = config.potions.filter(item => 
+    !hasInventoryItem(config.inventory, item)
+  );
+  const missingCounterItems = counterItems.filter(item => 
+    !hasInventoryItem(config.inventory, item)
+  );
+  
+  // Squad assignments
+  const explicitLeaderName = task?.metadata?.squadLeader || task?.metadata?.leader;
+  const candidateLeaderName = explicitLeaderName
+    ? formatDisplayName(explicitLeaderName)
+    : config.squadMembers[0] || (config.support ? formatDisplayName(config.support) : "");
+  
+  const assignedRoles = assignSquadRoles(
+    config.squadMembers,
+    task?.metadata?.squadRoles,
+    candidateLeaderName
+  );
+  
+  const squadLeaderName = assignedRoles.find(r => r.role === "leader")?.name || candidateLeaderName;
+  
+  const flankers = assignedRoles.length > 0
+    ? assignedRoles.filter(r => ["dps", "scout"].includes(r.role)).map(r => r.name)
+    : config.squadMembers.slice(1, 3);
+  
+  const coverMembers = assignedRoles.length > 0
+    ? assignedRoles.filter(r => ["healer", "support"].includes(r.role)).map(r => r.name)
+    : config.squadMembers.slice(3);
+  
+  // Extract durability and build alerts
+  const durabilityEntries = extractDurabilityEntries(config.context);
+  const durabilityAlerts = buildDurabilityAlerts(durabilityEntries, requiredEquipment);
+  
+  // Determine stance transitions
+  const stanceTransitions = determineStanceTransitions({
+    initialStance: config.stanceProfile?.name,
+    squadRoles: assignedRoles,
+    enemyTypes: config.enemyTypes
+  });
+  
+  // Build health protocols
+  const healthProtocols = buildHealthProtocols({
+    squadRoles: assignedRoles,
+    fallbackPlan: config.backupPlan,
+    allies: config.allies
+  });
+  
+  // Build extended config for step builders
+  const extendedConfig = {
+    ...config,
+    prioritizedEnemies,
+    environmentProfile,
+    environmentHazards,
+    weaponRecommendations,
+    primaryWeapon,
+    secondaryWeapon,
+    stanceExtras,
+    requiredEquipment,
+    counterItems,
+    missingEquipment,
+    missingPotions,
+    missingCounterItems,
+    assignedRoles,
+    squadLeaderName,
+    flankers,
+    coverMembers,
+    durabilityEntries,
+    durabilityAlerts,
+    stanceTransitions,
+    healthProtocols
+  };
+  
+  // Build all steps
+  const steps = [
+    ...buildPreparationSteps(extendedConfig),
+    ...buildTacticalSteps(extendedConfig),
+    ...buildCoordinationSteps(extendedConfig),
+    ...buildActionSteps(extendedConfig)
+  ];
+  
+  // Calculate duration and resources
+  const estimatedDuration = COMBAT_CONFIG.BASE_DURATION_MS + 
+                           config.enemyCount * COMBAT_CONFIG.DURATION_PER_ENEMY_MS;
+  
+  const resources = [
+    ...new Set([
+      ...requiredEquipment,
+      ...config.potions,
+      ...counterItems,
+      ...prioritizedEnemies.map(d => d.displayName.toLowerCase()),
+      config.target,
+      config.support
+    ].filter(name => name && name !== "unspecified item"))
+  ];
+  
+  // Build risks and notes
+  const risks = buildRisks(extendedConfig);
+  const notes = buildNotes(extendedConfig);
+  
+  // Create and return plan
   return createPlan({
     task,
-    summary: `Defeat ${target} near ${targetDescription}.`,
+    summary: `Defeat ${config.target} near ${config.targetDescription}.`,
     steps,
     estimatedDuration,
     resources,

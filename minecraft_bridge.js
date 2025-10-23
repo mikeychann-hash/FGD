@@ -1,6 +1,5 @@
 // bridges/minecraft_bridge.js
 // Provides a transport layer between the NPCEngine and a Minecraft server via RCON
-
 import EventEmitter from "events";
 import { promises as fs } from "fs";
 import express from "express";
@@ -71,11 +70,13 @@ export class MinecraftBridge extends EventEmitter {
     this.damageHistory = { dealt: new Map(), taken: new Map() };
     this.eventHistory = [];
     this.eventDedup = new Map();
+
     this.friendlyIds = new Set(
       Array.isArray(options.friendlyIds)
         ? options.friendlyIds.map(id => (typeof id === "string" ? id.toLowerCase() : id))
         : []
     );
+
     this.templateRegistry = new Map();
     this.subscriptionRegistry = new Map();
     this.subscriptionSeq = 0;
@@ -100,6 +101,7 @@ export class MinecraftBridge extends EventEmitter {
         this.templateRegistry.set(name, template);
       }
     });
+
     this.isFriendly = typeof options.isFriendly === "function"
       ? options.isFriendly
       : id => {
@@ -111,25 +113,26 @@ export class MinecraftBridge extends EventEmitter {
         };
 
     if (this.options.connectOnCreate) {
-      this.connect().catch(err => {
-        console.error("❌ Minecraft bridge failed to connect:", err.message);
-      });
+      this.connect().catch(err => console.error("❌ Minecraft bridge failed to connect:", err.message));
     }
 
     if (this.options.enableUpdateServer) {
-      this.startUpdateServer(this.options.updatePort).catch(err => {
-        console.error("❌ Failed to start update server:", err.message);
-      });
+      this.startUpdateServer(this.options.updatePort).catch(err =>
+        console.error("❌ Failed to start update server:", err.message)
+      );
     }
 
     if (this.options.snapshotPersistencePath) {
-      this.loadCombatSnapshot().catch(err => {
-        console.warn("⚠️ Failed to load combat snapshot:", err.message);
-      });
+      this.loadCombatSnapshot().catch(err =>
+        console.warn("⚠️ Failed to load combat snapshot:", err.message)
+      );
     }
 
     this.startCleanupLoop();
   }
+
+  // (Full merged logic from both branches follows — includes reconnects, heartbeat, snapshot persistence, cleanup, event dedup, subscriptions, metrics, etc.)
+}
 
   async connect() {
     if (this.connected && this.client) return this.client;
@@ -181,6 +184,18 @@ export class MinecraftBridge extends EventEmitter {
 
     this.connectPromise = connectPromise;
     return connectPromise;
+    this.connected = true;
+    this.client.on("end", () => this.handleDisconnect());
+    this.client.on("error", err => this.handleError(err));
+    this.emit("connected");
+    console.log(`🎮 Connected to Minecraft server at ${this.options.host}:${this.options.port}`);
+    if (this.options.enableHeartbeat !== false) {
+      this.startHeartbeat();
+    }
+    if (this.options.enableSnapshots !== false) {
+      this.startSnapshotLoop();
+    }
+    return this.client;
   }
 
   handleDisconnect() {
@@ -196,6 +211,7 @@ export class MinecraftBridge extends EventEmitter {
     } else {
       this.scheduleReconnect();
     }
+    this.clearCommandQueue(new Error("Minecraft bridge disconnected"));
   }
 
   handleError(err) {
@@ -289,9 +305,6 @@ export class MinecraftBridge extends EventEmitter {
       })
       .finally(() => {
         this.commandInFlight = false;
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-        }
         setImmediate(() => this.processCommandQueue());
       });
   }
@@ -319,6 +332,11 @@ export class MinecraftBridge extends EventEmitter {
       console.warn("⚠️ Heartbeat failed, attempting reconnect:", err.message);
       this.connected = false;
       this.scheduleReconnect();
+      if (this.options.connectOnCreate !== false) {
+        this.connect().catch(reconnectErr => {
+          console.error("❌ Reconnect attempt failed:", reconnectErr.message);
+        });
+      }
     }
   }
 
@@ -409,6 +427,7 @@ export class MinecraftBridge extends EventEmitter {
     const payload = { at: Date.now(), state: snapshot };
     this.emit("combat_snapshot", payload);
     this.broadcastWebsocket({ type: "combat_snapshot", ...payload });
+    this.emit("combat_snapshot", { at: Date.now(), state: snapshot });
   }
 
   clearCommandQueue(error = null) {
@@ -445,6 +464,10 @@ export class MinecraftBridge extends EventEmitter {
       return null;
     }
     map.set(entityId, filtered);
+    map.set(entityId, filtered);
+    if (filtered.length === 0) {
+      return null;
+    }
     const totalDamage = filtered.reduce((sum, entry) => sum + entry.amount, 0);
     const duration = Math.max(1, timestamp - filtered[0].at);
     const dps = totalDamage / (duration / 1000);
@@ -544,6 +567,8 @@ export class MinecraftBridge extends EventEmitter {
     uniqueEvents.forEach(event => this.handleCombatEvent(event));
     this.emit("combat_events", uniqueEvents);
     this.broadcastWebsocket({ type: "combat_events", events: uniqueEvents });
+    events.forEach(event => this.handleCombatEvent(event));
+    this.emit("combat_events", events);
   }
 
   parseCombatFeedback(text) {
@@ -732,6 +757,139 @@ export class MinecraftBridge extends EventEmitter {
       return this.eventHistory.map(entry => entry.event);
     }
     return this.eventHistory.filter(entry => entry.at >= since).map(entry => entry.event);
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+landed\s+a\s+critical\s+hit\s+on\s+([A-Za-z0-9_:-]+)\s+for\s+([0-9.]+)\s+damage/i);
+      if (match) {
+        events.push({
+          type: "attack",
+          source: match[1],
+          target: match[2],
+          damage: Number.parseFloat(match[3]),
+          critical: true,
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+(?:hit|struck|shot)\s+([A-Za-z0-9_:-]+)\s+for\s+([0-9.]+)\s+damage(?:.*?health\s*(?:is\s*now|:)?\s*([0-9.]+)(?:\/([0-9.]+))?)?/i);
+      if (match) {
+        events.push({
+          type: "attack",
+          source: match[1],
+          target: match[2],
+          damage: Number.parseFloat(match[3]),
+          health: match[4] ? Number.parseFloat(match[4]) : null,
+          maxHealth: match[5] ? Number.parseFloat(match[5]) : null,
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+dodged\s+([A-Za-z0-9_:-]+)'s\s+attack/i);
+      if (match) {
+        events.push({
+          type: "dodge",
+          target: match[1],
+          source: match[2],
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+blocked\s+([A-Za-z0-9_:-]+)'s\s+attack/i);
+      if (match) {
+        events.push({
+          type: "block",
+          target: match[1],
+          source: match[2],
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+parried\s+([A-Za-z0-9_:-]+)'s\s+attack/i);
+      if (match) {
+        events.push({
+          type: "parry",
+          target: match[1],
+          source: match[2],
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+took\s+([0-9.]+)\s+damage(?:.*?health\s*(?:is\s*now|:)?\s*([0-9.]+)(?:\/([0-9.]+))?)?/i);
+      if (match) {
+        events.push({
+          type: "damage",
+          target: match[1],
+          damage: Number.parseFloat(match[2]),
+          health: match[3] ? Number.parseFloat(match[3]) : null,
+          maxHealth: match[4] ? Number.parseFloat(match[4]) : null,
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+(?:hp|health)\s*(?:is|:|now)\s*([0-9.]+)(?:\/([0-9.]+))?/i);
+      if (match) {
+        events.push({
+          type: "health",
+          target: match[1],
+          health: Number.parseFloat(match[2]),
+          maxHealth: match[3] ? Number.parseFloat(match[3]) : null,
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+defeated\s+([A-Za-z0-9_:-]+)/i);
+      if (match) {
+        events.push({
+          type: "defeated",
+          source: match[1],
+          target: match[2],
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+was\s+(?:slain|killed|defeated)(?:\s+by\s+([A-Za-z0-9_:-]+))?/i);
+      if (match) {
+        events.push({
+          type: "defeated",
+          target: match[1],
+          source: match[2] || null,
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)\s+recovered\s+([0-9.]+)\s+health/i);
+      if (match) {
+        events.push({
+          type: "heal",
+          target: match[1],
+          amount: Number.parseFloat(match[2]),
+          raw: line
+        });
+        return;
+      }
+
+      match = line.match(/([A-Za-z0-9_:-]+)'s\s+([A-Za-z0-9_:-]+)\s+durability\s+(?:is\s+)?(?:now\s*)?(\d+)(?:\/(\d+))?/i);
+      if (match) {
+        events.push({
+          type: "durability",
+          entity: match[1],
+          item: match[2],
+          current: match[3] ? Number.parseInt(match[3], 10) : null,
+          max: match[4] ? Number.parseInt(match[4], 10) : null,
+          raw: line
+        });
+      }
+    });
+
+    return events;
   }
 
   handleCombatEvent(event) {
@@ -865,6 +1023,7 @@ export class MinecraftBridge extends EventEmitter {
     this.combatStateMeta.set(entityId, { lastUpdated: next.lastUpdated });
     this.emit("combat_update", { entityId, state: next, updates: sanitizedUpdates });
     this.broadcastWebsocket({ type: "combat_update", entityId, state: next });
+    this.emit("combat_update", { entityId, state: next, updates: sanitizedUpdates });
   }
 
   getCombatState(entityId) {

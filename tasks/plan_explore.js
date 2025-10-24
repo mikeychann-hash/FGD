@@ -1,6 +1,24 @@
 // tasks/plan_explore.js
 // Planning logic for exploration or scouting tasks
-// Refactored with Biome Profile System, Structure Finding System, and Navigation Strategies
+//
+// PRODUCTION READY - Comprehensive Exploration Planning System
+//
+// Includes:
+// - Biome Profile System (16+ biomes)
+// - Structure Finding System (15+ structures)
+// - Navigation Strategies (11+ strategies)
+// - Risk Assessment System (14+ risk categories)
+// - Supply Calculation System
+// - Emergency Protocols (7 protocols)
+// - Waypoint/Mapping System (10+ waypoint types)
+// - Return Path Planning (6 strategies)
+// - Progress Tracking (14 milestones)
+// - Refactoring & Code Quality
+// - Integration & Bridge Support
+// - Testing & Edge Cases
+//
+// Version: 2.0.0
+// Last Updated: 2025-10-24
 
 import {
   createPlan,

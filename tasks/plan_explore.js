@@ -677,6 +677,816 @@ const NAVIGATION_STRATEGIES = {
 };
 
 /* =====================================================
+ * RISK ASSESSMENT SYSTEM
+ * Safety critical risk analysis and mitigation
+ * ===================================================== */
+
+const RISK_CATEGORIES = {
+  // Environmental Risks
+  VOID_DEATH: {
+    severity: "critical",
+    likelihood: "high",
+    category: "environmental",
+    description: "Fall into void results in instant death and loss of all items",
+    mitigation: [
+      "Bring ender pearls for emergency teleport",
+      "Use slow falling potions near edges",
+      "Build with blocks beneath you at all times",
+      "Keep totem of undying in off-hand"
+    ],
+    preventable: true,
+    requiredItems: ["ender_pearls", "slow_falling_potion", "blocks", "totem_of_undying"]
+  },
+  LAVA_DEATH: {
+    severity: "critical",
+    likelihood: "high",
+    category: "environmental",
+    description: "Lava causes rapid death and destroys items",
+    mitigation: [
+      "Drink fire resistance potion before travel",
+      "Carry water bucket for emergencies",
+      "Wear full armor with fire protection",
+      "Avoid digging straight down"
+    ],
+    preventable: true,
+    requiredItems: ["fire_resistance_potion", "water_bucket", "armor"]
+  },
+  DROWNING: {
+    severity: "high",
+    likelihood: "medium",
+    category: "environmental",
+    description: "Running out of air underwater",
+    mitigation: [
+      "Use water breathing potions",
+      "Bring doors or signs for air pockets",
+      "Wear turtle shell helmet (+10 seconds)",
+      "Use respiration enchantment"
+    ],
+    preventable: true,
+    requiredItems: ["water_breathing_potion", "door", "turtle_helmet"]
+  },
+  FALL_DAMAGE: {
+    severity: "medium",
+    likelihood: "high",
+    category: "environmental",
+    description: "High falls cause significant damage or death",
+    mitigation: [
+      "Use slow falling potions in mountains",
+      "Carry water bucket for MLG water",
+      "Wear feather falling boots",
+      "Build scaffolding carefully"
+    ],
+    preventable: true,
+    requiredItems: ["slow_falling_potion", "water_bucket", "feather_falling_boots"]
+  },
+  GETTING_LOST: {
+    severity: "medium",
+    likelihood: "very_high",
+    category: "navigation",
+    description: "Unable to find way back to base",
+    mitigation: [
+      "Note coordinates at regular intervals (F3)",
+      "Place torches/markers on right side going out",
+      "Use compass or lodestone compass",
+      "Build tall pillars as landmarks",
+      "Take screenshots of important locations"
+    ],
+    preventable: true,
+    requiredItems: ["compass", "torches", "blocks"]
+  },
+
+  // Combat Risks
+  MOB_OVERWHELM: {
+    severity: "high",
+    likelihood: "medium",
+    category: "combat",
+    description: "Surrounded by hostile mobs",
+    mitigation: [
+      "Light up area with torches constantly",
+      "Carry ender pearls for escape",
+      "Keep golden apples for emergency healing",
+      "Bring shield for blocking",
+      "Don't explore at night without preparation"
+    ],
+    preventable: true,
+    requiredItems: ["torches", "ender_pearls", "golden_apples", "shield", "armor"]
+  },
+  WITHER_EFFECT: {
+    severity: "critical",
+    likelihood: "low",
+    category: "combat",
+    description: "Wither skeletons inflict deadly wither effect",
+    mitigation: [
+      "Bring milk buckets to cure wither",
+      "Wear full armor",
+      "Keep health topped up with golden apples",
+      "Use shield to block hits"
+    ],
+    preventable: true,
+    requiredItems: ["milk_bucket", "armor", "golden_apples", "shield"]
+  },
+  MINING_FATIGUE: {
+    severity: "high",
+    likelihood: "medium",
+    category: "combat",
+    description: "Elder guardians inflict mining fatigue III",
+    mitigation: [
+      "Kill elder guardians first with TNT or bow",
+      "Drink milk to clear effect temporarily",
+      "Use night vision to see underwater",
+      "Bring multiple pickaxes"
+    ],
+    preventable: false,
+    requiredItems: ["milk_bucket", "bow", "arrows", "tnt"]
+  },
+  EVOKER_VEXES: {
+    severity: "high",
+    likelihood: "medium",
+    category: "combat",
+    description: "Vexes pass through blocks and swarm",
+    mitigation: [
+      "Kill evoker immediately to stop spawns",
+      "Use shield to block vex attacks",
+      "Bring totems of undying",
+      "Keep armor in good repair"
+    ],
+    preventable: true,
+    requiredItems: ["shield", "totem_of_undying", "armor"]
+  },
+
+  // Resource Risks
+  HUNGER_DEPLETION: {
+    severity: "medium",
+    likelihood: "high",
+    category: "resource",
+    description: "Running out of food during long expeditions",
+    mitigation: [
+      "Bring 2x expected food for journey",
+      "Carry high-saturation food (golden carrots, steak)",
+      "Bring fishing rod for emergency food",
+      "Note food sources in biome"
+    ],
+    preventable: true,
+    requiredItems: ["food", "fishing_rod"]
+  },
+  TOOL_BREAKAGE: {
+    severity: "medium",
+    likelihood: "medium",
+    category: "resource",
+    description: "Tools breaking mid-exploration",
+    mitigation: [
+      "Bring backup tools",
+      "Use mending enchantment",
+      "Carry materials to craft replacements",
+      "Monitor durability regularly"
+    ],
+    preventable: true,
+    requiredItems: ["backup_tools", "crafting_materials"]
+  },
+  OUT_OF_BLOCKS: {
+    severity: "high",
+    likelihood: "medium",
+    category: "resource",
+    description: "Running out of blocks for bridging/pillaring",
+    mitigation: [
+      "Bring at least 5 stacks of cheap blocks (dirt/cobble)",
+      "Collect blocks while exploring",
+      "Use ender pearls as backup",
+      "Don't over-commit to dangerous bridges"
+    ],
+    preventable: true,
+    requiredItems: ["blocks", "ender_pearls"]
+  },
+
+  // Weather/Time Risks
+  NIGHT_AMBUSH: {
+    severity: "medium",
+    likelihood: "high",
+    category: "time",
+    description: "Caught in darkness with increased mob spawns",
+    mitigation: [
+      "Bring bed to sleep through night",
+      "Carry extra torches",
+      "Build temporary shelter if needed",
+      "Watch in-game time"
+    ],
+    preventable: true,
+    requiredItems: ["bed", "torches", "blocks"]
+  },
+  THUNDERSTORM_HAZARD: {
+    severity: "low",
+    likelihood: "low",
+    category: "weather",
+    description: "Lightning strikes and skeleton horse traps",
+    mitigation: [
+      "Avoid high ground during storms",
+      "Sleep in bed to skip storm",
+      "Don't stand near tall structures"
+    ],
+    preventable: true,
+    requiredItems: ["bed"]
+  }
+};
+
+/**
+ * Assess risks for given exploration context
+ */
+function assessRisks(biome, structure, strategy, task) {
+  const activeRisks = [];
+  const criticalRisks = [];
+  const requiredMitigation = new Set();
+
+  // Dimension-specific risks
+  if (biome.dimension === "end") {
+    activeRisks.push({
+      ...RISK_CATEGORIES.VOID_DEATH,
+      reason: "End dimension has void on all sides"
+    });
+    RISK_CATEGORIES.VOID_DEATH.requiredItems.forEach(item => requiredMitigation.add(item));
+    criticalRisks.push("VOID_DEATH");
+  }
+
+  if (biome.dimension === "nether") {
+    activeRisks.push({
+      ...RISK_CATEGORIES.LAVA_DEATH,
+      reason: "Nether has extensive lava lakes and falls"
+    });
+    RISK_CATEGORIES.LAVA_DEATH.requiredItems.forEach(item => requiredMitigation.add(item));
+    criticalRisks.push("LAVA_DEATH");
+  }
+
+  // Biome terrain risks
+  if (biome.terrain === "steep" || biome.terrain === "floating") {
+    activeRisks.push({
+      ...RISK_CATEGORIES.FALL_DAMAGE,
+      reason: `${biome.terrain} terrain increases fall risk`
+    });
+    RISK_CATEGORIES.FALL_DAMAGE.requiredItems.forEach(item => requiredMitigation.add(item));
+  }
+
+  if (biome.category === "aquatic" || biome.terrain === "water") {
+    activeRisks.push({
+      ...RISK_CATEGORIES.DROWNING,
+      reason: "Aquatic biome requires underwater exploration"
+    });
+    RISK_CATEGORIES.DROWNING.requiredItems.forEach(item => requiredMitigation.add(item));
+  }
+
+  // Navigation complexity
+  if (biome.navigationComplexity === "very_high" || biome.navigationComplexity === "extreme") {
+    activeRisks.push({
+      ...RISK_CATEGORIES.GETTING_LOST,
+      reason: `${biome.navigationComplexity} navigation complexity`,
+      likelihood: "critical"
+    });
+    RISK_CATEGORIES.GETTING_LOST.requiredItems.forEach(item => requiredMitigation.add(item));
+  }
+
+  // Structure-specific risks
+  if (structure) {
+    if (structure.dangers.includes("elder_guardians")) {
+      activeRisks.push({
+        ...RISK_CATEGORIES.MINING_FATIGUE,
+        reason: "Ocean monuments have elder guardians"
+      });
+      RISK_CATEGORIES.MINING_FATIGUE.requiredItems.forEach(item => requiredMitigation.add(item));
+    }
+
+    if (structure.dangers.includes("wither_skeletons")) {
+      activeRisks.push({
+        ...RISK_CATEGORIES.WITHER_EFFECT,
+        reason: "Nether fortresses spawn wither skeletons"
+      });
+      RISK_CATEGORIES.WITHER_EFFECT.requiredItems.forEach(item => requiredMitigation.add(item));
+    }
+
+    if (structure.dangers.includes("evokers") || structure.dangers.includes("vexes")) {
+      activeRisks.push({
+        ...RISK_CATEGORIES.EVOKER_VEXES,
+        reason: "Woodland mansions have evokers"
+      });
+      RISK_CATEGORIES.EVOKER_VEXES.requiredItems.forEach(item => requiredMitigation.add(item));
+    }
+  }
+
+  // Mob density
+  if (biome.hostileMobs && biome.hostileMobs.length >= 5) {
+    activeRisks.push({
+      ...RISK_CATEGORIES.MOB_OVERWHELM,
+      reason: `High mob variety (${biome.hostileMobs.length} types)`
+    });
+    RISK_CATEGORIES.MOB_OVERWHELM.requiredItems.forEach(item => requiredMitigation.add(item));
+  }
+
+  // Resource depletion - always a risk on long expeditions
+  const expeditionRadius = structure?.searchRadius || task?.metadata?.radius || 1000;
+  if (expeditionRadius > 1000) {
+    activeRisks.push({
+      ...RISK_CATEGORIES.HUNGER_DEPLETION,
+      reason: `Long expedition (${expeditionRadius}+ blocks)`,
+      likelihood: "very_high"
+    });
+    activeRisks.push({
+      ...RISK_CATEGORIES.TOOL_BREAKAGE,
+      reason: "Extended exploration time"
+    });
+    activeRisks.push({
+      ...RISK_CATEGORIES.OUT_OF_BLOCKS,
+      reason: "Long-distance travel requires building"
+    });
+  }
+
+  // Night exploration
+  if (task?.metadata?.nightRun) {
+    activeRisks.push({
+      ...RISK_CATEGORIES.NIGHT_AMBUSH,
+      reason: "Intentional night exploration",
+      likelihood: "critical"
+    });
+  }
+
+  return {
+    activeRisks,
+    criticalRisks,
+    requiredMitigation: Array.from(requiredMitigation),
+    riskScore: calculateRiskScore(activeRisks)
+  };
+}
+
+/**
+ * Calculate overall risk score (0-100)
+ */
+function calculateRiskScore(risks) {
+  const severityScores = {
+    critical: 40,
+    high: 25,
+    medium: 15,
+    low: 5
+  };
+
+  const likelihoodMultipliers = {
+    critical: 2.0,
+    very_high: 1.5,
+    high: 1.2,
+    medium: 1.0,
+    low: 0.7
+  };
+
+  let totalScore = 0;
+  risks.forEach(risk => {
+    const baseScore = severityScores[risk.severity] || 10;
+    const multiplier = likelihoodMultipliers[risk.likelihood] || 1.0;
+    totalScore += baseScore * multiplier;
+  });
+
+  return Math.min(100, Math.round(totalScore));
+}
+
+/* =====================================================
+ * SUPPLY CALCULATION SYSTEM
+ * Mission planning with accurate supply quantities
+ * ===================================================== */
+
+const SUPPLY_REQUIREMENTS = {
+  // Food - based on distance and difficulty
+  food: {
+    baseQuantity: 16, // Half a stack
+    perBlockTraveled: 0.01, // 1 food per 100 blocks
+    difficultyMultiplier: {
+      easy: 0.8,
+      medium: 1.0,
+      hard: 1.3,
+      very_hard: 1.6,
+      extreme: 2.0
+    },
+    recommendedTypes: ["golden_carrots", "cooked_beef", "cooked_porkchop", "bread"]
+  },
+
+  // Torches - based on area and strategy
+  torches: {
+    baseQuantity: 64, // One stack
+    perBlockRadius: 0.2, // More for larger areas
+    navigationMultiplier: {
+      low: 0.8,
+      medium: 1.0,
+      high: 1.5,
+      very_high: 2.0,
+      extreme: 3.0
+    }
+  },
+
+  // Blocks - based on strategy and terrain
+  blocks: {
+    baseQuantity: 64, // One stack
+    perBlockRadius: 0.15,
+    terrainMultiplier: {
+      flat: 0.5,
+      flat_sandy: 0.5,
+      varied: 1.0,
+      hilly: 1.5,
+      steep: 2.5,
+      water: 2.0,
+      floating: 3.0,
+      slow: 1.2
+    },
+    recommendedTypes: ["cobblestone", "dirt", "netherrack", "end_stone"]
+  },
+
+  // Weapons and Combat
+  weapons: {
+    sword: { quantity: 1, backup: true },
+    bow: { quantity: 1, backup: false },
+    arrows: {
+      baseQuantity: 64,
+      structureMultiplier: {
+        peaceful: 0.5,
+        low_combat: 1.0,
+        medium_combat: 2.0,
+        high_combat: 3.0
+      }
+    },
+    shield: { quantity: 1, backup: false }
+  },
+
+  // Tools - based on task needs
+  tools: {
+    pickaxe: { quantity: 1, backup: true },
+    axe: { quantity: 1, backup: false },
+    shovel: { quantity: 1, backup: false },
+    hoe: { quantity: 0, backup: false }
+  },
+
+  // Potions - dimension and structure specific
+  potions: {
+    fire_resistance: {
+      baseQuantity: 0,
+      netherRequired: 3, // 8 minutes each = 24 min
+      lavaRiskRequired: 2
+    },
+    water_breathing: {
+      baseQuantity: 0,
+      oceanRequired: 3,
+      underwaterRequired: 3
+    },
+    night_vision: {
+      baseQuantity: 0,
+      underwaterRequired: 2,
+      caveRequired: 1
+    },
+    slow_falling: {
+      baseQuantity: 0,
+      endRequired: 3,
+      mountainsRequired: 1
+    },
+    healing: {
+      baseQuantity: 0,
+      combatRequired: 4
+    },
+    regeneration: {
+      baseQuantity: 0,
+      highRiskRequired: 2
+    }
+  },
+
+  // Utility items
+  utility: {
+    bed: { quantity: 1, purpose: "set spawn and sleep" },
+    compass: { quantity: 1, purpose: "navigation" },
+    map: { quantity: 1, purpose: "charting" },
+    ender_pearls: {
+      baseQuantity: 4,
+      endRequired: 16,
+      emergencyRequired: 8
+    },
+    water_bucket: { quantity: 1, purpose: "MLG water and lava control" },
+    milk_bucket: {
+      baseQuantity: 0,
+      witherRequired: 2,
+      miningFatigueRequired: 3
+    },
+    golden_apples: {
+      baseQuantity: 2,
+      combatRequired: 4,
+      highRiskRequired: 6
+    },
+    totem_of_undying: {
+      baseQuantity: 0,
+      extremeRiskRequired: 1,
+      endRequired: 1
+    }
+  }
+};
+
+/**
+ * Calculate required supplies for expedition
+ */
+function calculateSupplies(biome, structure, strategy, radius, risks) {
+  const supplies = {};
+
+  // Calculate food
+  const foodBase = SUPPLY_REQUIREMENTS.food.baseQuantity;
+  const foodDistance = (radius || 1000) * SUPPLY_REQUIREMENTS.food.perBlockTraveled;
+  const foodDifficulty = SUPPLY_REQUIREMENTS.food.difficultyMultiplier[biome.difficulty] || 1.0;
+  supplies.food = Math.ceil((foodBase + foodDistance) * foodDifficulty);
+
+  // Calculate torches
+  const torchBase = SUPPLY_REQUIREMENTS.torches.baseQuantity;
+  const torchArea = (radius || 500) * SUPPLY_REQUIREMENTS.torches.perBlockRadius;
+  const torchNav = SUPPLY_REQUIREMENTS.torches.navigationMultiplier[biome.navigationComplexity] || 1.0;
+  supplies.torches = Math.ceil((torchBase + torchArea) * torchNav);
+
+  // Calculate blocks
+  const blockBase = SUPPLY_REQUIREMENTS.blocks.baseQuantity;
+  const blockArea = (radius || 500) * SUPPLY_REQUIREMENTS.blocks.perBlockRadius;
+  const blockTerrain = SUPPLY_REQUIREMENTS.blocks.terrainMultiplier[biome.terrain] || 1.0;
+  supplies.blocks = Math.ceil((blockBase + blockArea) * blockTerrain);
+
+  // Combat supplies
+  supplies.arrows = 64;
+  if (structure?.findingDifficulty === "hard" || structure?.findingDifficulty === "extreme") {
+    supplies.arrows = 128;
+  }
+
+  // Dimension-specific potions
+  if (biome.dimension === "nether") {
+    supplies.fire_resistance_potion = 3;
+  }
+  if (biome.category === "aquatic") {
+    supplies.water_breathing_potion = 3;
+    supplies.night_vision_potion = 2;
+  }
+  if (biome.dimension === "end") {
+    supplies.slow_falling_potion = 3;
+    supplies.ender_pearls = 16;
+  }
+
+  // Risk-based supplies
+  if (risks.criticalRisks.includes("VOID_DEATH")) {
+    supplies.ender_pearls = (supplies.ender_pearls || 0) + 8;
+  }
+  if (risks.criticalRisks.includes("LAVA_DEATH")) {
+    supplies.fire_resistance_potion = (supplies.fire_resistance_potion || 0) + 2;
+  }
+
+  // Structure-specific
+  if (structure) {
+    if (structure.dangers.includes("elder_guardians")) {
+      supplies.milk_bucket = 3;
+    }
+    if (structure.dangers.includes("wither_skeletons")) {
+      supplies.milk_bucket = (supplies.milk_bucket || 0) + 2;
+    }
+  }
+
+  // High-risk expeditions
+  if (risks.riskScore >= 60) {
+    supplies.golden_apples = 6;
+    supplies.healing_potion = 4;
+  } else if (risks.riskScore >= 40) {
+    supplies.golden_apples = 4;
+    supplies.healing_potion = 2;
+  } else {
+    supplies.golden_apples = 2;
+  }
+
+  // Always bring basics
+  supplies.bed = 1;
+  supplies.compass = 1;
+  supplies.water_bucket = 1;
+
+  return supplies;
+}
+
+/* =====================================================
+ * EMERGENCY PROTOCOLS
+ * Failure recovery and contingency planning
+ * ===================================================== */
+
+const EMERGENCY_PROTOCOLS = {
+  // Life-threatening emergencies
+  IMMINENT_DEATH: {
+    priority: "critical",
+    triggers: ["low_health", "surrounded", "falling_into_void"],
+    immediateActions: [
+      "Use totem of undying if available",
+      "Eat golden apple immediately",
+      "Throw ender pearl to escape",
+      "Build emergency pillar/wall with blocks",
+      "Use slow falling potion if falling"
+    ],
+    fallbackActions: [
+      "Accept death and note coordinates for item recovery",
+      "Take screenshot of death location (F2)",
+      "Log coordinates in chat before death"
+    ]
+  },
+
+  LOST_NAVIGATION: {
+    priority: "high",
+    triggers: ["unknown_location", "out_of_markers", "disoriented"],
+    immediateActions: [
+      "STOP MOVING - don't make it worse",
+      "Open F3 and note current coordinates",
+      "Check compass direction to original spawn",
+      "Look for sun/moon position (East/West)",
+      "Build tall pillar and scan horizon"
+    ],
+    recoverySteps: [
+      "If you have bed coordinates, navigate by F3",
+      "Follow compass to spawn, then navigate from there",
+      "Use lodestone compass if available",
+      "Build temporary shelter and wait for sunrise",
+      "Place torches in arrow pattern pointing home"
+    ],
+    prevention: [
+      "Mark coordinates every 200 blocks",
+      "Place torches on RIGHT going out",
+      "Build tall pillars every 500 blocks",
+      "Take regular screenshots"
+    ]
+  },
+
+  OUT_OF_SUPPLIES: {
+    priority: "high",
+    triggers: ["no_food", "no_torches", "no_blocks", "broken_tools"],
+    immediateActions: [
+      "Assess what resources are available in area",
+      "If starving: hunt animals, fish, or eat emergency food",
+      "If no torches: craft from coal/wood or use bed to skip night",
+      "If no blocks: mine stone/dirt/netherrack",
+      "If tools broken: craft new from gathered materials"
+    ],
+    resourceGathering: {
+      food: ["Kill passive mobs", "Fish with rod", "Harvest crops if near village"],
+      torches: ["Mine coal", "Craft from wood + coal", "Use glowstone/lanterns"],
+      blocks: ["Mine any breakable block", "Collect dirt", "Cut trees"],
+      tools: ["Craft from gathered materials", "Find in structures"]
+    },
+    lastResort: [
+      "Navigate back without supplies if close to home",
+      "Build shelter and establish mini-base",
+      "Use /kill if in creative/admin to reset (loses items)"
+    ]
+  },
+
+  HOSTILE_MOB_SWARM: {
+    priority: "high",
+    triggers: ["surrounded_by_mobs", "night_caught", "spawner_nearby"],
+    immediateActions: [
+      "Pillar up 3 blocks immediately",
+      "Eat golden apple for absorption",
+      "Use shield to block attacks",
+      "Place torches to stop spawns",
+      "Throw ender pearl to escape if desperate"
+    ],
+    combatStrategy: [
+      "Fight from high ground",
+      "Bottleneck mobs into narrow space",
+      "Use bow for ranged elimination",
+      "Block with shield, attack during cooldown",
+      "Retreat if health below 50%"
+    ],
+    prevention: [
+      "Light up area constantly",
+      "Don't explore at night unprepared",
+      "Listen for mob sounds",
+      "Check spawner locations before approaching"
+    ]
+  },
+
+  STRUCTURE_TRAP: {
+    priority: "medium",
+    triggers: ["tnt_trap", "arrow_trap", "lava_trap", "fall_trap"],
+    immediateActions: [
+      "FREEZE - don't trigger pressure plates",
+      "Look for tripwires before moving",
+      "Disarm TNT by breaking connection",
+      "Block arrow dispensers with blocks",
+      "Fill lava with blocks"
+    ],
+    structureSpecific: {
+      desert_temple: "TNT under pressure plate in center, disarm before looting",
+      jungle_temple: "Arrow dispenser trap, approach from side",
+      woodland_mansion: "Various traps, move slowly and check floors"
+    }
+  },
+
+  DIMENSION_STRANDED: {
+    priority: "critical",
+    triggers: ["nether_portal_destroyed", "end_platform_destroyed", "lost_in_end"],
+    netherRecovery: [
+      "Rebuild portal with obsidian (10 minimum)",
+      "If no obsidian: find ruined portal or fortress",
+      "Trade with piglins for obsidian",
+      "Use water + lava to create obsidian",
+      "Light with fire charge or flint & steel"
+    ],
+    endRecovery: [
+      "Bridge back to main island if on outer islands",
+      "Kill ender dragon if not defeated",
+      "Use ender pearls to traverse void",
+      "Throw item through return portal to test",
+      "Jump through end gateway to return"
+    ],
+    prevention: [
+      "Never destroy your only portal",
+      "Mark portal coordinates",
+      "Bring portal-building materials",
+      "Have backup flint & steel"
+    ]
+  },
+
+  ITEM_LOSS_MITIGATION: {
+    priority: "medium",
+    triggers: ["death_occurred", "items_despawning"],
+    immediateActions: [
+      "Respawn and note death coordinates immediately",
+      "Items despawn after 5 minutes - hurry",
+      "Bring empty inventory for recovery",
+      "Prepare for return journey with minimal supplies",
+      "Mark route to death location"
+    ],
+    recoveryStrategy: [
+      "Travel light - only bring necessities",
+      "Avoid same death scenario (prepare differently)",
+      "Bring ender chest to store valuables",
+      "Have backup gear ready",
+      "If items despawned, accept loss and move on"
+    ],
+    prevention: [
+      "Use Keep Inventory if available (gamerule)",
+      "Store valuables in ender chest before risky activities",
+      "Have backup gear sets at base",
+      "Don't carry unnecessary valuables during exploration"
+    ]
+  }
+};
+
+/**
+ * Generate emergency protocol checklist
+ */
+function generateEmergencyChecklist(biome, structure, risks) {
+  const protocols = [];
+
+  // Add relevant emergency protocols based on risks
+  risks.activeRisks.forEach(risk => {
+    if (risk.severity === "critical") {
+      if (risk.category === "environmental") {
+        protocols.push({
+          name: "Environmental Emergency",
+          protocol: EMERGENCY_PROTOCOLS.IMMINENT_DEATH,
+          relevance: risk.description
+        });
+      }
+    }
+  });
+
+  // Add navigation protocol for complex biomes
+  if (biome.navigationComplexity === "very_high" || biome.navigationComplexity === "extreme") {
+    protocols.push({
+      name: "Lost Navigation Recovery",
+      protocol: EMERGENCY_PROTOCOLS.LOST_NAVIGATION,
+      relevance: "High complexity terrain makes getting lost likely"
+    });
+  }
+
+  // Add dimension-specific protocols
+  if (biome.dimension !== "overworld") {
+    protocols.push({
+      name: "Dimension Stranded Recovery",
+      protocol: EMERGENCY_PROTOCOLS.DIMENSION_STRANDED,
+      relevance: `${biome.dimension} dimension requires portal knowledge`
+    });
+  }
+
+  // Add structure trap protocol if exploring structures
+  if (structure && (structure.dangers.includes("tnt_trap") ||
+                    structure.dangers.includes("arrow_trap") ||
+                    structure.dangers.includes("dispenser_trap"))) {
+    protocols.push({
+      name: "Structure Trap Handling",
+      protocol: EMERGENCY_PROTOCOLS.STRUCTURE_TRAP,
+      relevance: `${structure.navigationTips.join(", ")}`
+    });
+  }
+
+  // Always include mob swarm and supply depletion
+  protocols.push({
+    name: "Hostile Mob Swarm",
+    protocol: EMERGENCY_PROTOCOLS.HOSTILE_MOB_SWARM,
+    relevance: "Standard combat emergency"
+  });
+
+  protocols.push({
+    name: "Supply Depletion",
+    protocol: EMERGENCY_PROTOCOLS.OUT_OF_SUPPLIES,
+    relevance: "Resource management emergency"
+  });
+
+  return protocols;
+}
+
+/* =====================================================
  * HELPER FUNCTIONS
  * Supporting functions for exploration planning
  * ===================================================== */
@@ -776,7 +1586,14 @@ export function planExploreTask(task, context = {}) {
   const structure = structureName ? getStructureProfile(structureName) : null;
   const strategy = determineBestStrategy(task, biome, structure);
 
-  // ===== Determine Supplies Based on Biome and Structure =====
+  // ===== RISK ASSESSMENT - Safety Critical =====
+  const riskAssessment = assessRisks(biome, structure, strategy, task);
+  const { activeRisks, criticalRisks, requiredMitigation, riskScore } = riskAssessment;
+
+  // ===== SUPPLY CALCULATION - Mission Planning =====
+  const calculatedSupplies = calculateSupplies(biome, structure, strategy, radius, riskAssessment);
+
+  // Merge calculated supplies with user-specified supplies
   const suppliesRaw = Array.isArray(task?.metadata?.supplies)
     ? task.metadata.supplies
     : task?.metadata?.supplies && typeof task.metadata.supplies === "object"
@@ -785,32 +1602,36 @@ export function planExploreTask(task, context = {}) {
     ? [task.metadata.supplies]
     : [];
 
-  // Combine biome supplies, structure preparations, and strategy requirements
-  const baseSupplies = [...(biome.supplies || [])];
-  const structureSupplies = structure?.preparations || [];
-  const strategySupplies = strategy?.requirements || [];
-  const allSupplies = [...baseSupplies, ...structureSupplies, ...strategySupplies, ...suppliesRaw];
+  // Convert calculated supplies to array format
+  const calculatedSuppliesArray = Object.entries(calculatedSupplies).map(([name, count]) => ({
+    name: normalizeItemName(name),
+    count
+  }));
+
+  // Combine all supplies
+  const allSupplies = [...calculatedSuppliesArray, ...suppliesRaw];
 
   const inventory = extractInventory(context);
   const normalizedSupplies = allSupplies
     .map(item => {
       if (typeof item === "string") {
-        return { name: normalizeItemName(item) };
+        return { name: normalizeItemName(item), count: 1 };
       }
       if (item && typeof item === "object") {
         return {
           name: normalizeItemName(item.name || item.item || item.id || Object.keys(item)[0]),
-          count: resolveQuantity(item.count ?? item.quantity ?? Object.values(item)[0], null)
+          count: resolveQuantity(item.count ?? item.quantity ?? Object.values(item)[0], 1)
         };
       }
       return null;
     })
     .filter(Boolean);
 
-  // Remove duplicates
+  // Remove duplicates, keeping highest count
   const uniqueSuppliesMap = new Map();
   normalizedSupplies.forEach(supply => {
-    if (!uniqueSuppliesMap.has(supply.name)) {
+    const existing = uniqueSuppliesMap.get(supply.name);
+    if (!existing || (supply.count && supply.count > (existing.count || 0))) {
       uniqueSuppliesMap.set(supply.name, supply);
     }
   });
@@ -819,6 +1640,9 @@ export function planExploreTask(task, context = {}) {
   const missingSupplies = uniqueSupplies.filter(supply =>
     supply?.name ? !hasInventoryItem(inventory, supply.name) : false
   );
+
+  // ===== EMERGENCY PROTOCOLS - Failure Recovery =====
+  const emergencyProtocols = generateEmergencyChecklist(biome, structure, riskAssessment);
 
   // ===== Build Steps =====
   const steps = [];
@@ -856,6 +1680,51 @@ export function planExploreTask(task, context = {}) {
     })
   );
 
+  // RISK ASSESSMENT WARNING - Safety Critical
+  const riskLevel = riskScore >= 70 ? "EXTREME" : riskScore >= 50 ? "HIGH" : riskScore >= 30 ? "MEDIUM" : "LOW";
+  const riskColor = riskScore >= 70 ? "🔴" : riskScore >= 50 ? "🟠" : riskScore >= 30 ? "🟡" : "🟢";
+
+  steps.push(
+    createStep({
+      title: `${riskColor} Risk Assessment: ${riskLevel} (Score: ${riskScore}/100)`,
+      type: "safety",
+      description: `Mission risk level: ${riskLevel}. Critical risks: ${criticalRisks.length > 0 ? criticalRisks.join(", ") : "None"}. Active hazards: ${activeRisks.length}. Required safety items: ${requiredMitigation.join(", ") || "Standard gear"}.`,
+      metadata: {
+        riskScore,
+        riskLevel,
+        criticalRisks,
+        activeRisks: activeRisks.map(r => r.description),
+        requiredMitigation
+      }
+    })
+  );
+
+  // DETAILED SUPPLY BREAKDOWN - Mission Planning
+  const criticalSupplies = [];
+  if (calculatedSupplies.food) criticalSupplies.push(`${calculatedSupplies.food} food`);
+  if (calculatedSupplies.torches) criticalSupplies.push(`${calculatedSupplies.torches} torches`);
+  if (calculatedSupplies.blocks) criticalSupplies.push(`${calculatedSupplies.blocks} blocks`);
+  if (calculatedSupplies.arrows) criticalSupplies.push(`${calculatedSupplies.arrows} arrows`);
+  if (calculatedSupplies.fire_resistance_potion) criticalSupplies.push(`${calculatedSupplies.fire_resistance_potion} fire resistance`);
+  if (calculatedSupplies.water_breathing_potion) criticalSupplies.push(`${calculatedSupplies.water_breathing_potion} water breathing`);
+  if (calculatedSupplies.slow_falling_potion) criticalSupplies.push(`${calculatedSupplies.slow_falling_potion} slow falling`);
+  if (calculatedSupplies.ender_pearls) criticalSupplies.push(`${calculatedSupplies.ender_pearls} ender pearls`);
+  if (calculatedSupplies.golden_apples) criticalSupplies.push(`${calculatedSupplies.golden_apples} golden apples`);
+
+  steps.push(
+    createStep({
+      title: "Gather calculated supplies",
+      type: "preparation",
+      description: `Mission-critical supplies: ${criticalSupplies.join(", ")}. Total unique items needed: ${uniqueSupplies.length}. Missing from inventory: ${missingSupplies.length}.`,
+      metadata: {
+        calculatedSupplies,
+        criticalSupplies,
+        allSupplies: uniqueSupplies,
+        missing: missingSupplies
+      }
+    })
+  );
+
   // Biome-Specific Preparation Warnings
   if (biome.specialConsiderations && biome.specialConsiderations.length > 0) {
     steps.push(
@@ -876,6 +1745,24 @@ export function planExploreTask(task, context = {}) {
         type: "preparation",
         description: `Tips for finding ${structureName}: ${structure.navigationTips.join("; ")}.`,
         metadata: { structure: structureName, tips: structure.navigationTips }
+      })
+    );
+  }
+
+  // EMERGENCY PROTOCOLS BRIEFING - Failure Recovery
+  if (emergencyProtocols && emergencyProtocols.length > 0) {
+    const protocolNames = emergencyProtocols.map(p => p.name).join(", ");
+    const criticalProtocols = emergencyProtocols.filter(p => p.protocol.priority === "critical");
+
+    steps.push(
+      createStep({
+        title: "Review emergency protocols",
+        type: "safety",
+        description: `${emergencyProtocols.length} emergency protocols active: ${protocolNames}. Critical protocols: ${criticalProtocols.length}. Know your escape routes and recovery procedures.`,
+        metadata: {
+          protocols: emergencyProtocols,
+          criticalCount: criticalProtocols.length
+        }
       })
     );
   }
@@ -1043,71 +1930,80 @@ export function planExploreTask(task, context = {}) {
     .filter(name => name && name !== "unspecified item");
   const uniqueResources = [...new Set(resources)];
 
-  // ===== Identify Risks =====
+  // ===== Identify Risks - Using Risk Assessment System =====
   const risks = [];
 
-  // Biome-specific risks
-  if (biome.weatherHazards && biome.weatherHazards.length > 0) {
-    risks.push(`${biome.category} biome hazards: ${biome.weatherHazards.join(", ")}.`);
+  // Add risk score overview
+  risks.push(`🎯 Risk Score: ${riskScore}/100 (${riskLevel}). ${activeRisks.length} active hazards identified.`);
+
+  // Add critical risks with mitigation
+  if (criticalRisks.length > 0) {
+    risks.push(`⚠️ CRITICAL RISKS: ${criticalRisks.join(", ")}. Mitigation required before departure.`);
   }
 
-  // Dimension-specific risks
-  if (biome.dimension === "nether") {
-    risks.push("Nether environment: fire resistance essential, no natural water, bed explosions.");
-  } else if (biome.dimension === "end") {
-    risks.push("End dimension: void death is permanent, endermen everywhere, bring blocks.");
-  }
+  // Add detailed risk descriptions
+  activeRisks.forEach(risk => {
+    if (risk.severity === "critical" || risk.severity === "high") {
+      const mitigationSummary = risk.mitigation?.slice(0, 2).join("; ") || "Use caution";
+      risks.push(`${risk.description} - ${risk.reason}. Mitigation: ${mitigationSummary}.`);
+    }
+  });
 
-  // Structure-specific risks
-  if (structure && structure.dangers.length > 0) {
-    risks.push(`${structureName} dangers: ${structure.dangers.join(", ")}.`);
-  }
-
-  // Mob risks
-  if (biome.hostileMobs && biome.hostileMobs.length > 0) {
-    risks.push(`Hostile mobs in ${biomeName}: ${biome.hostileMobs.join(", ")}.`);
-  }
-
-  // Difficulty-based risk
-  if (biome.difficulty === "hard" || biome.difficulty === "very_hard" || biome.difficulty === "extreme") {
-    risks.push(`High difficulty (${biome.difficulty}) - bring backup supplies and armor.`);
-  }
-
-  // Night exploration
-  if (task?.metadata?.nightRun) {
-    risks.push("Night exploration significantly increases hostile mob encounters.");
-  }
-
-  // Navigation complexity
-  if (biome.navigationComplexity === "very_high" || biome.navigationComplexity === "extreme") {
-    risks.push(`${biome.navigationComplexity} navigation complexity - easy to get lost, mark paths clearly.`);
+  // Add emergency protocol count
+  if (emergencyProtocols.length > 0) {
+    risks.push(`📋 ${emergencyProtocols.length} emergency protocols prepared for failure scenarios.`);
   }
 
   // ===== Additional Notes =====
   const notes = [];
 
   // Strategy efficiency note
-  notes.push(`Using ${strategy.name} (${Math.round(strategy.efficiency * 100)}% efficiency, ${strategy.coverage} coverage).`);
+  notes.push(`🧭 Navigation: ${strategy.name} (${Math.round(strategy.efficiency * 100)}% efficiency, ${strategy.coverage} coverage).`);
 
   // Biome traversal note
-  notes.push(`Terrain traversal speed: ${Math.round(biome.traversalSpeed * 100)}% of normal.`);
+  notes.push(`🏃 Movement: Terrain traversal at ${Math.round(biome.traversalSpeed * 100)}% speed (${biome.terrain} terrain).`);
+
+  // Supply calculation summary
+  const totalFood = calculatedSupplies.food || 0;
+  const totalBlocks = calculatedSupplies.blocks || 0;
+  notes.push(`📦 Supplies: ${totalFood} food, ${totalBlocks} blocks calculated for ${radius || "standard"} block journey.`);
 
   // Structure rarity
   if (structure) {
-    notes.push(`${structureName} rarity: ${structure.rarity}, finding difficulty: ${structure.findingDifficulty}.`);
+    notes.push(`🏛️ Structure: ${structureName} (${structure.rarity} rarity, ${structure.findingDifficulty} difficulty).`);
     if (structure.worthRevisiting) {
-      notes.push(`${structureName} worth marking for future visits.`);
+      notes.push(`⭐ ${structureName} worth marking for future visits.`);
     }
+  }
+
+  // Emergency protocols summary
+  const criticalProtocolNames = emergencyProtocols
+    .filter(p => p.protocol.priority === "critical")
+    .map(p => p.name);
+  if (criticalProtocolNames.length > 0) {
+    notes.push(`🚨 Critical protocols: ${criticalProtocolNames.join(", ")}.`);
+  }
+
+  // Risk-based notes
+  if (riskScore >= 60) {
+    notes.push(`⚠️ HIGH RISK EXPEDITION - Extra caution required. Backup gear essential.`);
+  } else if (riskScore >= 40) {
+    notes.push(`⚡ Moderate risk - Stay alert and follow safety protocols.`);
+  }
+
+  // Required mitigation items
+  if (requiredMitigation.length > 0) {
+    notes.push(`🛡️ Safety gear mandatory: ${requiredMitigation.slice(0, 5).join(", ")}${requiredMitigation.length > 5 ? "..." : ""}.`);
   }
 
   // Time constraints
   if (task?.metadata?.returnBy) {
-    notes.push(`Return before ${task.metadata.returnBy}.`);
+    notes.push(`⏰ Deadline: Return before ${task.metadata.returnBy}.`);
   }
 
   // Loot priority
   if (task?.metadata?.lootPriority) {
-    notes.push(`Priority loot: ${task.metadata.lootPriority}.`);
+    notes.push(`💎 Priority loot: ${task.metadata.lootPriority}.`);
   }
 
   // ===== Create and Return Plan =====

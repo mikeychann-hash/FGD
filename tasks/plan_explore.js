@@ -1487,6 +1487,877 @@ function generateEmergencyChecklist(biome, structure, risks) {
 }
 
 /* =====================================================
+ * WAYPOINT/MAPPING SYSTEM
+ * Navigation aids and location tracking
+ * ===================================================== */
+
+const WAYPOINT_TYPES = {
+  // Base Waypoints
+  HOME_BASE: {
+    symbol: "🏠",
+    priority: "critical",
+    description: "Main base location",
+    markerType: "beacon",
+    recommendedHeight: 256,
+    lightRequired: true,
+    purpose: "Primary return point and spawn location"
+  },
+  SPAWN_POINT: {
+    symbol: "🛏️",
+    priority: "critical",
+    description: "Bed/respawn location",
+    markerType: "bed",
+    recommendedHeight: 0,
+    lightRequired: true,
+    purpose: "Respawn anchor if death occurs"
+  },
+
+  // Navigation Waypoints
+  PORTAL: {
+    symbol: "🌀",
+    priority: "high",
+    description: "Nether/End portal location",
+    markerType: "tall_pillar",
+    recommendedHeight: 100,
+    lightRequired: true,
+    purpose: "Dimension travel checkpoint"
+  },
+  JUNCTION: {
+    symbol: "🔀",
+    priority: "medium",
+    description: "Path intersection or decision point",
+    markerType: "torch_arrow",
+    recommendedHeight: 5,
+    lightRequired: true,
+    purpose: "Navigation decision points"
+  },
+  CHECKPOINT: {
+    symbol: "📍",
+    priority: "medium",
+    description: "Progress marker along route",
+    markerType: "small_pillar",
+    recommendedHeight: 10,
+    lightRequired: false,
+    purpose: "Track progress and mark safe route"
+  },
+
+  // Points of Interest
+  STRUCTURE_FOUND: {
+    symbol: "🏛️",
+    priority: "high",
+    description: "Discovered structure location",
+    markerType: "beacon",
+    recommendedHeight: 50,
+    lightRequired: true,
+    purpose: "Mark valuable structures for revisiting"
+  },
+  RESOURCE_DEPOSIT: {
+    symbol: "💎",
+    priority: "medium",
+    description: "Valuable resource location",
+    markerType: "sign",
+    recommendedHeight: 5,
+    lightRequired: false,
+    purpose: "Mark resource-rich areas"
+  },
+  DANGER_ZONE: {
+    symbol: "⚠️",
+    priority: "high",
+    description: "Hazardous area to avoid",
+    markerType: "warning_pillar",
+    recommendedHeight: 20,
+    lightRequired: true,
+    purpose: "Mark dangerous locations to avoid"
+  },
+
+  // Utility Waypoints
+  SAFE_SHELTER: {
+    symbol: "⛺",
+    priority: "medium",
+    description: "Emergency shelter location",
+    markerType: "enclosed_structure",
+    recommendedHeight: 5,
+    lightRequired: true,
+    purpose: "Safe rest and recovery point"
+  },
+  WATER_SOURCE: {
+    symbol: "💧",
+    priority: "low",
+    description: "Water access point",
+    markerType: "sign",
+    recommendedHeight: 0,
+    lightRequired: false,
+    purpose: "Mark water sources in dry biomes"
+  },
+  FOOD_SOURCE: {
+    symbol: "🍖",
+    priority: "low",
+    description: "Renewable food location",
+    markerType: "sign",
+    recommendedHeight: 0,
+    lightRequired: false,
+    purpose: "Mark farms or passive mob areas"
+  }
+};
+
+const MAPPING_METHODS = {
+  // In-Game Methods
+  locator_map: {
+    name: "Locator Map",
+    accuracy: "high",
+    range: 2048,
+    requirements: ["map", "cartography_table"],
+    advantages: ["Real-time position tracking", "Permanent record", "Shareable"],
+    disadvantages: ["Limited range per map", "Requires multiple maps", "No vertical info"],
+    bestFor: ["small_area", "detailed_mapping", "sharing_locations"]
+  },
+
+  coordinates: {
+    name: "F3 Coordinates",
+    accuracy: "exact",
+    range: "unlimited",
+    requirements: ["F3_debug_screen"],
+    advantages: ["Exact position", "3D coordinates", "Always available", "Free"],
+    disadvantages: ["Requires manual recording", "Not visible in-game", "Easy to forget"],
+    bestFor: ["precise_navigation", "long_distance", "any_situation"]
+  },
+
+  compass: {
+    name: "Compass Navigation",
+    accuracy: "medium",
+    range: "unlimited",
+    requirements: ["compass"],
+    advantages: ["Always points to spawn", "Simple to use", "No recording needed"],
+    disadvantages: ["Only points to one location", "No distance info", "Limited utility"],
+    bestFor: ["returning_to_spawn", "basic_navigation"]
+  },
+
+  lodestone_compass: {
+    name: "Lodestone Compass",
+    accuracy: "high",
+    range: "unlimited",
+    requirements: ["compass", "lodestone", "netherite"],
+    advantages: ["Points to custom location", "Cross-dimension", "Multiple can be made"],
+    disadvantages: ["Expensive (netherite)", "Breaks if lodestone removed", "One target per compass"],
+    bestFor: ["important_locations", "nether_portals", "bases"]
+  },
+
+  // Physical Markers
+  beacon: {
+    name: "Beacon Marker",
+    accuracy: "high",
+    range: 256,
+    requirements: ["beacon", "pyramid", "iron/gold/diamond/emerald"],
+    advantages: ["Visible from far", "Provides buffs", "Permanent", "Light source"],
+    disadvantages: ["Very expensive", "Requires pyramid", "Limited range"],
+    bestFor: ["home_base", "major_structures", "permanent_locations"]
+  },
+
+  pillar: {
+    name: "Tall Pillar",
+    accuracy: "medium",
+    range: 100,
+    requirements: ["blocks"],
+    advantages: ["Easy to build", "Visible from distance", "Cheap", "Quick"],
+    disadvantages: ["Ugly", "Can be destroyed", "Limited visibility range"],
+    bestFor: ["temporary_markers", "quick_navigation", "emergency"]
+  },
+
+  torch_trail: {
+    name: "Torch Trail",
+    accuracy: "high",
+    range: 10,
+    requirements: ["torches"],
+    advantages: ["Easy to follow", "Lights path", "Prevents mob spawns"],
+    disadvantages: ["Only close range", "Uses many torches", "Can be confusing"],
+    bestFor: ["caves", "dark_areas", "short_routes"],
+    technique: "Place torches on RIGHT when going out, LEFT on return"
+  }
+};
+
+/**
+ * Generate waypoint placement plan
+ */
+function generateWaypointPlan(biome, structure, radius, strategy) {
+  const waypoints = [];
+
+  // Always mark home base
+  waypoints.push({
+    type: "HOME_BASE",
+    ...WAYPOINT_TYPES.HOME_BASE,
+    placement: "Before departure",
+    coordinates: "Record starting position (F3)"
+  });
+
+  // Mark spawn point
+  waypoints.push({
+    type: "SPAWN_POINT",
+    ...WAYPOINT_TYPES.SPAWN_POINT,
+    placement: "Before departure",
+    coordinates: "Place bed and record coordinates"
+  });
+
+  // Dimension-specific waypoints
+  if (biome.dimension === "nether" || biome.dimension === "end") {
+    waypoints.push({
+      type: "PORTAL",
+      ...WAYPOINT_TYPES.PORTAL,
+      placement: "At portal entrance",
+      coordinates: "Critical - portal is only way back"
+    });
+  }
+
+  // Navigation complexity based waypoints
+  const complexity = biome.navigationComplexity;
+  if (complexity === "very_high" || complexity === "extreme") {
+    const checkpointInterval = complexity === "extreme" ? 100 : 200;
+    waypoints.push({
+      type: "CHECKPOINT",
+      ...WAYPOINT_TYPES.CHECKPOINT,
+      placement: `Every ${checkpointInterval} blocks`,
+      quantity: Math.ceil((radius || 1000) / checkpointInterval),
+      coordinates: "Record each checkpoint for return navigation"
+    });
+  } else if (complexity === "high") {
+    waypoints.push({
+      type: "CHECKPOINT",
+      ...WAYPOINT_TYPES.CHECKPOINT,
+      placement: "Every 300 blocks",
+      quantity: Math.ceil((radius || 1000) / 300),
+      coordinates: "Regular markers for safe return"
+    });
+  }
+
+  // Junction waypoints for complex strategies
+  if (strategy.name === "Grid Search" || strategy.name === "Spiral Search") {
+    waypoints.push({
+      type: "JUNCTION",
+      ...WAYPOINT_TYPES.JUNCTION,
+      placement: "At each turn/corner in pattern",
+      quantity: "As needed",
+      coordinates: "Mark direction changes clearly"
+    });
+  }
+
+  // Structure waypoint
+  if (structure) {
+    waypoints.push({
+      type: "STRUCTURE_FOUND",
+      ...WAYPOINT_TYPES.STRUCTURE_FOUND,
+      placement: "Upon finding structure",
+      coordinates: `Mark ${structure.name} for future visits`
+    });
+  }
+
+  // Emergency shelter for long expeditions
+  if ((radius || 1000) > 2000) {
+    waypoints.push({
+      type: "SAFE_SHELTER",
+      ...WAYPOINT_TYPES.SAFE_SHELTER,
+      placement: "Midpoint of journey",
+      coordinates: "Build safe shelter for night/emergencies"
+    });
+  }
+
+  // Danger zones in hazardous biomes
+  if (biome.difficulty === "very_hard" || biome.difficulty === "extreme") {
+    waypoints.push({
+      type: "DANGER_ZONE",
+      ...WAYPOINT_TYPES.DANGER_ZONE,
+      placement: "At any major hazards encountered",
+      coordinates: "Mark lava lakes, ravines, spawners, etc."
+    });
+  }
+
+  return waypoints;
+}
+
+/**
+ * Select best mapping method for context
+ */
+function selectMappingMethod(biome, structure, radius) {
+  const methods = [];
+
+  // Coordinates always recommended
+  methods.push({
+    method: "coordinates",
+    ...MAPPING_METHODS.coordinates,
+    priority: "critical",
+    usage: "Record all important locations (F3 → F2 screenshot or write down)"
+  });
+
+  // Locator maps for detailed area mapping
+  if ((radius || 1000) <= 2048) {
+    methods.push({
+      method: "locator_map",
+      ...MAPPING_METHODS.locator_map,
+      priority: "high",
+      usage: "Fill out maps to chart explored area systematically"
+    });
+  }
+
+  // Lodestone compass for important locations
+  if (structure || biome.dimension !== "overworld") {
+    methods.push({
+      method: "lodestone_compass",
+      ...MAPPING_METHODS.lodestone_compass,
+      priority: "high",
+      usage: "Link to portal or structure for easy return navigation"
+    });
+  }
+
+  // Physical markers based on biome
+  if (biome.navigationComplexity === "very_high" || biome.navigationComplexity === "extreme") {
+    methods.push({
+      method: "torch_trail",
+      ...MAPPING_METHODS.torch_trail,
+      priority: "high",
+      usage: "Torches on RIGHT going out - critical for return path"
+    });
+
+    methods.push({
+      method: "pillar",
+      ...MAPPING_METHODS.pillar,
+      priority: "medium",
+      usage: "Build tall pillars every 200-500 blocks for visibility"
+    });
+  }
+
+  // Beacon for permanent base
+  methods.push({
+    method: "beacon",
+    ...MAPPING_METHODS.beacon,
+    priority: "low",
+    usage: "Build at home base if resources available (visible from 256 blocks)"
+  });
+
+  return methods;
+}
+
+/* =====================================================
+ * RETURN PATH PLANNING
+ * Complete missions with safe return
+ * ===================================================== */
+
+const RETURN_STRATEGIES = {
+  // Direct Return
+  retrace_steps: {
+    name: "Retrace Steps",
+    reliability: "high",
+    speed: "slow",
+    safety: "high",
+    description: "Follow exact path back using markers",
+    requirements: ["waypoints", "torch_trail", "coordinates"],
+    steps: [
+      "Follow torch trail (torches on LEFT when returning)",
+      "Check waypoints in reverse order",
+      "Verify coordinates match outbound path",
+      "Stop at checkpoints to reorient"
+    ],
+    bestFor: ["complex_terrain", "first_time_exploration", "valuable_cargo"],
+    risks: ["Slow if path was indirect", "Markers may be destroyed"]
+  },
+
+  direct_navigation: {
+    name: "Direct Navigation",
+    reliability: "medium",
+    speed: "fast",
+    safety: "medium",
+    description: "Navigate directly to home using coordinates/compass",
+    requirements: ["coordinates", "compass_or_lodestone"],
+    steps: [
+      "Open F3 and note current position",
+      "Calculate bearing to home base",
+      "Navigate in straight line using F3",
+      "Build bridges/tunnels as needed for obstacles"
+    ],
+    bestFor: ["open_terrain", "experienced_players", "emergency_return"],
+    risks: ["May encounter unexpected hazards", "Can get stuck at obstacles"]
+  },
+
+  // Dimension-Specific
+  nether_highway_return: {
+    name: "Nether Highway Return",
+    reliability: "very_high",
+    speed: "very_fast",
+    safety: "high",
+    description: "Use protected nether highway for rapid return",
+    requirements: ["nether_portal", "protected_path", "fire_resistance"],
+    steps: [
+      "Return to nether portal via marked path",
+      "Navigate nether highway to home portal",
+      "Verify portal coordinates before entering",
+      "Prepare for overworld exit location"
+    ],
+    bestFor: ["long_distance_overworld", "established_highways", "fast_travel"],
+    risks: ["Portal linking can be tricky", "Ghasts can damage highways"]
+  },
+
+  end_gateway_return: {
+    name: "End Gateway Return",
+    reliability: "high",
+    speed: "instant",
+    safety: "medium",
+    description: "Use end gateway teleportation to return",
+    requirements: ["ender_pearls", "end_gateway"],
+    steps: [
+      "Throw ender pearl through gateway",
+      "Teleport to main island",
+      "Use return portal to overworld",
+      "Respawn at bed if needed"
+    ],
+    bestFor: ["end_exploration", "outer_islands", "emergency"],
+    risks: ["Gateway must be accessible", "Ender pearl accuracy required"]
+  },
+
+  // Emergency Returns
+  death_return: {
+    name: "Death Return (Emergency)",
+    reliability: "guaranteed",
+    speed: "instant",
+    safety: "low",
+    description: "Intentional death to respawn at bed",
+    requirements: ["bed_spawn_set", "acceptable_item_loss"],
+    steps: [
+      "Empty inventory into ender chest if available",
+      "Store valuables in nearby chest (note coordinates!)",
+      "Jump into void/lava or use /kill",
+      "Respawn and prepare for item recovery"
+    ],
+    bestFor: ["stuck_situations", "lost_without_supplies", "dimension_stranded"],
+    risks: ["Lose all items not stored", "Items despawn in 5 minutes", "Last resort only"]
+  },
+
+  ender_pearl_escape: {
+    name: "Ender Pearl Escape",
+    reliability: "high",
+    speed: "fast",
+    safety: "medium",
+    description: "Use ender pearls to bypass obstacles quickly",
+    requirements: ["ender_pearls", "moderate_throwing_skill"],
+    steps: [
+      "Identify safe landing spots",
+      "Throw ender pearl while moving",
+      "Chain multiple pearls for long distance",
+      "Watch health (2.5 hearts damage per pearl)"
+    ],
+    bestFor: ["obstacle_bypass", "emergency_escape", "rapid_movement"],
+    risks: ["Fall damage", "Can teleport into walls", "Limited by pearl count"]
+  }
+};
+
+/**
+ * Plan return path strategy
+ */
+function planReturnPath(biome, structure, strategy, radius, waypoints) {
+  const returnPlan = {
+    primaryStrategy: null,
+    backupStrategies: [],
+    estimatedReturnTime: 0,
+    safeguards: [],
+    prerequisites: []
+  };
+
+  // Select primary return strategy
+  if (biome.dimension === "nether" && strategy.name.includes("Highway")) {
+    returnPlan.primaryStrategy = RETURN_STRATEGIES.nether_highway_return;
+  } else if (biome.dimension === "end") {
+    returnPlan.primaryStrategy = RETURN_STRATEGIES.end_gateway_return;
+  } else if (biome.navigationComplexity === "very_high" || biome.navigationComplexity === "extreme") {
+    returnPlan.primaryStrategy = RETURN_STRATEGIES.retrace_steps;
+  } else {
+    returnPlan.primaryStrategy = RETURN_STRATEGIES.direct_navigation;
+  }
+
+  // Add backup strategies
+  if (returnPlan.primaryStrategy.name !== "Retrace Steps") {
+    returnPlan.backupStrategies.push(RETURN_STRATEGIES.retrace_steps);
+  }
+  if (returnPlan.primaryStrategy.name !== "Direct Navigation") {
+    returnPlan.backupStrategies.push(RETURN_STRATEGIES.direct_navigation);
+  }
+
+  // Emergency backup
+  returnPlan.backupStrategies.push(RETURN_STRATEGIES.ender_pearl_escape);
+
+  // Estimate return time (usually faster than outbound)
+  const outboundTime = (radius || 1000) / (biome.traversalSpeed * 4.3); // 4.3 m/s walking speed
+  returnPlan.estimatedReturnTime = Math.floor(outboundTime * 0.7); // 30% faster return
+
+  // Add safeguards
+  returnPlan.safeguards = [
+    "Check coordinates before leaving structure/POI",
+    "Mark return path with torches/blocks",
+    "Screenshot important locations",
+    "Keep ender pearls in hotbar for emergencies",
+    "Monitor time to avoid night travel if possible"
+  ];
+
+  // Prerequisites for return
+  returnPlan.prerequisites = [
+    "Home base coordinates recorded",
+    "Bed spawn point set and verified",
+    "Return supplies reserved (food, torches, blocks)",
+    waypoints.length > 0 ? "Waypoints placed during outbound journey" : null,
+    biome.dimension !== "overworld" ? "Portal coordinates confirmed" : null
+  ].filter(Boolean);
+
+  return returnPlan;
+}
+
+/* =====================================================
+ * PROGRESS TRACKING
+ * Monitoring and milestone tracking
+ * ===================================================== */
+
+const PROGRESS_MILESTONES = {
+  // Preparation Milestones
+  SUPPLIES_GATHERED: {
+    phase: "preparation",
+    importance: "critical",
+    description: "All required supplies collected",
+    verification: "Check inventory against calculated supplies list",
+    blocksNext: true
+  },
+  SPAWN_SET: {
+    phase: "preparation",
+    importance: "critical",
+    description: "Bed placed and spawn point set",
+    verification: "Sleep in bed to confirm spawn point",
+    blocksNext: true
+  },
+  COORDINATES_RECORDED: {
+    phase: "preparation",
+    importance: "high",
+    description: "Home base coordinates documented",
+    verification: "Screenshot or write down X Y Z coordinates",
+    blocksNext: false
+  },
+
+  // Journey Milestones
+  DEPARTED_BASE: {
+    phase: "journey",
+    importance: "medium",
+    description: "Left home base and started expedition",
+    verification: "Visual confirmation or distance check",
+    blocksNext: false
+  },
+  FIRST_CHECKPOINT: {
+    phase: "journey",
+    importance: "medium",
+    description: "Reached first waypoint/checkpoint",
+    verification: "Waypoint placed and coordinates recorded",
+    blocksNext: false
+  },
+  HALFWAY_POINT: {
+    phase: "journey",
+    importance: "medium",
+    description: "Reached halfway to destination",
+    verification: "Check coordinates - 50% of radius traveled",
+    blocksNext: false
+  },
+  TARGET_AREA_REACHED: {
+    phase: "journey",
+    importance: "high",
+    description: "Arrived at target exploration area",
+    verification: "Coordinates match destination or biome entered",
+    blocksNext: false
+  },
+
+  // Exploration Milestones
+  SEARCH_STARTED: {
+    phase: "exploration",
+    importance: "medium",
+    description: "Began systematic search of area",
+    verification: "Navigation strategy initiated",
+    blocksNext: false
+  },
+  STRUCTURE_LOCATED: {
+    phase: "exploration",
+    importance: "high",
+    description: "Target structure found",
+    verification: "Visual confirmation and coordinates recorded",
+    blocksNext: false
+  },
+  STRUCTURE_EXPLORED: {
+    phase: "exploration",
+    importance: "high",
+    description: "Structure fully explored and looted",
+    verification: "All rooms cleared, loot collected",
+    blocksNext: false
+  },
+  AREA_MAPPED: {
+    phase: "exploration",
+    importance: "medium",
+    description: "Target area fully surveyed",
+    verification: "Map filled or grid search complete",
+    blocksNext: false
+  },
+
+  // Return Milestones
+  RETURN_INITIATED: {
+    phase: "return",
+    importance: "medium",
+    description: "Started journey back to base",
+    verification: "Moving toward home coordinates",
+    blocksNext: false
+  },
+  PORTAL_REACHED: {
+    phase: "return",
+    importance: "high",
+    description: "Returned to portal (if applicable)",
+    verification: "Portal visible and accessible",
+    blocksNext: false
+  },
+  SAFE_ZONE_ENTERED: {
+    phase: "return",
+    importance: "medium",
+    description: "Entered familiar/safe territory",
+    verification: "Recognize landmarks or within 500 blocks of home",
+    blocksNext: false
+  },
+  MISSION_COMPLETE: {
+    phase: "completion",
+    importance: "critical",
+    description: "Returned to base safely",
+    verification: "At home base with loot secured",
+    blocksNext: false
+  }
+};
+
+const TRACKING_METRICS = {
+  // Distance Metrics
+  distance: {
+    name: "Distance Traveled",
+    unit: "blocks",
+    calculation: "Track via F3 coordinates",
+    important: true,
+    targets: {
+      short: 500,
+      medium: 1000,
+      long: 2000,
+      extreme: 5000
+    }
+  },
+
+  // Time Metrics
+  duration: {
+    name: "Time Elapsed",
+    unit: "minutes",
+    calculation: "Real-time or in-game time",
+    important: true,
+    targets: {
+      quick: 10,
+      normal: 30,
+      extended: 60,
+      marathon: 120
+    }
+  },
+
+  // Resource Metrics
+  supplies_remaining: {
+    name: "Supplies Remaining",
+    unit: "percentage",
+    calculation: "Current vs starting inventory",
+    important: true,
+    criticalThreshold: 25, // Return when below 25%
+    items: ["food", "torches", "blocks", "arrows"]
+  },
+
+  // Safety Metrics
+  health_status: {
+    name: "Health Status",
+    unit: "hearts",
+    calculation: "Current health vs max health",
+    important: true,
+    criticalThreshold: 10, // Concern below 10 hearts
+    warningThreshold: 15
+  },
+
+  // Exploration Metrics
+  structures_found: {
+    name: "Structures Discovered",
+    unit: "count",
+    calculation: "Increment for each structure",
+    important: false,
+    tracking: ["villages", "temples", "mansions", "monuments", "fortresses"]
+  },
+
+  area_covered: {
+    name: "Area Explored",
+    unit: "square blocks",
+    calculation: "Estimated from coordinates",
+    important: false
+  }
+};
+
+/**
+ * Generate progress tracking checklist
+ */
+function generateProgressChecklist(biome, structure, radius, estimatedDuration) {
+  const checklist = [];
+
+  // Preparation phase
+  checklist.push({
+    milestone: "SUPPLIES_GATHERED",
+    ...PROGRESS_MILESTONES.SUPPLIES_GATHERED,
+    checkTime: "Before departure",
+    critical: true
+  });
+
+  checklist.push({
+    milestone: "SPAWN_SET",
+    ...PROGRESS_MILESTONES.SPAWN_SET,
+    checkTime: "Before departure",
+    critical: true
+  });
+
+  checklist.push({
+    milestone: "COORDINATES_RECORDED",
+    ...PROGRESS_MILESTONES.COORDINATES_RECORDED,
+    checkTime: "Before departure",
+    critical: false
+  });
+
+  // Journey phase
+  checklist.push({
+    milestone: "DEPARTED_BASE",
+    ...PROGRESS_MILESTONES.DEPARTED_BASE,
+    checkTime: "0 minutes",
+    estimatedTime: 0
+  });
+
+  if ((radius || 1000) > 500) {
+    checklist.push({
+      milestone: "FIRST_CHECKPOINT",
+      ...PROGRESS_MILESTONES.FIRST_CHECKPOINT,
+      checkTime: `${Math.floor(estimatedDuration * 0.15)} seconds`,
+      estimatedTime: Math.floor(estimatedDuration * 0.15)
+    });
+  }
+
+  checklist.push({
+    milestone: "TARGET_AREA_REACHED",
+    ...PROGRESS_MILESTONES.TARGET_AREA_REACHED,
+    checkTime: `${Math.floor(estimatedDuration * 0.4)} seconds`,
+    estimatedTime: Math.floor(estimatedDuration * 0.4)
+  });
+
+  // Exploration phase
+  checklist.push({
+    milestone: "SEARCH_STARTED",
+    ...PROGRESS_MILESTONES.SEARCH_STARTED,
+    checkTime: `${Math.floor(estimatedDuration * 0.45)} seconds`,
+    estimatedTime: Math.floor(estimatedDuration * 0.45)
+  });
+
+  if (structure) {
+    checklist.push({
+      milestone: "STRUCTURE_LOCATED",
+      ...PROGRESS_MILESTONES.STRUCTURE_LOCATED,
+      checkTime: `${Math.floor(estimatedDuration * 0.6)} seconds (variable)`,
+      estimatedTime: Math.floor(estimatedDuration * 0.6)
+    });
+
+    checklist.push({
+      milestone: "STRUCTURE_EXPLORED",
+      ...PROGRESS_MILESTONES.STRUCTURE_EXPLORED,
+      checkTime: `${Math.floor(estimatedDuration * 0.75)} seconds`,
+      estimatedTime: Math.floor(estimatedDuration * 0.75)
+    });
+  }
+
+  // Return phase
+  checklist.push({
+    milestone: "RETURN_INITIATED",
+    ...PROGRESS_MILESTONES.RETURN_INITIATED,
+    checkTime: `${Math.floor(estimatedDuration * 0.8)} seconds`,
+    estimatedTime: Math.floor(estimatedDuration * 0.8)
+  });
+
+  if (biome.dimension !== "overworld") {
+    checklist.push({
+      milestone: "PORTAL_REACHED",
+      ...PROGRESS_MILESTONES.PORTAL_REACHED,
+      checkTime: `${Math.floor(estimatedDuration * 0.9)} seconds`,
+      estimatedTime: Math.floor(estimatedDuration * 0.9)
+    });
+  }
+
+  checklist.push({
+    milestone: "MISSION_COMPLETE",
+    ...PROGRESS_MILESTONES.MISSION_COMPLETE,
+    checkTime: `${estimatedDuration} seconds (target)`,
+    estimatedTime: estimatedDuration
+  });
+
+  return checklist;
+}
+
+/**
+ * Generate tracking metrics to monitor
+ */
+function generateTrackingMetrics(radius, estimatedDuration, calculatedSupplies) {
+  const metrics = [];
+
+  // Distance tracking
+  metrics.push({
+    metric: "distance",
+    ...TRACKING_METRICS.distance,
+    target: radius || 1000,
+    checkpoints: [
+      { at: Math.floor((radius || 1000) * 0.25), label: "25% distance" },
+      { at: Math.floor((radius || 1000) * 0.5), label: "Halfway point" },
+      { at: Math.floor((radius || 1000) * 0.75), label: "75% distance" },
+      { at: radius || 1000, label: "Target reached" }
+    ]
+  });
+
+  // Time tracking
+  const timeMinutes = Math.floor(estimatedDuration / 60);
+  metrics.push({
+    metric: "duration",
+    ...TRACKING_METRICS.duration,
+    target: timeMinutes,
+    checkpoints: [
+      { at: Math.floor(timeMinutes * 0.33), label: "First third elapsed" },
+      { at: Math.floor(timeMinutes * 0.66), label: "Two thirds elapsed" },
+      { at: timeMinutes, label: "Target time reached" }
+    ]
+  });
+
+  // Supply tracking
+  metrics.push({
+    metric: "supplies_remaining",
+    ...TRACKING_METRICS.supplies_remaining,
+    startingSupplies: {
+      food: calculatedSupplies.food || 16,
+      torches: calculatedSupplies.torches || 64,
+      blocks: calculatedSupplies.blocks || 64
+    },
+    warnings: [
+      { threshold: 50, message: "Halfway through supplies - monitor usage" },
+      { threshold: 25, message: "⚠️ LOW SUPPLIES - Consider returning soon" },
+      { threshold: 10, message: "🚨 CRITICAL - Return immediately or resupply" }
+    ]
+  });
+
+  // Health tracking
+  metrics.push({
+    metric: "health_status",
+    ...TRACKING_METRICS.health_status,
+    maxHealth: 20,
+    warnings: [
+      { threshold: 15, message: "Health moderate - eat if needed" },
+      { threshold: 10, message: "⚠️ LOW HEALTH - Heal immediately" },
+      { threshold: 5, message: "🚨 CRITICAL HEALTH - Retreat and heal" }
+    ]
+  });
+
+  return metrics;
+}
+
+/* =====================================================
  * HELPER FUNCTIONS
  * Supporting functions for exploration planning
  * ===================================================== */
@@ -1644,6 +2515,18 @@ export function planExploreTask(task, context = {}) {
   // ===== EMERGENCY PROTOCOLS - Failure Recovery =====
   const emergencyProtocols = generateEmergencyChecklist(biome, structure, riskAssessment);
 
+  // ===== WAYPOINT/MAPPING SYSTEM - Navigation Aids =====
+  const waypointPlan = generateWaypointPlan(biome, structure, radius, strategy);
+  const mappingMethods = selectMappingMethod(biome, structure, radius);
+
+  // ===== RETURN PATH PLANNING - Complete Missions =====
+  const returnPath = planReturnPath(biome, structure, strategy, radius, waypointPlan);
+
+  // ===== PROGRESS TRACKING - Monitoring =====
+  const estimatedDuration = calculateExplorationDuration(radius, biome, strategy);
+  const progressChecklist = generateProgressChecklist(biome, structure, radius, estimatedDuration);
+  const trackingMetrics = generateTrackingMetrics(radius, estimatedDuration, calculatedSupplies);
+
   // ===== Build Steps =====
   const steps = [];
 
@@ -1762,6 +2645,59 @@ export function planExploreTask(task, context = {}) {
         metadata: {
           protocols: emergencyProtocols,
           criticalCount: criticalProtocols.length
+        }
+      })
+    );
+  }
+
+  // WAYPOINT PLACEMENT PLAN - Navigation Aids
+  if (waypointPlan && waypointPlan.length > 0) {
+    const criticalWaypoints = waypointPlan.filter(w => w.priority === "critical");
+    const waypointSummary = waypointPlan.map(w => `${w.symbol} ${w.type}`).slice(0, 5).join(", ");
+
+    steps.push(
+      createStep({
+        title: "Plan waypoint placement",
+        type: "navigation",
+        description: `Place ${waypointPlan.length} waypoints: ${waypointSummary}${waypointPlan.length > 5 ? "..." : ""}. Critical waypoints: ${criticalWaypoints.length}.`,
+        metadata: {
+          waypoints: waypointPlan,
+          criticalCount: criticalWaypoints.length
+        }
+      })
+    );
+  }
+
+  // MAPPING METHOD SELECTION - Navigation Aids
+  if (mappingMethods && mappingMethods.length > 0) {
+    const primaryMethod = mappingMethods.find(m => m.priority === "critical") || mappingMethods[0];
+    const methodNames = mappingMethods.map(m => m.name).slice(0, 3).join(", ");
+
+    steps.push(
+      createStep({
+        title: "Setup mapping system",
+        type: "preparation",
+        description: `Primary: ${primaryMethod.name} - ${primaryMethod.usage}. Also use: ${methodNames}.`,
+        metadata: {
+          methods: mappingMethods,
+          primaryMethod: primaryMethod.name
+        }
+      })
+    );
+  }
+
+  // RETURN PATH STRATEGY - Complete Missions
+  if (returnPath) {
+    const backupCount = returnPath.backupStrategies?.length || 0;
+
+    steps.push(
+      createStep({
+        title: "Plan return strategy",
+        type: "navigation",
+        description: `Primary return: ${returnPath.primaryStrategy.name} (${returnPath.primaryStrategy.reliability} reliability, ${returnPath.primaryStrategy.speed} speed). ${backupCount} backup strategies available. Estimated return time: ${Math.floor(returnPath.estimatedReturnTime / 60)} minutes.`,
+        metadata: {
+          returnPath,
+          estimatedReturnTime: returnPath.estimatedReturnTime
         }
       })
     );
@@ -1892,6 +2828,43 @@ export function planExploreTask(task, context = {}) {
     );
   }
 
+  // PROGRESS TRACKING - Monitor Mission
+  if (progressChecklist && progressChecklist.length > 0) {
+    const criticalMilestones = progressChecklist.filter(m => m.critical);
+    const phases = [...new Set(progressChecklist.map(m => m.phase))];
+
+    steps.push(
+      createStep({
+        title: "Track expedition progress",
+        type: "monitoring",
+        description: `Monitor ${progressChecklist.length} milestones across ${phases.length} phases (${phases.join(", ")}). Critical checkpoints: ${criticalMilestones.length}. Check progress regularly against timeline.`,
+        metadata: {
+          checklist: progressChecklist,
+          phases,
+          criticalCount: criticalMilestones.length
+        }
+      })
+    );
+  }
+
+  // TRACKING METRICS - Monitor Resources
+  if (trackingMetrics && trackingMetrics.length > 0) {
+    const criticalMetrics = trackingMetrics.filter(m => m.important);
+    const metricNames = trackingMetrics.map(m => m.name).join(", ");
+
+    steps.push(
+      createStep({
+        title: "Monitor key metrics",
+        type: "monitoring",
+        description: `Track ${trackingMetrics.length} metrics: ${metricNames}. Monitor supplies, health, distance, and time. Alert at critical thresholds.`,
+        metadata: {
+          metrics: trackingMetrics,
+          criticalCount: criticalMetrics.length
+        }
+      })
+    );
+  }
+
   // Return Journey
   steps.push(
     createStep({
@@ -1914,13 +2887,6 @@ export function planExploreTask(task, context = {}) {
         structure: structureName
       }
     })
-  );
-
-  // ===== Calculate Duration =====
-  const estimatedDuration = calculateExplorationDuration(
-    structure?.searchRadius || radius,
-    biome,
-    strategy
   );
 
   // ===== Compile Resources =====
@@ -2004,6 +2970,35 @@ export function planExploreTask(task, context = {}) {
   // Loot priority
   if (task?.metadata?.lootPriority) {
     notes.push(`💎 Priority loot: ${task.metadata.lootPriority}.`);
+  }
+
+  // Waypoint and mapping notes
+  if (waypointPlan && waypointPlan.length > 0) {
+    const criticalWaypoints = waypointPlan.filter(w => w.priority === "critical").length;
+    notes.push(`📍 Waypoints: ${waypointPlan.length} planned (${criticalWaypoints} critical) for navigation safety.`);
+  }
+
+  if (mappingMethods && mappingMethods.length > 0) {
+    const primaryMethod = mappingMethods.find(m => m.priority === "critical") || mappingMethods[0];
+    notes.push(`🗺️ Mapping: Primary method ${primaryMethod.name} + ${mappingMethods.length - 1} backup methods.`);
+  }
+
+  // Return path notes
+  if (returnPath) {
+    notes.push(`🔙 Return: ${returnPath.primaryStrategy.name} (~${Math.floor(returnPath.estimatedReturnTime / 60)} min, ${returnPath.primaryStrategy.reliability} reliability).`);
+    if (returnPath.backupStrategies.length > 0) {
+      notes.push(`🔄 Backup routes: ${returnPath.backupStrategies.length} alternative return strategies prepared.`);
+    }
+  }
+
+  // Progress tracking notes
+  if (progressChecklist && progressChecklist.length > 0) {
+    const phases = [...new Set(progressChecklist.map(m => m.phase))].length;
+    notes.push(`📊 Progress: ${progressChecklist.length} milestones tracked across ${phases} mission phases.`);
+  }
+
+  if (trackingMetrics && trackingMetrics.length > 0) {
+    notes.push(`📈 Metrics: Monitoring ${trackingMetrics.length} key indicators (distance, time, supplies, health).`);
   }
 
   // ===== Create and Return Plan =====

@@ -2358,6 +2358,664 @@ function generateTrackingMetrics(radius, estimatedDuration, calculatedSupplies) 
 }
 
 /* =====================================================
+ * REFACTORING UTILITIES
+ * Code quality and performance optimization
+ * ===================================================== */
+
+const REFACTORING_PATTERNS = {
+  // Code smell detection
+  DUPLICATE_CODE: {
+    severity: "medium",
+    description: "Repeated code blocks that should be extracted to functions",
+    fix: "Extract to reusable function with parameters"
+  },
+  LARGE_FUNCTION: {
+    severity: "medium",
+    description: "Function exceeds 50 lines and should be split",
+    fix: "Break into smaller, focused functions"
+  },
+  DEEP_NESTING: {
+    severity: "low",
+    description: "More than 3 levels of nesting",
+    fix: "Use early returns or extract to functions"
+  },
+  MAGIC_NUMBERS: {
+    severity: "low",
+    description: "Hardcoded numbers without explanation",
+    fix: "Use named constants with descriptive names"
+  }
+};
+
+const PERFORMANCE_OPTIMIZATIONS = {
+  // Caching strategies
+  memoization: {
+    name: "Memoization",
+    description: "Cache function results for repeated calls with same inputs",
+    benefit: "Reduces redundant calculations",
+    applicable: ["getBiomeProfile", "getStructureProfile", "calculateSupplies"],
+    implementation: "Use Map to store results keyed by stringified arguments"
+  },
+
+  // Data structure optimization
+  mapInsteadOfArray: {
+    name: "Map Instead of Array",
+    description: "Use Map for O(1) lookups instead of O(n) array searches",
+    benefit: "Faster lookups for large datasets",
+    applicable: ["BIOME_PROFILES", "STRUCTURE_PROFILES", "WAYPOINT_TYPES"],
+    tradeoff: "Slightly more memory, significantly faster"
+  },
+
+  // Early termination
+  shortCircuit: {
+    name: "Short-Circuit Evaluation",
+    description: "Return early when result is known",
+    benefit: "Avoids unnecessary computation",
+    applicable: ["risk assessment loops", "supply calculations"],
+    pattern: "if (criticalCondition) return result;"
+  }
+};
+
+/**
+ * Validate and sanitize task input
+ */
+function validateTaskInput(task) {
+  const errors = [];
+  const warnings = [];
+
+  // Required fields
+  if (!task) {
+    errors.push("Task object is null or undefined");
+    return { valid: false, errors, warnings };
+  }
+
+  if (!task.target) {
+    errors.push("Task target is required");
+  }
+
+  // Optional but important fields
+  if (task.metadata) {
+    // Validate radius
+    if (task.metadata.radius !== undefined) {
+      const radius = Number(task.metadata.radius);
+      if (isNaN(radius) || radius < 0) {
+        errors.push("Radius must be a non-negative number");
+      } else if (radius > 50000) {
+        warnings.push("Radius > 50000 blocks is extremely large and may cause performance issues");
+      }
+    }
+
+    // Validate biome
+    if (task.metadata.biome) {
+      const biomeName = normalizeItemName(task.metadata.biome);
+      if (!BIOME_PROFILES[biomeName]) {
+        warnings.push(`Unknown biome '${task.metadata.biome}' - will use default profile`);
+      }
+    }
+
+    // Validate structure
+    if (task.metadata.structure) {
+      const structureName = normalizeItemName(task.metadata.structure);
+      if (!STRUCTURE_PROFILES[structureName]) {
+        warnings.push(`Unknown structure '${task.metadata.structure}' - will use default profile`);
+      }
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings
+  };
+}
+
+/**
+ * Consolidate common array operations
+ */
+const ArrayUtils = {
+  /**
+   * Remove duplicates from array while preserving order
+   */
+  unique: (arr) => [...new Set(arr)],
+
+  /**
+   * Get intersection of two arrays
+   */
+  intersection: (arr1, arr2) => arr1.filter(item => arr2.includes(item)),
+
+  /**
+   * Flatten nested arrays
+   */
+  flatten: (arr) => arr.flat(Infinity),
+
+  /**
+   * Group array items by key
+   */
+  groupBy: (arr, keyFn) => {
+    return arr.reduce((groups, item) => {
+      const key = keyFn(item);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(item);
+      return groups;
+    }, {});
+  },
+
+  /**
+   * Safe array access with default value
+   */
+  safeGet: (arr, index, defaultValue = null) => {
+    return arr && arr[index] !== undefined ? arr[index] : defaultValue;
+  }
+};
+
+/**
+ * Consolidate string formatting utilities
+ */
+const StringUtils = {
+  /**
+   * Truncate string to max length with ellipsis
+   */
+  truncate: (str, maxLength, suffix = "...") => {
+    if (!str || str.length <= maxLength) return str;
+    return str.substring(0, maxLength - suffix.length) + suffix;
+  },
+
+  /**
+   * Capitalize first letter
+   */
+  capitalize: (str) => {
+    if (!str) return str;
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  },
+
+  /**
+   * Format list with proper grammar
+   */
+  formatList: (items, conjunction = "and") => {
+    if (!items || items.length === 0) return "";
+    if (items.length === 1) return items[0];
+    if (items.length === 2) return `${items[0]} ${conjunction} ${items[1]}`;
+    return `${items.slice(0, -1).join(", ")}, ${conjunction} ${items[items.length - 1]}`;
+  },
+
+  /**
+   * Pluralize word based on count
+   */
+  pluralize: (word, count, pluralForm = null) => {
+    if (count === 1) return word;
+    return pluralForm || `${word}s`;
+  }
+};
+
+/**
+ * Performance metrics tracking
+ */
+const PerformanceTracker = {
+  timings: new Map(),
+
+  start: (label) => {
+    PerformanceTracker.timings.set(label, Date.now());
+  },
+
+  end: (label) => {
+    const start = PerformanceTracker.timings.get(label);
+    if (!start) return null;
+    const duration = Date.now() - start;
+    PerformanceTracker.timings.delete(label);
+    return duration;
+  },
+
+  measure: (label, fn) => {
+    PerformanceTracker.start(label);
+    const result = fn();
+    const duration = PerformanceTracker.end(label);
+    return { result, duration };
+  }
+};
+
+/* =====================================================
+ * INTEGRATION UTILITIES
+ * Connect to bridge and external systems
+ * ===================================================== */
+
+const INTEGRATION_CONFIG = {
+  // API endpoints
+  endpoints: {
+    submitPlan: "/api/plans/submit",
+    updateProgress: "/api/plans/:id/progress",
+    reportCompletion: "/api/plans/:id/complete",
+    getContext: "/api/context/current"
+  },
+
+  // Data format versions
+  version: "2.0.0",
+  compatibleVersions: ["1.0.0", "1.5.0", "2.0.0"],
+
+  // Retry configuration
+  retry: {
+    maxAttempts: 3,
+    backoffMs: 1000,
+    backoffMultiplier: 2
+  },
+
+  // Timeout configuration
+  timeouts: {
+    planning: 5000,
+    execution: 300000, // 5 minutes
+    monitoring: 1000
+  }
+};
+
+/**
+ * Format plan for bridge integration
+ */
+function formatPlanForBridge(plan) {
+  // Ensure plan has required structure for bridge
+  return {
+    version: INTEGRATION_CONFIG.version,
+    timestamp: new Date().toISOString(),
+    planId: generatePlanId(),
+
+    // Core plan data
+    task: {
+      type: plan.task?.type || "explore",
+      target: plan.task?.target || "unknown",
+      metadata: sanitizeMetadata(plan.task?.metadata || {})
+    },
+
+    // Plan details
+    summary: plan.summary || "Exploration mission",
+    steps: plan.steps?.map(formatStepForBridge) || [],
+    estimatedDuration: plan.estimatedDuration || 0,
+
+    // Resources and risks
+    resources: plan.resources || [],
+    risks: plan.risks || [],
+    notes: plan.notes || [],
+
+    // Metadata for tracking
+    createdAt: new Date().toISOString(),
+    status: "pending"
+  };
+}
+
+/**
+ * Format step for bridge integration
+ */
+function formatStepForBridge(step) {
+  return {
+    title: step.title || "Untitled step",
+    type: step.type || "action",
+    description: step.description || "",
+    metadata: sanitizeMetadata(step.metadata || {}),
+    status: "pending",
+    startTime: null,
+    endTime: null
+  };
+}
+
+/**
+ * Sanitize metadata to remove non-serializable data
+ */
+function sanitizeMetadata(metadata) {
+  if (!metadata || typeof metadata !== "object") return {};
+
+  const sanitized = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    // Skip functions, undefined, and symbols
+    if (typeof value === "function" || value === undefined || typeof value === "symbol") {
+      continue;
+    }
+
+    // Handle nested objects
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      sanitized[key] = sanitizeMetadata(value);
+    } else if (Array.isArray(value)) {
+      sanitized[key] = value.map(item =>
+        typeof item === "object" ? sanitizeMetadata(item) : item
+      );
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
+}
+
+/**
+ * Generate unique plan ID
+ */
+function generatePlanId() {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 9);
+  return `plan_${timestamp}_${random}`;
+}
+
+/**
+ * Validate plan structure for bridge compatibility
+ */
+function validatePlanStructure(plan) {
+  const issues = [];
+
+  if (!plan) {
+    issues.push({ severity: "error", message: "Plan is null or undefined" });
+    return { valid: false, issues };
+  }
+
+  // Check required fields
+  if (!plan.summary) issues.push({ severity: "warning", message: "Plan summary is missing" });
+  if (!plan.steps || !Array.isArray(plan.steps)) {
+    issues.push({ severity: "error", message: "Plan steps must be an array" });
+  }
+  if (!plan.estimatedDuration || typeof plan.estimatedDuration !== "number") {
+    issues.push({ severity: "warning", message: "Estimated duration missing or invalid" });
+  }
+
+  // Check steps structure
+  if (plan.steps && Array.isArray(plan.steps)) {
+    plan.steps.forEach((step, index) => {
+      if (!step.title) {
+        issues.push({ severity: "error", message: `Step ${index} missing title` });
+      }
+      if (!step.type) {
+        issues.push({ severity: "warning", message: `Step ${index} missing type` });
+      }
+    });
+  }
+
+  const errors = issues.filter(i => i.severity === "error");
+  return {
+    valid: errors.length === 0,
+    issues
+  };
+}
+
+/**
+ * Create progress update payload
+ */
+function createProgressUpdate(planId, milestone, metadata = {}) {
+  return {
+    planId,
+    timestamp: new Date().toISOString(),
+    milestone: milestone.milestone || milestone,
+    phase: milestone.phase || "unknown",
+    description: milestone.description || "",
+    metadata: sanitizeMetadata(metadata)
+  };
+}
+
+/**
+ * Create completion report payload
+ */
+function createCompletionReport(planId, result, metrics = {}) {
+  return {
+    planId,
+    timestamp: new Date().toISOString(),
+    result: result, // "success", "failure", "partial"
+    metrics: {
+      duration: metrics.duration || 0,
+      distanceTraveled: metrics.distance || 0,
+      structuresFound: metrics.structures || 0,
+      suppliesUsed: metrics.supplies || {},
+      ...sanitizeMetadata(metrics)
+    },
+    issues: metrics.issues || [],
+    notes: metrics.notes || []
+  };
+}
+
+/* =====================================================
+ * TESTING & VALIDATION
+ * Edge case handling and defensive programming
+ * ===================================================== */
+
+const TEST_CASES = {
+  // Edge cases for task input
+  nullTask: {
+    name: "Null Task",
+    input: null,
+    expectedBehavior: "Return error, do not crash",
+    handling: "validateTaskInput should catch and return errors"
+  },
+
+  emptyTask: {
+    name: "Empty Task Object",
+    input: {},
+    expectedBehavior: "Return error for missing target",
+    handling: "Require task.target field"
+  },
+
+  extremeRadius: {
+    name: "Extreme Radius Values",
+    inputs: [0, -100, 1000000, NaN, Infinity],
+    expectedBehavior: "Clamp to reasonable values or warn",
+    handling: "Validate radius is 0-50000"
+  },
+
+  unknownBiome: {
+    name: "Unknown Biome Name",
+    input: { metadata: { biome: "nonexistent_biome" }},
+    expectedBehavior: "Fall back to default biome profile",
+    handling: "getBiomeProfile returns default if not found"
+  },
+
+  // Edge cases for calculations
+  zeroDivision: {
+    name: "Zero Division in Calculations",
+    scenarios: ["zero traversal speed", "zero efficiency"],
+    expectedBehavior: "Use fallback values",
+    handling: "Check for zero before division"
+  },
+
+  negativeValues: {
+    name: "Negative Supply Counts",
+    input: { supplies: { food: -10 }},
+    expectedBehavior: "Treat as zero or warn",
+    handling: "Math.max(0, count)"
+  },
+
+  // Edge cases for arrays/objects
+  emptyArrays: {
+    name: "Empty Arrays",
+    scenarios: ["no supplies", "no waypoints", "no risks"],
+    expectedBehavior: "Handle gracefully with empty results",
+    handling: "Check array length before operations"
+  },
+
+  undefinedProperties: {
+    name: "Undefined Object Properties",
+    scenarios: ["task.metadata.structure", "biome.supplies"],
+    expectedBehavior: "Use defaults or fallbacks",
+    handling: "Optional chaining (?.) and || defaults"
+  }
+};
+
+/**
+ * Defensive calculation with fallbacks
+ */
+function safeCalculate(fn, fallback, errorContext = "") {
+  try {
+    const result = fn();
+    // Check for invalid results
+    if (result === null || result === undefined || isNaN(result)) {
+      console.warn(`Invalid calculation result in ${errorContext}, using fallback`);
+      return fallback;
+    }
+    return result;
+  } catch (error) {
+    console.error(`Calculation error in ${errorContext}:`, error);
+    return fallback;
+  }
+}
+
+/**
+ * Safe array operations with defaults
+ */
+function safeArrayOp(arr, operation, defaultValue = []) {
+  if (!Array.isArray(arr) || arr.length === 0) {
+    return defaultValue;
+  }
+
+  try {
+    return operation(arr);
+  } catch (error) {
+    console.error("Array operation error:", error);
+    return defaultValue;
+  }
+}
+
+/**
+ * Safe object property access
+ */
+function safeGet(obj, path, defaultValue = null) {
+  if (!obj) return defaultValue;
+
+  const keys = path.split('.');
+  let current = obj;
+
+  for (const key of keys) {
+    if (current[key] === undefined || current[key] === null) {
+      return defaultValue;
+    }
+    current = current[key];
+  }
+
+  return current;
+}
+
+/**
+ * Validate numeric range
+ */
+function validateRange(value, min, max, fieldName = "value") {
+  const num = Number(value);
+
+  if (isNaN(num)) {
+    return { valid: false, error: `${fieldName} must be a number`, value: min };
+  }
+
+  if (num < min) {
+    return { valid: false, error: `${fieldName} below minimum (${min})`, value: min };
+  }
+
+  if (num > max) {
+    return { valid: false, error: `${fieldName} above maximum (${max})`, value: max };
+  }
+
+  return { valid: true, value: num };
+}
+
+/**
+ * Comprehensive input validation
+ */
+function validateExplorationInput(task, context) {
+  const validation = {
+    valid: true,
+    errors: [],
+    warnings: [],
+    sanitized: {}
+  };
+
+  // Validate task
+  const taskValidation = validateTaskInput(task);
+  if (!taskValidation.valid) {
+    validation.valid = false;
+    validation.errors.push(...taskValidation.errors);
+  }
+  validation.warnings.push(...taskValidation.warnings);
+
+  // Validate and sanitize radius
+  if (task?.metadata?.radius !== undefined) {
+    const radiusCheck = validateRange(task.metadata.radius, 0, 50000, "radius");
+    if (!radiusCheck.valid) {
+      validation.warnings.push(radiusCheck.error);
+    }
+    validation.sanitized.radius = radiusCheck.value;
+  }
+
+  // Validate supplies if provided
+  if (task?.metadata?.supplies) {
+    if (Array.isArray(task.metadata.supplies)) {
+      validation.sanitized.supplies = task.metadata.supplies.filter(s => {
+        if (s && typeof s === "object" && s.count !== undefined) {
+          const count = Number(s.count);
+          if (isNaN(count) || count < 0) {
+            validation.warnings.push(`Invalid supply count for ${s.name}, using 1`);
+            s.count = 1;
+            return true;
+          }
+        }
+        return true;
+      });
+    }
+  }
+
+  // Validate context
+  if (context) {
+    if (context.inventory && !Array.isArray(context.inventory)) {
+      validation.warnings.push("Context inventory is not an array, treating as empty");
+      validation.sanitized.inventory = [];
+    }
+  }
+
+  return validation;
+}
+
+/**
+ * Test runner for edge cases (development/debugging)
+ */
+function runEdgeCaseTests() {
+  const results = [];
+
+  // Test null task
+  try {
+    const validation = validateTaskInput(null);
+    results.push({
+      test: "Null Task",
+      passed: !validation.valid && validation.errors.length > 0,
+      message: validation.errors[0]
+    });
+  } catch (error) {
+    results.push({
+      test: "Null Task",
+      passed: false,
+      message: `Crashed: ${error.message}`
+    });
+  }
+
+  // Test extreme radius
+  try {
+    const radiusCheck = validateRange(1000000, 0, 50000, "radius");
+    results.push({
+      test: "Extreme Radius",
+      passed: !radiusCheck.valid && radiusCheck.value === 50000,
+      message: radiusCheck.error || "Clamped to max"
+    });
+  } catch (error) {
+    results.push({
+      test: "Extreme Radius",
+      passed: false,
+      message: `Crashed: ${error.message}`
+    });
+  }
+
+  // Test unknown biome
+  try {
+    const biome = getBiomeProfile("nonexistent_biome_12345");
+    results.push({
+      test: "Unknown Biome",
+      passed: biome.difficulty === "medium", // Should return default
+      message: "Returned default biome profile"
+    });
+  } catch (error) {
+    results.push({
+      test: "Unknown Biome",
+      passed: false,
+      message: `Crashed: ${error.message}`
+    });
+  }
+
+  return results;
+}
+
+/* =====================================================
  * HELPER FUNCTIONS
  * Supporting functions for exploration planning
  * ===================================================== */
@@ -2440,6 +3098,37 @@ function determineBestStrategy(task, biome, structure) {
 }
 
 export function planExploreTask(task, context = {}) {
+  // ===== INPUT VALIDATION - Testing & Edge Cases =====
+  const validation = validateExplorationInput(task, context);
+
+  // Log warnings if any
+  if (validation.warnings.length > 0) {
+    validation.warnings.forEach(warning => console.warn(`[Plan Explore] ${warning}`));
+  }
+
+  // Return error plan if validation failed
+  if (!validation.valid) {
+    return createPlan({
+      task: task || { type: "explore", target: "unknown" },
+      summary: "Invalid exploration task - validation failed",
+      steps: [
+        createStep({
+          title: "Fix validation errors",
+          type: "error",
+          description: `Errors: ${validation.errors.join("; ")}`,
+          metadata: { errors: validation.errors, warnings: validation.warnings }
+        })
+      ],
+      estimatedDuration: 0,
+      resources: [],
+      risks: ["Cannot plan exploration - input validation failed"],
+      notes: validation.errors
+    });
+  }
+
+  // ===== PERFORMANCE TRACKING (optional in development) =====
+  // PerformanceTracker.start("planExploreTask");
+
   // ===== Extract Task Parameters =====
   const targetDescription = describeTarget(task.target);
   const biomeName = normalizeItemName(task?.metadata?.biome || context?.biome || "plains");
@@ -3002,7 +3691,7 @@ export function planExploreTask(task, context = {}) {
   }
 
   // ===== Create and Return Plan =====
-  return createPlan({
+  const plan = createPlan({
     task,
     summary: structure
       ? `Explore ${biomeName} biome to locate ${structureName} near ${targetDescription}.`
@@ -3013,4 +3702,75 @@ export function planExploreTask(task, context = {}) {
     risks,
     notes
   });
+
+  // ===== INTEGRATION - Format for Bridge (optional) =====
+  // Validate plan structure before returning
+  const structureValidation = validatePlanStructure(plan);
+  if (!structureValidation.valid) {
+    console.warn("[Plan Explore] Plan structure validation issues:", structureValidation.issues);
+  }
+
+  // Add integration metadata
+  plan._meta = {
+    version: INTEGRATION_CONFIG.version,
+    createdAt: new Date().toISOString(),
+    validationPassed: structureValidation.valid,
+    warnings: validation.warnings,
+
+    // Include system information for debugging
+    systems: {
+      biomeProfile: biomeName,
+      structureProfile: structureName,
+      navigationStrategy: strategy.name,
+      riskScore: riskScore,
+      waypointCount: waypointPlan?.length || 0,
+      milestones: progressChecklist?.length || 0
+    }
+  };
+
+  // Optional: Format for bridge if needed
+  // const bridgeFormat = formatPlanForBridge(plan);
+
+  // ===== PERFORMANCE TRACKING (optional) =====
+  // const duration = PerformanceTracker.end("planExploreTask");
+  // if (duration) console.log(`[Plan Explore] Planning took ${duration}ms`);
+
+  return plan;
+}
+
+// ===== EXPORT ADDITIONAL UTILITIES FOR EXTERNAL USE =====
+
+/**
+ * Export validation function for external use
+ */
+export function validateExploreTask(task, context) {
+  return validateExplorationInput(task, context);
+}
+
+/**
+ * Export bridge formatting for external integration
+ */
+export function formatExplorePlanForBridge(plan) {
+  return formatPlanForBridge(plan);
+}
+
+/**
+ * Export progress update creator
+ */
+export function createExploreProgressUpdate(planId, milestone, metadata) {
+  return createProgressUpdate(planId, milestone, metadata);
+}
+
+/**
+ * Export completion report creator
+ */
+export function createExploreCompletionReport(planId, result, metrics) {
+  return createCompletionReport(planId, result, metrics);
+}
+
+/**
+ * Export edge case test runner (for development/debugging)
+ */
+export function testExploreEdgeCases() {
+  return runEdgeCaseTests();
 }

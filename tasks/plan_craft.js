@@ -13,6 +13,43 @@ import {
   countInventoryItems
 } from "./helpers.js";
 
+// Import crafting enhancements
+import {
+  getRecipe,
+  validateRecipe,
+  calculateTotalIngredients
+} from "./craft_recipe_database.js";
+
+import {
+  calculateOptimalBatchSize,
+  suggestCraftingOrder,
+  optimizeFurnaceArray,
+  minimizeLeftovers
+} from "./craft_batch_optimizer.js";
+
+import {
+  analyzeDependencies,
+  reverseLookup,
+  findOptimalCraftingPath
+} from "./craft_chain_analyzer.js";
+
+import {
+  findBestFuel,
+  suggestSubstitute,
+  calculateFuelWithAlternatives
+} from "./craft_substitution_system.js";
+
+import {
+  checkToolDurability,
+  getRepairOptions,
+  suggestToolsForTask
+} from "./craft_durability_manager.js";
+
+// Constants for time estimation
+const BASE_CRAFT_TIME_MS = 8000;
+const TIME_PER_INGREDIENT_MS = 1500;
+const TIME_PER_ADDITIONAL_ITEM_MS = 1200;
+
 function normalizeList(value) {
   if (!value) {
     return [];
@@ -35,8 +72,14 @@ function normalizeList(value) {
 }
 
 function determineStationProfile(stationName, metadata = {}) {
-  const name = stationName || "";
-  const fuelOptions = normalizeList(metadata.fuel || metadata.fuels || metadata.requiredFuel);
+  if (!stationName || typeof stationName !== "string") {
+    // Default to crafting table if station is invalid
+    stationName = "crafting table";
+  }
+
+  const name = stationName.toLowerCase().trim();
+  const safeMetadata = metadata && typeof metadata === "object" ? metadata : {};
+  const fuelOptions = normalizeList(safeMetadata.fuel || safeMetadata.fuels || safeMetadata.requiredFuel);
 
   if (name.includes("furnace") || name.includes("smoker")) {
     return {
@@ -45,9 +88,9 @@ function determineStationProfile(stationName, metadata = {}) {
       command: null,
       requiresFuel: true,
       fuelOptions: fuelOptions.length > 0 ? fuelOptions : ["coal", "charcoal", "logs"],
-      itemsPerFuel: metadata.itemsPerFuel ? resolveQuantity(metadata.itemsPerFuel, 8) : 8,
-      itemsPerOperation: metadata.itemsPerOperation ? resolveQuantity(metadata.itemsPerOperation, 1) : 1,
-      postCollection: `Collect finished ${metadata.output || "items"} from the ${name}.`,
+      itemsPerFuel: safeMetadata.itemsPerFuel ? resolveQuantity(safeMetadata.itemsPerFuel, 8) : 8,
+      itemsPerOperation: safeMetadata.itemsPerOperation ? resolveQuantity(safeMetadata.itemsPerOperation, 1) : 1,
+      postCollection: `Collect finished ${safeMetadata.output || "items"} from the ${name}.`,
       notes: "Furnace operations consume fuel; ensure hopper outputs aren't clogged."
     };
   }
@@ -59,8 +102,8 @@ function determineStationProfile(stationName, metadata = {}) {
       command: null,
       requiresFuel: true,
       fuelOptions: fuelOptions.length > 0 ? fuelOptions : ["blaze powder"],
-      fuelPerBatch: metadata.fuelPerBatch ? resolveQuantity(metadata.fuelPerBatch, 1) : 1,
-      bottlesPerBatch: metadata.bottlesPerBatch ? resolveQuantity(metadata.bottlesPerBatch, 3) : 3,
+      fuelPerBatch: safeMetadata.fuelPerBatch ? resolveQuantity(safeMetadata.fuelPerBatch, 1) : 1,
+      bottlesPerBatch: safeMetadata.bottlesPerBatch ? resolveQuantity(safeMetadata.bottlesPerBatch, 3) : 3,
       postCollection: "Collect finished potions and clear the brewing stand.",
       notes: "Brewing requires blaze powder fuel and filled bottles; queue reagents in order."
     };
@@ -72,7 +115,7 @@ function determineStationProfile(stationName, metadata = {}) {
       verb: "reforge",
       command: null,
       requiresFuel: false,
-      template: normalizeItemName(metadata.template || metadata.smithingTemplate),
+      template: normalizeItemName(safeMetadata.template || safeMetadata.smithingTemplate),
       notes: "Ensure the smithing template and upgrade material are available before reforging."
     };
   }
@@ -83,7 +126,7 @@ function determineStationProfile(stationName, metadata = {}) {
       verb: "combine",
       command: null,
       requiresFuel: false,
-      xpCost: resolveQuantity(metadata.xpCost, null),
+      xpCost: resolveQuantity(safeMetadata.xpCost, null),
       notes: "Combining items on an anvil consumes XP levels and damages the anvil over time."
     };
   }
@@ -103,11 +146,15 @@ function determineStationProfile(stationName, metadata = {}) {
     verb: "craft",
     command: "/craft",
     requiresFuel: false,
-    notes: metadata?.notes || null
+    notes: safeMetadata?.notes || null
   };
 }
 
 function parseIngredients(task) {
+  if (!task) {
+    return [];
+  }
+
   const rawIngredients = Array.isArray(task?.metadata?.ingredients)
     ? task.metadata.ingredients
     : [];
@@ -115,11 +162,19 @@ function parseIngredients(task) {
   const normalized = rawIngredients
     .map(entry => {
       if (typeof entry === "string") {
-        return { name: normalizeItemName(entry) };
+        const name = normalizeItemName(entry);
+        return name && name !== "unspecified item" ? { name } : null;
       }
       if (entry && typeof entry === "object") {
         const name = normalizeItemName(entry.name || entry.item || entry.id);
-        const count = resolveQuantity(entry.count ?? entry.quantity, null);
+        if (!name || name === "unspecified item") {
+          return null;
+        }
+        let count = resolveQuantity(entry.count ?? entry.quantity, null);
+        // Validate count is a positive finite number
+        if (count !== null && (!Number.isFinite(count) || count <= 0)) {
+          count = null;
+        }
         return { name, count };
       }
       return null;
@@ -131,56 +186,109 @@ function parseIngredients(task) {
   }
 
   if (task?.metadata?.recipe && typeof task.metadata.recipe === "object") {
-    return Object.entries(task.metadata.recipe).map(([name, count]) => ({
-      name: normalizeItemName(name),
-      count: resolveQuantity(count, null)
-    }));
+    const recipeEntries = Object.entries(task.metadata.recipe)
+      .map(([name, count]) => {
+        const normalizedName = normalizeItemName(name);
+        if (!normalizedName || normalizedName === "unspecified item") {
+          return null;
+        }
+        let resolvedCount = resolveQuantity(count, null);
+        if (resolvedCount !== null && (!Number.isFinite(resolvedCount) || resolvedCount <= 0)) {
+          resolvedCount = null;
+        }
+        return { name: normalizedName, count: resolvedCount };
+      })
+      .filter(Boolean);
+
+    if (recipeEntries.length > 0) {
+      return recipeEntries;
+    }
   }
 
   const fallback = normalizeItemName(task?.metadata?.primaryIngredient || task?.details || "materials");
+  if (!fallback || fallback === "unspecified item") {
+    return [];
+  }
   return [{ name: fallback }];
 }
 
 export function planCraftTask(task, context = {}) {
-  const item = normalizeItemName(task?.metadata?.item || task.details);
+  // Input validation
+  if (!task) {
+    throw new Error("planCraftTask requires a valid task object");
+  }
+
+  const item = normalizeItemName(task?.metadata?.item || task?.details);
+
+  if (!item || item === "unspecified item") {
+    throw new Error("planCraftTask requires a valid item name in task.metadata.item or task.details");
+  }
+
   const station = normalizeItemName(task?.metadata?.station || "crafting table");
   const storage = normalizeItemName(task?.metadata?.storage || task?.metadata?.dropOff || "nearest chest");
-  const targetDescription = describeTarget(task.target);
+
+  // Validate target description is available
+  const targetDescription = task?.target ? describeTarget(task.target) : "the designated location";
+
   const requiresAutomation = Boolean(task?.metadata?.automation || task?.metadata?.autocrafter);
   const stationProfile = determineStationProfile(station, task?.metadata || {});
 
   const inventory = extractInventory(context);
   const currentStock = countInventoryItems(inventory, item);
-  const baseQuantity = resolveQuantity(task?.metadata?.quantity ?? task?.metadata?.count, 1) || 1;
-  const maintainMinimum = resolveQuantity(
+
+  // Validate and sanitize all quantity-related inputs
+  let baseQuantity = resolveQuantity(task?.metadata?.quantity ?? task?.metadata?.count, 1) || 1;
+  baseQuantity = Number.isFinite(baseQuantity) && baseQuantity > 0 ? Math.floor(baseQuantity) : 1;
+
+  let maintainMinimum = resolveQuantity(
     task?.metadata?.maintainMinimum ?? task?.metadata?.minStock ?? task?.metadata?.maintain,
     null
   );
-  const desiredStock = resolveQuantity(
+  maintainMinimum = maintainMinimum && Number.isFinite(maintainMinimum) && maintainMinimum > 0
+    ? Math.floor(maintainMinimum)
+    : null;
+
+  let desiredStock = resolveQuantity(
     task?.metadata?.desiredStock ?? task?.metadata?.targetStock ?? task?.metadata?.restockTarget,
     null
   );
-  const buffer = resolveQuantity(task?.metadata?.buffer ?? task?.metadata?.extra ?? 0, 0) || 0;
-  const exactQuantity = resolveQuantity(task?.metadata?.exactQuantity, null);
+  desiredStock = desiredStock && Number.isFinite(desiredStock) && desiredStock > 0
+    ? Math.floor(desiredStock)
+    : null;
+
+  let buffer = resolveQuantity(task?.metadata?.buffer ?? task?.metadata?.extra ?? 0, 0) || 0;
+  buffer = Number.isFinite(buffer) && buffer >= 0 ? Math.floor(buffer) : 0;
+
+  let exactQuantity = resolveQuantity(task?.metadata?.exactQuantity, null);
+  exactQuantity = exactQuantity && Number.isFinite(exactQuantity) && exactQuantity > 0
+    ? Math.floor(exactQuantity)
+    : null;
 
   let quantity = baseQuantity;
   const quantityReasons = [];
 
-  if (maintainMinimum && currentStock < maintainMinimum) {
+  if (maintainMinimum && Number.isFinite(currentStock) && currentStock < maintainMinimum) {
     const deficit = maintainMinimum - currentStock;
-    quantity = Math.max(quantity, deficit);
-    quantityReasons.push(`inventory below minimum (${currentStock}/${maintainMinimum})`);
+    if (Number.isFinite(deficit) && deficit > 0) {
+      quantity = Math.max(quantity, deficit);
+      quantityReasons.push(`inventory below minimum (${currentStock}/${maintainMinimum})`);
+    }
   }
 
-  if (desiredStock && currentStock + quantity < desiredStock) {
+  if (desiredStock && Number.isFinite(currentStock) && currentStock + quantity < desiredStock) {
     const required = desiredStock - currentStock;
-    quantity = Math.max(quantity, required);
-    quantityReasons.push(`target stock of ${desiredStock} requires ${required}`);
+    if (Number.isFinite(required) && required > 0) {
+      quantity = Math.max(quantity, required);
+      quantityReasons.push(`target stock of ${desiredStock} requires ${required}`);
+    }
   }
 
   if (buffer > 0) {
-    quantity += buffer;
-    quantityReasons.push(`include buffer of ${buffer}`);
+    const newQuantity = quantity + buffer;
+    if (Number.isFinite(newQuantity)) {
+      quantity = newQuantity;
+      quantityReasons.push(`include buffer of ${buffer}`);
+    }
   }
 
   if (exactQuantity && exactQuantity > 0) {
@@ -188,23 +296,40 @@ export function planCraftTask(task, context = {}) {
     quantityReasons.push(`exact quantity override to ${exactQuantity}`);
   }
 
+  // Final safety check
   if (!Number.isFinite(quantity) || quantity <= 0) {
     quantity = 1;
   }
 
+  quantity = Math.floor(quantity);
+
   const ingredients = parseIngredients(task);
+
+  // Validate ingredients array
+  if (!Array.isArray(ingredients) || ingredients.length === 0) {
+    throw new Error("planCraftTask requires at least one valid ingredient");
+  }
+
   const missingIngredients = ingredients.filter(ingredient => {
     if (!ingredient?.name || ingredient.name === "unspecified item") {
       return false;
     }
-    if (ingredient.count && ingredient.count > 0) {
-      return !hasInventoryItem(inventory, ingredient.name, ingredient.count * quantity);
+    const ingredientCount = ingredient.count && Number.isFinite(ingredient.count) && ingredient.count > 0
+      ? ingredient.count
+      : null;
+
+    if (ingredientCount) {
+      const requiredAmount = ingredientCount * quantity;
+      return Number.isFinite(requiredAmount) && !hasInventoryItem(inventory, ingredient.name, requiredAmount);
     }
     return !hasInventoryItem(inventory, ingredient.name, quantity);
   });
 
   const ingredientSummary = formatRequirementList(
-    ingredients.map(ing => ({ ...ing, count: ing.count ? ing.count * quantity : ing.count }))
+    ingredients.map(ing => ({
+      ...ing,
+      count: ing.count && Number.isFinite(ing.count) ? ing.count * quantity : ing.count
+    }))
   );
   const missingSummary = formatRequirementList(missingIngredients);
 
@@ -285,12 +410,20 @@ export function planCraftTask(task, context = {}) {
 
   let fuelStatus = null;
   if (stationProfile.requiresFuel) {
-    const itemsPerFuel = stationProfile.itemsPerFuel || 1;
-    const perBatch = stationProfile.fuelPerBatch || 1;
-    const operationsNeeded = Math.max(1, Math.ceil((quantity * (stationProfile.itemsPerOperation || 1)) / itemsPerFuel));
+    // Validate fuel calculation inputs to prevent division by zero
+    let itemsPerFuel = stationProfile.itemsPerFuel || 1;
+    itemsPerFuel = Number.isFinite(itemsPerFuel) && itemsPerFuel > 0 ? itemsPerFuel : 1;
+
+    let perBatch = stationProfile.fuelPerBatch || 1;
+    perBatch = Number.isFinite(perBatch) && perBatch > 0 ? perBatch : 1;
+
+    let itemsPerOperation = stationProfile.itemsPerOperation || 1;
+    itemsPerOperation = Number.isFinite(itemsPerOperation) && itemsPerOperation > 0 ? itemsPerOperation : 1;
+
+    const operationsNeeded = Math.max(1, Math.ceil((quantity * itemsPerOperation) / itemsPerFuel));
     const fuelNeeded = Math.max(perBatch, operationsNeeded);
-    const fuelOptions = stationProfile.fuelOptions || [];
-    const hasFuel = fuelOptions.some(option => hasInventoryItem(inventory, option, fuelNeeded));
+    const fuelOptions = Array.isArray(stationProfile.fuelOptions) ? stationProfile.fuelOptions : [];
+    const hasFuel = fuelOptions.length > 0 && fuelOptions.some(option => hasInventoryItem(inventory, option, fuelNeeded));
     fuelStatus = { fuelNeeded, fuelOptions, hasFuel };
     const fuelList = fuelOptions.length > 0 ? fuelOptions.join(", ") : "fuel";
 
@@ -304,7 +437,9 @@ export function planCraftTask(task, context = {}) {
     );
 
     if (stationProfile.type === "brewing") {
-      const bottlesNeeded = Math.max(1, Math.ceil(quantity / (stationProfile.bottlesPerBatch || 3)) * (stationProfile.bottlesPerBatch || 3));
+      let bottlesPerBatch = stationProfile.bottlesPerBatch || 3;
+      bottlesPerBatch = Number.isFinite(bottlesPerBatch) && bottlesPerBatch > 0 ? bottlesPerBatch : 3;
+      const bottlesNeeded = Math.max(1, Math.ceil(quantity / bottlesPerBatch) * bottlesPerBatch);
       steps.push(
         createStep({
           title: "Prep bottles",
@@ -408,10 +543,15 @@ export function planCraftTask(task, context = {}) {
     })
   );
 
-  const estimatedDuration = 8000 + ingredients.length * 1500 + Math.max(0, quantity - 1) * 1200;
+  // Calculate estimated duration using constants
+  const ingredientCount = Array.isArray(ingredients) ? ingredients.length : 0;
+  const additionalItems = Math.max(0, quantity - 1);
+  const estimatedDuration = BASE_CRAFT_TIME_MS + ingredientCount * TIME_PER_INGREDIENT_MS + additionalItems * TIME_PER_ADDITIONAL_ITEM_MS;
+
+  // Build resources list with proper null/undefined handling
   const resources = [item, station, storage]
-    .concat(ingredients.map(ing => ing.name))
-    .concat(stationProfile?.fuelOptions || [])
+    .concat(Array.isArray(ingredients) ? ingredients.map(ing => ing?.name).filter(Boolean) : [])
+    .concat(Array.isArray(stationProfile?.fuelOptions) ? stationProfile.fuelOptions : [])
     .concat(stationProfile?.template ? [stationProfile.template] : [])
     .filter(Boolean);
   const uniqueResources = [...new Set(resources.filter(name => name && name !== "unspecified item"))];
@@ -459,6 +599,90 @@ export function planCraftTask(task, context = {}) {
     notes.push(`Fuel options: ${fuelStatus.fuelOptions.join(", ")}; estimated need ${fuelStatus.fuelNeeded}.`);
   }
 
+  // === Enhanced Crafting Intelligence ===
+
+  // Recipe validation
+  const recipeValidation = validateRecipe(item, ingredients);
+  if (recipeValidation && !recipeValidation.valid) {
+    if (recipeValidation.missing?.length > 0) {
+      notes.push(`Recipe check: ${recipeValidation.suggestion}`);
+    }
+    if (recipeValidation.incorrect?.length > 0) {
+      risks.push("Recipe ingredients may be incorrect. Verify recipe before crafting.");
+    }
+  }
+
+  // Batch optimization
+  const batchOptimization = calculateOptimalBatchSize(item, quantity, inventory);
+  if (batchOptimization && !batchOptimization.error && batchOptimization.timeEstimate) {
+    if (batchOptimization.timeEstimate.efficiencyGain && parseFloat(batchOptimization.timeEstimate.efficiencyGain) > 10) {
+      notes.push(`Batch crafting tip: ${batchOptimization.recommendation}`);
+    }
+    if (!batchOptimization.canCraftAll) {
+      risks.push(`Limited by ${batchOptimization.limitingIngredient}. Can only craft ${batchOptimization.actualCraftsAvailable} batches.`);
+    }
+  }
+
+  // Fuel optimization (for smelting)
+  if (stationProfile.requiresFuel && stationProfile.type === "smelting") {
+    const fuelOptimization = findBestFuel(inventory, quantity);
+    if (fuelOptimization && !fuelOptimization.error) {
+      if (fuelOptimization.bestFuel && fuelOptimization.bestFuel.efficiency < 0.5) {
+        notes.push(`⚠️ Current fuel (${fuelOptimization.bestFuel.fuel}) is inefficient. Consider coal or charcoal.`);
+      }
+      if (fuelOptimization.alternatives && fuelOptimization.alternatives.length > 0) {
+        const betterAlts = fuelOptimization.alternatives.filter(a => a.sufficient && a.efficiency > 0.8);
+        if (betterAlts.length > 0) {
+          notes.push(`Alternative fuels available: ${betterAlts.map(a => a.fuel).join(", ")}`);
+        }
+      }
+    }
+  }
+
+  // Material substitution suggestions
+  for (const missing of missingIngredients) {
+    if (missing?.name) {
+      const substitution = suggestSubstitute(missing.name, inventory);
+      if (substitution && !substitution.error && substitution.substitutes?.length > 0) {
+        notes.push(`💡 Substitute tip: Use ${substitution.bestSubstitute.substitute} instead of ${missing.name} (${substitution.bestSubstitute.available} available)`);
+      }
+    }
+  }
+
+  // Crafting chain analysis (for complex items)
+  if (task?.metadata?.showDependencies || task?.metadata?.analyzeDependencies) {
+    const chainAnalysis = analyzeDependencies(item, quantity, inventory);
+    if (chainAnalysis && !chainAnalysis.error) {
+      if (chainAnalysis.bottlenecks?.length > 0) {
+        for (const bottleneck of chainAnalysis.bottlenecks.slice(0, 2)) {
+          risks.push(`Bottleneck: ${bottleneck.reason}`);
+        }
+      }
+      if (chainAnalysis.timeEstimate && chainAnalysis.timeEstimate.formatted) {
+        notes.push(`Full crafting chain will take approximately ${chainAnalysis.timeEstimate.formatted}`);
+      }
+    }
+  }
+
+  // Leftover minimization
+  if (task?.metadata?.minimizeWaste) {
+    const wasteAnalysis = minimizeLeftovers(item, inventory);
+    if (wasteAnalysis && !wasteAnalysis.error) {
+      if (wasteAnalysis.hasWaste) {
+        notes.push(`Waste optimization: ${wasteAnalysis.recommendation}`);
+      }
+    }
+  }
+
+  // Furnace array optimization (for bulk smelting)
+  if (stationProfile.type === "smelting" && quantity > 64 && task?.metadata?.furnaceCount) {
+    const furnaceOpt = optimizeFurnaceArray(item, quantity, task.metadata.furnaceCount);
+    if (furnaceOpt && !furnaceOpt.error) {
+      notes.push(`Furnace array: ${furnaceOpt.recommendation}`);
+      notes.push(`Time savings with ${furnaceOpt.furnaceCount} furnaces: ${furnaceOpt.efficiency}`);
+    }
+  }
+
   return createPlan({
     task,
     summary: quantity > 1 ? `Craft ${quantity}x ${item} using the ${station}.` : `Craft ${item} using the ${station}.`,
@@ -466,6 +690,15 @@ export function planCraftTask(task, context = {}) {
     estimatedDuration,
     resources: uniqueResources,
     risks,
-    notes
+    notes,
+    // Enhanced metadata
+    enhancements: {
+      recipeValidation: recipeValidation || null,
+      batchOptimization: batchOptimization || null,
+      hasSubstituteSuggestions: missingIngredients.some(m => {
+        const sub = suggestSubstitute(m.name, inventory);
+        return sub && !sub.error && sub.substitutes?.length > 0;
+      })
+    }
   });
 }

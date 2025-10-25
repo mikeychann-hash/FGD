@@ -2401,6 +2401,26 @@ const REFACTORING_PATTERNS = {
     severity: "low",
     description: "Hardcoded numbers without explanation",
     fix: "Use named constants with descriptive names"
+  },
+  LONG_PARAMETER_LIST: {
+    severity: "medium",
+    description: "Function has more than 4 parameters",
+    fix: "Use object parameter with named properties"
+  },
+  COMPLEX_CONDITIONAL: {
+    severity: "medium",
+    description: "Boolean logic is difficult to understand",
+    fix: "Extract to named boolean variables or functions"
+  },
+  DEAD_CODE: {
+    severity: "high",
+    description: "Unreachable code or unused variables",
+    fix: "Remove unused code to reduce maintenance burden"
+  },
+  TIGHT_COUPLING: {
+    severity: "high",
+    description: "Functions or modules too interdependent",
+    fix: "Use dependency injection or interfaces"
   }
 };
 
@@ -2430,6 +2450,33 @@ const PERFORMANCE_OPTIMIZATIONS = {
     benefit: "Avoids unnecessary computation",
     applicable: ["risk assessment loops", "supply calculations"],
     pattern: "if (criticalCondition) return result;"
+  },
+
+  // Lazy evaluation
+  lazyEvaluation: {
+    name: "Lazy Evaluation",
+    description: "Defer expensive computations until actually needed",
+    benefit: "Saves resources when values may not be used",
+    applicable: ["progress tracking", "detailed risk calculations"],
+    pattern: "Use getter functions or computed properties"
+  },
+
+  // Batch operations
+  batchProcessing: {
+    name: "Batch Processing",
+    description: "Group multiple operations together to reduce overhead",
+    benefit: "Reduces iteration and function call overhead",
+    applicable: ["step generation", "resource aggregation"],
+    pattern: "Single pass through data with multiple operations"
+  },
+
+  // Object pooling
+  objectPooling: {
+    name: "Object Pooling",
+    description: "Reuse objects instead of creating new ones",
+    benefit: "Reduces garbage collection pressure",
+    applicable: ["step objects", "temporary calculations"],
+    pattern: "Maintain pool of reusable objects, reset and reuse"
   }
 };
 
@@ -2590,6 +2637,91 @@ const PerformanceTracker = {
   }
 };
 
+/**
+ * Code Quality Analyzer
+ * Analyzes plan generation code for quality metrics
+ */
+const CodeQualityAnalyzer = {
+  /**
+   * Analyze function complexity
+   */
+  analyzeComplexity: (fn) => {
+    const fnString = fn.toString();
+    const lines = fnString.split('\n').length;
+    const conditionals = (fnString.match(/if|else|switch|case|\?/g) || []).length;
+    const loops = (fnString.match(/for|while|do/g) || []).length;
+    const returns = (fnString.match(/return/g) || []).length;
+
+    // Cyclomatic complexity approximation
+    const complexity = conditionals + loops + 1;
+
+    return {
+      lines,
+      complexity,
+      conditionals,
+      loops,
+      returns,
+      rating: complexity < 10 ? "simple" : complexity < 20 ? "moderate" : "complex"
+    };
+  },
+
+  /**
+   * Check for code smells
+   */
+  detectCodeSmells: (code) => {
+    const smells = [];
+
+    // Check for magic numbers
+    const magicNumbers = code.match(/\b\d{2,}\b/g) || [];
+    if (magicNumbers.length > 5) {
+      smells.push({ type: "MAGIC_NUMBERS", count: magicNumbers.length });
+    }
+
+    // Check for long functions (>50 lines)
+    const functions = code.match(/function\s+\w+[^{]*{[^}]*}/gs) || [];
+    functions.forEach(fn => {
+      if (fn.split('\n').length > 50) {
+        smells.push({ type: "LARGE_FUNCTION", lines: fn.split('\n').length });
+      }
+    });
+
+    // Check for deep nesting
+    const maxNesting = code.split('\n').reduce((max, line) => {
+      const depth = (line.match(/^  /g) || []).length / 2;
+      return Math.max(max, depth);
+    }, 0);
+    if (maxNesting > 3) {
+      smells.push({ type: "DEEP_NESTING", depth: maxNesting });
+    }
+
+    return smells;
+  },
+
+  /**
+   * Calculate maintainability index
+   * Based on Halstead Volume and Cyclomatic Complexity
+   */
+  calculateMaintainability: (code) => {
+    const volume = code.length; // Simplified
+    const complexity = (code.match(/if|else|for|while/g) || []).length + 1;
+    const linesOfCode = code.split('\n').length;
+
+    // Simplified maintainability index formula
+    // Higher is better (0-100 scale)
+    const mi = Math.max(0, Math.min(100,
+      171 - 5.2 * Math.log(volume) - 0.23 * complexity - 16.2 * Math.log(linesOfCode)
+    ));
+
+    return {
+      score: Math.round(mi),
+      rating: mi > 85 ? "excellent" : mi > 65 ? "good" : mi > 50 ? "fair" : "poor",
+      volume,
+      complexity,
+      linesOfCode
+    };
+  }
+};
+
 /* =====================================================
  * INTEGRATION UTILITIES
  * Connect to bridge and external systems
@@ -2620,6 +2752,47 @@ const INTEGRATION_CONFIG = {
     planning: 5000,
     execution: 300000, // 5 minutes
     monitoring: 1000
+  },
+
+  // Webhook configuration
+  webhooks: {
+    enabled: true,
+    events: ["plan.created", "plan.started", "plan.completed", "plan.failed"],
+    url: "/api/webhooks/plan-events",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Version": "2.0.0"
+    },
+    retryOnFailure: true
+  },
+
+  // Error handling
+  errorHandling: {
+    logErrors: true,
+    throwOnCritical: false,
+    fallbackBehavior: "return_partial_plan",
+    errorCategories: {
+      validation: "warn_and_continue",
+      network: "retry_with_backoff",
+      timeout: "cancel_and_report",
+      unknown: "log_and_fallback"
+    }
+  },
+
+  // Rate limiting
+  rateLimiting: {
+    enabled: false,
+    maxRequestsPerMinute: 60,
+    maxConcurrentPlans: 10,
+    queueOverflow: "reject"
+  },
+
+  // Caching
+  cache: {
+    enabled: true,
+    ttlSeconds: 300, // 5 minutes
+    maxSize: 100,
+    strategy: "lru" // least recently used
   }
 };
 
@@ -2843,6 +3016,54 @@ const TEST_CASES = {
     scenarios: ["task.metadata.structure", "biome.supplies"],
     expectedBehavior: "Use defaults or fallbacks",
     handling: "Optional chaining (?.) and || defaults"
+  },
+
+  // Concurrency edge cases
+  concurrentPlans: {
+    name: "Multiple Concurrent Plan Requests",
+    scenario: "Multiple plans requested simultaneously",
+    expectedBehavior: "Handle without race conditions or data corruption",
+    handling: "Ensure pure functions, avoid shared mutable state"
+  },
+
+  // Memory edge cases
+  largeDataset: {
+    name: "Large Number of Waypoints/Steps",
+    inputs: [1000, 10000, 100000],
+    expectedBehavior: "Handle without running out of memory",
+    handling: "Limit maximum sizes, paginate results if needed"
+  },
+
+  // Type coercion edge cases
+  typeCoercion: {
+    name: "Unexpected Type Inputs",
+    scenarios: ["string for radius", "array for biome name", "object for distance"],
+    expectedBehavior: "Validate types and convert or error gracefully",
+    handling: "Explicit type checking and conversion"
+  },
+
+  // Circular reference edge cases
+  circularReferences: {
+    name: "Circular Object References",
+    scenario: "Context or metadata contains circular references",
+    expectedBehavior: "Sanitize before JSON.stringify",
+    handling: "sanitizeMetadata removes circular references"
+  },
+
+  // Unicode and special characters
+  specialCharacters: {
+    name: "Special Characters in Names",
+    inputs: ["biome_🌳", "structure-with-émoji", "target\nwith\nnewlines"],
+    expectedBehavior: "Handle unicode and special chars correctly",
+    handling: "Use proper string encoding and validation"
+  },
+
+  // Timezone edge cases
+  timezones: {
+    name: "Different Timezone Timestamps",
+    scenario: "Plans created in different timezones",
+    expectedBehavior: "Use ISO 8601 format with UTC",
+    handling: "Always use toISOString() for timestamps"
   }
 };
 

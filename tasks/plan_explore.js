@@ -14,6 +14,23 @@ import {
 } from "./helpers.js";
 
 /* =====================================================
+ * CONSTANTS
+ * ===================================================== */
+
+// Risk thresholds for categorization
+const RISK_THRESHOLD_HIGH = 60;
+const RISK_THRESHOLD_MODERATE = 40;
+
+// Risk levels
+const RISK_LEVEL_LOW = "Low Risk";
+const RISK_LEVEL_MODERATE = "Moderate Risk";
+const RISK_LEVEL_HIGH = "High Risk";
+const RISK_LEVEL_EXTREME = "Extreme Risk";
+
+// Supply multipliers for long expeditions
+const EXPEDITION_LONG_DISTANCE = 1000; // blocks
+
+/* =====================================================
  * BIOME PROFILE SYSTEM
  * Foundation for understanding biome characteristics
  * ===================================================== */
@@ -90,7 +107,7 @@ const BIOME_PROFILES = {
     terrain: "dense",
     difficulty: "hard",
     visibility: "very_limited",
-    hostileMobs: ["zombie", "skeleton", "creeper", "spider", "ocelot"],
+    hostileMobs: ["zombie", "skeleton", "creeper", "spider"],
     passiveMobs: ["parrot", "ocelot", "panda"],
     resources: ["jungle_log", "bamboo", "cocoa_beans", "melons"],
     structures: ["jungle_temple", "ruined_portal"],
@@ -890,6 +907,11 @@ const RISK_CATEGORIES = {
 
 /**
  * Assess risks for given exploration context
+ * @param {Object} biome - Biome profile with terrain and danger information
+ * @param {Object|null} structure - Optional structure profile
+ * @param {Object} strategy - Navigation strategy
+ * @param {Object} task - Task with metadata
+ * @returns {Object} Risk assessment with activeRisks, criticalRisks, requiredMitigation, and riskScore (0-100)
  */
 function assessRisks(biome, structure, strategy, task) {
   const activeRisks = [];
@@ -980,7 +1002,7 @@ function assessRisks(biome, structure, strategy, task) {
 
   // Resource depletion - always a risk on long expeditions
   const expeditionRadius = structure?.searchRadius || task?.metadata?.radius || 1000;
-  if (expeditionRadius > 1000) {
+  if (expeditionRadius > EXPEDITION_LONG_DISTANCE) {
     activeRisks.push({
       ...RISK_CATEGORIES.HUNGER_DEPLETION,
       reason: `Long expedition (${expeditionRadius}+ blocks)`,
@@ -1017,6 +1039,10 @@ function assessRisks(biome, structure, strategy, task) {
  * Calculate overall risk score (0-100)
  */
 function calculateRiskScore(risks) {
+  if (!risks || !Array.isArray(risks) || risks.length === 0) {
+    return 0; // No risks = no risk score
+  }
+
   const severityScores = {
     critical: 40,
     high: 25,
@@ -1039,7 +1065,8 @@ function calculateRiskScore(risks) {
     totalScore += baseScore * multiplier;
   });
 
-  return Math.min(100, Math.round(totalScore));
+  // Clamp between 0 and 100
+  return Math.max(0, Math.min(100, Math.round(totalScore)));
 }
 
 /* =====================================================
@@ -1179,27 +1206,41 @@ const SUPPLY_REQUIREMENTS = {
 
 /**
  * Calculate required supplies for expedition
+ * @param {Object} biome - Biome profile
+ * @param {Object|null} structure - Optional structure profile
+ * @param {Object} strategy - Navigation strategy
+ * @param {number} radius - Exploration radius in blocks
+ * @param {Object} risks - Risk assessment results
+ * @returns {Object} Supply quantities with minimum safe values guaranteed
  */
 function calculateSupplies(biome, structure, strategy, radius, risks) {
   const supplies = {};
 
+  // Validate inputs
+  if (!biome) {
+    console.warn("No biome provided to calculateSupplies, using defaults");
+    return { food: 16, torches: 64, blocks: 64, bed: 1, compass: 1, water_bucket: 1 };
+  }
+
+  const safeRadius = Math.max(0, radius || 500); // Ensure non-negative
+
   // Calculate food
   const foodBase = SUPPLY_REQUIREMENTS.food.baseQuantity;
-  const foodDistance = (radius || 1000) * SUPPLY_REQUIREMENTS.food.perBlockTraveled;
+  const foodDistance = safeRadius * SUPPLY_REQUIREMENTS.food.perBlockTraveled;
   const foodDifficulty = SUPPLY_REQUIREMENTS.food.difficultyMultiplier[biome.difficulty] || 1.0;
-  supplies.food = Math.ceil((foodBase + foodDistance) * foodDifficulty);
+  supplies.food = Math.max(8, Math.ceil((foodBase + foodDistance) * foodDifficulty)); // At least 8 food
 
   // Calculate torches
   const torchBase = SUPPLY_REQUIREMENTS.torches.baseQuantity;
-  const torchArea = (radius || 500) * SUPPLY_REQUIREMENTS.torches.perBlockRadius;
+  const torchArea = safeRadius * SUPPLY_REQUIREMENTS.torches.perBlockRadius;
   const torchNav = SUPPLY_REQUIREMENTS.torches.navigationMultiplier[biome.navigationComplexity] || 1.0;
-  supplies.torches = Math.ceil((torchBase + torchArea) * torchNav);
+  supplies.torches = Math.max(16, Math.ceil((torchBase + torchArea) * torchNav)); // At least 16 torches
 
   // Calculate blocks
   const blockBase = SUPPLY_REQUIREMENTS.blocks.baseQuantity;
-  const blockArea = (radius || 500) * SUPPLY_REQUIREMENTS.blocks.perBlockRadius;
+  const blockArea = safeRadius * SUPPLY_REQUIREMENTS.blocks.perBlockRadius;
   const blockTerrain = SUPPLY_REQUIREMENTS.blocks.terrainMultiplier[biome.terrain] || 1.0;
-  supplies.blocks = Math.ceil((blockBase + blockArea) * blockTerrain);
+  supplies.blocks = Math.max(32, Math.ceil((blockBase + blockArea) * blockTerrain)); // At least 32 blocks
 
   // Combat supplies
   supplies.arrows = 64;
@@ -1239,10 +1280,10 @@ function calculateSupplies(biome, structure, strategy, radius, risks) {
   }
 
   // High-risk expeditions
-  if (risks.riskScore >= 60) {
+  if (risks.riskScore >= RISK_THRESHOLD_HIGH) {
     supplies.golden_apples = 6;
     supplies.healing_potion = 4;
-  } else if (risks.riskScore >= 40) {
+  } else if (risks.riskScore >= RISK_THRESHOLD_MODERATE) {
     supplies.golden_apples = 4;
     supplies.healing_potion = 2;
   } else {
@@ -1532,9 +1573,10 @@ function getNavigationStrategy(strategyName) {
  */
 function calculateExplorationDuration(radius, biome, strategy) {
   const baseTime = 10000; // Base 10 seconds
-  const radiusTime = radius ? radius * 100 : 5000;
-  const biomeMultiplier = biome?.traversalSpeed || 1.0;
-  const strategyMultiplier = strategy?.efficiency || 0.8;
+  const safeRadius = Math.max(0, radius || 500); // Ensure non-negative
+  const radiusTime = safeRadius * 100;
+  const biomeMultiplier = Math.max(0.1, biome?.traversalSpeed || 1.0); // Prevent division by zero
+  const strategyMultiplier = Math.max(0.1, strategy?.efficiency || 0.8); // Prevent division by zero
 
   return Math.floor(baseTime + (radiusTime / biomeMultiplier / strategyMultiplier));
 }
@@ -1568,7 +1610,32 @@ function determineBestStrategy(task, biome, structure) {
   return NAVIGATION_STRATEGIES.spiral_search;
 }
 
+/**
+ * Plan an exploration or scouting task
+ * @param {Object} task - The exploration task to plan
+ * @param {Object} task.target - Target location for exploration
+ * @param {Object} [task.metadata] - Additional task configuration
+ * @param {string} [task.metadata.biome] - Biome to explore
+ * @param {string} [task.metadata.structure] - Structure to find
+ * @param {number} [task.metadata.radius] - Exploration radius in blocks
+ * @param {string} [task.metadata.transport] - Mode of transport
+ * @param {Array} [task.metadata.supplies] - Additional supplies to bring
+ * @param {Object} [context={}] - Execution context with inventory and biome info
+ * @returns {Object} Exploration plan with steps, resources, risks, and notes
+ * @throws {Error} If task or task.target is missing
+ * @throws {Error} If biome is unknown
+ * @throws {Error} If navigation strategy is invalid
+ */
 export function planExploreTask(task, context = {}) {
+  // ===== Input Validation =====
+  if (!task) {
+    throw new Error("Task parameter is required for exploration planning");
+  }
+  
+  if (!task.target) {
+    throw new Error("Task must have a target location for exploration");
+  }
+
   // ===== Extract Task Parameters =====
   const targetDescription = describeTarget(task.target);
   const biomeName = normalizeItemName(task?.metadata?.biome || context?.biome || "plains");
@@ -1583,8 +1650,19 @@ export function planExploreTask(task, context = {}) {
 
   // ===== Load Profiles =====
   const biome = getBiomeProfile(biomeName);
+  if (!biome) {
+    throw new Error(`Unknown biome: ${biomeName}. Cannot create exploration plan.`);
+  }
+  
   const structure = structureName ? getStructureProfile(structureName) : null;
+  if (structureName && !structure) {
+    console.warn(`Unknown structure: ${structureName}. Continuing with general exploration.`);
+  }
+  
   const strategy = determineBestStrategy(task, biome, structure);
+  if (!strategy || !strategy.efficiency || strategy.efficiency <= 0) {
+    throw new Error("Invalid navigation strategy selected");
+  }
 
   // ===== RISK ASSESSMENT - Safety Critical =====
   const riskAssessment = assessRisks(biome, structure, strategy, task);
@@ -1681,8 +1759,14 @@ export function planExploreTask(task, context = {}) {
   );
 
   // RISK ASSESSMENT WARNING - Safety Critical
-  const riskLevel = riskScore >= 70 ? "EXTREME" : riskScore >= 50 ? "HIGH" : riskScore >= 30 ? "MEDIUM" : "LOW";
-  const riskColor = riskScore >= 70 ? "🔴" : riskScore >= 50 ? "🟠" : riskScore >= 30 ? "🟡" : "🟢";
+  const riskLevel = riskScore >= 70 
+    ? RISK_LEVEL_EXTREME 
+    : riskScore >= RISK_THRESHOLD_HIGH 
+    ? RISK_LEVEL_HIGH 
+    : riskScore >= RISK_THRESHOLD_MODERATE 
+    ? RISK_LEVEL_MODERATE 
+    : RISK_LEVEL_LOW;
+  const riskColor = riskScore >= 70 ? "🔴" : riskScore >= RISK_THRESHOLD_HIGH ? "🟠" : riskScore >= RISK_THRESHOLD_MODERATE ? "🟡" : "🟢";
 
   steps.push(
     createStep({
@@ -1985,9 +2069,9 @@ export function planExploreTask(task, context = {}) {
   }
 
   // Risk-based notes
-  if (riskScore >= 60) {
+  if (riskScore >= RISK_THRESHOLD_HIGH) {
     notes.push(`⚠️ HIGH RISK EXPEDITION - Extra caution required. Backup gear essential.`);
-  } else if (riskScore >= 40) {
+  } else if (riskScore >= RISK_THRESHOLD_MODERATE) {
     notes.push(`⚡ Moderate risk - Stay alert and follow safety protocols.`);
   }
 

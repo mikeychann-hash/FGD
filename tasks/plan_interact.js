@@ -11,18 +11,51 @@ import {
   formatRequirementList
 } from "./helpers.js";
 
+// Constants for timing and duration calculations
+const DEFAULT_INTERACTION_DURATION_MS = 7000;
+const INTERACTION_BUFFER_MS = 3000;
+
+/**
+ * Safely converts a value to a positive number
+ * @param {*} value - Value to convert
+ * @param {number|null} defaultValue - Default if conversion fails
+ * @returns {number|null} Converted number or default
+ */
+function safeNumberConversion(value, defaultValue = null) {
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 0 ? num : defaultValue;
+}
+
+/**
+ * Sanitizes coordinate strings to prevent command injection
+ * @param {string} coordString - Coordinate string to sanitize
+ * @returns {string} Sanitized coordinate string
+ */
+function sanitizeCoordinates(coordString) {
+  // Only allow numbers, spaces, dots, and minus signs
+  return coordString.replace(/[^0-9\s.\-]/g, "");
+}
+
 function normalizeTransferItems(transfer) {
   if (!transfer) {
     return { take: [], store: [] };
   }
   const normalizeEntry = entry => {
     if (typeof entry === "string") {
-      return { name: normalizeItemName(entry) };
+      const normalized = normalizeItemName(entry);
+      return normalized && normalized !== "unspecified item"
+        ? { name: normalized }
+        : null;
     }
     if (entry && typeof entry === "object") {
+      const name = normalizeItemName(entry.name || entry.item);
+      if (!name || name === "unspecified item") {
+        return null;
+      }
+      const count = safeNumberConversion(entry.count || entry.quantity);
       return {
-        name: normalizeItemName(entry.name || entry.item),
-        count: entry.count || entry.quantity
+        name,
+        ...(count !== null && { count })
       };
     }
     return null;
@@ -43,6 +76,15 @@ function normalizeTransferItems(transfer) {
 }
 
 export function planInteractTask(task, context = {}) {
+  // Input validation
+  if (!task || typeof task !== "object") {
+    throw new Error("planInteractTask requires a valid task object");
+  }
+
+  if (!task.target) {
+    throw new Error("Task must have a target location");
+  }
+
   const container = normalizeItemName(task?.metadata?.container || task?.metadata?.block || "chest");
   const interaction = normalizeItemName(task?.metadata?.interaction || "open_container");
   const targetDescription = describeTarget(task.target);
@@ -50,7 +92,9 @@ export function planInteractTask(task, context = {}) {
   const transfer = normalizeTransferItems(transferRaw);
   const requiresKey = normalizeItemName(task?.metadata?.requiresKey || "");
   const holdItem = normalizeItemName(task?.metadata?.holdItem || "");
-  const duration = task?.metadata?.duration ? Number(task.metadata.duration) : null;
+
+  // Safe number conversion to prevent NaN issues
+  const duration = safeNumberConversion(task?.metadata?.duration);
 
   const inventory = extractInventory(context);
   const missingKey = requiresKey && !hasInventoryItem(inventory, requiresKey);
@@ -93,13 +137,24 @@ export function planInteractTask(task, context = {}) {
     ? `Perform ${interaction} on the ${container} and keep it open for ${duration} seconds to complete transfers.`
     : `Perform ${interaction} on the ${container}, ensuring the inventory GUI remains open long enough for transfers.`;
 
-  const commandTarget =
-    task?.target && typeof task.target === "object" &&
+  // Secure command target construction to prevent command injection
+  let commandTarget = null;
+  if (
+    task?.target &&
+    typeof task.target === "object" &&
     Number.isFinite(task.target.x) &&
     Number.isFinite(task.target.y) &&
     Number.isFinite(task.target.z)
-      ? `${task.target.x} ${task.target.y} ${task.target.z}`
-      : targetDescription.replace(/[()]/g, "");
+  ) {
+    // Use validated numeric coordinates only
+    const x = Math.floor(task.target.x);
+    const y = Math.floor(task.target.y);
+    const z = Math.floor(task.target.z);
+    commandTarget = `${x} ${y} ${z}`;
+  } else {
+    // Fallback: sanitize target description to prevent injection
+    commandTarget = sanitizeCoordinates(targetDescription.replace(/[()]/g, ""));
+  }
 
   steps.push(
     createStep({
@@ -147,7 +202,11 @@ export function planInteractTask(task, context = {}) {
     })
   );
 
-  const resources = [container];
+  // Build resources array, filtering out unspecified/invalid items
+  const resources = [];
+  if (container && container !== "unspecified item") {
+    resources.push(container);
+  }
   if (requiresKey && requiresKey !== "unspecified item") {
     resources.push(requiresKey);
   }
@@ -172,7 +231,9 @@ export function planInteractTask(task, context = {}) {
     task,
     summary: `Interact with ${container} at ${targetDescription}.`,
     steps,
-    estimatedDuration: duration ? duration * 1000 + 3000 : 7000,
+    estimatedDuration: duration
+      ? duration * 1000 + INTERACTION_BUFFER_MS
+      : DEFAULT_INTERACTION_DURATION_MS,
     resources,
     risks,
     notes

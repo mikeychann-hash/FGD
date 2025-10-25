@@ -13,6 +13,38 @@ import {
   countInventoryItems
 } from "./helpers.js";
 
+// Import crafting enhancements
+import {
+  getRecipe,
+  validateRecipe,
+  calculateTotalIngredients
+} from "./craft_recipe_database.js";
+
+import {
+  calculateOptimalBatchSize,
+  suggestCraftingOrder,
+  optimizeFurnaceArray,
+  minimizeLeftovers
+} from "./craft_batch_optimizer.js";
+
+import {
+  analyzeDependencies,
+  reverseLookup,
+  findOptimalCraftingPath
+} from "./craft_chain_analyzer.js";
+
+import {
+  findBestFuel,
+  suggestSubstitute,
+  calculateFuelWithAlternatives
+} from "./craft_substitution_system.js";
+
+import {
+  checkToolDurability,
+  getRepairOptions,
+  suggestToolsForTask
+} from "./craft_durability_manager.js";
+
 // Constants for time estimation
 const BASE_CRAFT_TIME_MS = 8000;
 const TIME_PER_INGREDIENT_MS = 1500;
@@ -567,6 +599,90 @@ export function planCraftTask(task, context = {}) {
     notes.push(`Fuel options: ${fuelStatus.fuelOptions.join(", ")}; estimated need ${fuelStatus.fuelNeeded}.`);
   }
 
+  // === Enhanced Crafting Intelligence ===
+
+  // Recipe validation
+  const recipeValidation = validateRecipe(item, ingredients);
+  if (recipeValidation && !recipeValidation.valid) {
+    if (recipeValidation.missing?.length > 0) {
+      notes.push(`Recipe check: ${recipeValidation.suggestion}`);
+    }
+    if (recipeValidation.incorrect?.length > 0) {
+      risks.push("Recipe ingredients may be incorrect. Verify recipe before crafting.");
+    }
+  }
+
+  // Batch optimization
+  const batchOptimization = calculateOptimalBatchSize(item, quantity, inventory);
+  if (batchOptimization && !batchOptimization.error && batchOptimization.timeEstimate) {
+    if (batchOptimization.timeEstimate.efficiencyGain && parseFloat(batchOptimization.timeEstimate.efficiencyGain) > 10) {
+      notes.push(`Batch crafting tip: ${batchOptimization.recommendation}`);
+    }
+    if (!batchOptimization.canCraftAll) {
+      risks.push(`Limited by ${batchOptimization.limitingIngredient}. Can only craft ${batchOptimization.actualCraftsAvailable} batches.`);
+    }
+  }
+
+  // Fuel optimization (for smelting)
+  if (stationProfile.requiresFuel && stationProfile.type === "smelting") {
+    const fuelOptimization = findBestFuel(inventory, quantity);
+    if (fuelOptimization && !fuelOptimization.error) {
+      if (fuelOptimization.bestFuel && fuelOptimization.bestFuel.efficiency < 0.5) {
+        notes.push(`⚠️ Current fuel (${fuelOptimization.bestFuel.fuel}) is inefficient. Consider coal or charcoal.`);
+      }
+      if (fuelOptimization.alternatives && fuelOptimization.alternatives.length > 0) {
+        const betterAlts = fuelOptimization.alternatives.filter(a => a.sufficient && a.efficiency > 0.8);
+        if (betterAlts.length > 0) {
+          notes.push(`Alternative fuels available: ${betterAlts.map(a => a.fuel).join(", ")}`);
+        }
+      }
+    }
+  }
+
+  // Material substitution suggestions
+  for (const missing of missingIngredients) {
+    if (missing?.name) {
+      const substitution = suggestSubstitute(missing.name, inventory);
+      if (substitution && !substitution.error && substitution.substitutes?.length > 0) {
+        notes.push(`💡 Substitute tip: Use ${substitution.bestSubstitute.substitute} instead of ${missing.name} (${substitution.bestSubstitute.available} available)`);
+      }
+    }
+  }
+
+  // Crafting chain analysis (for complex items)
+  if (task?.metadata?.showDependencies || task?.metadata?.analyzeDependencies) {
+    const chainAnalysis = analyzeDependencies(item, quantity, inventory);
+    if (chainAnalysis && !chainAnalysis.error) {
+      if (chainAnalysis.bottlenecks?.length > 0) {
+        for (const bottleneck of chainAnalysis.bottlenecks.slice(0, 2)) {
+          risks.push(`Bottleneck: ${bottleneck.reason}`);
+        }
+      }
+      if (chainAnalysis.timeEstimate && chainAnalysis.timeEstimate.formatted) {
+        notes.push(`Full crafting chain will take approximately ${chainAnalysis.timeEstimate.formatted}`);
+      }
+    }
+  }
+
+  // Leftover minimization
+  if (task?.metadata?.minimizeWaste) {
+    const wasteAnalysis = minimizeLeftovers(item, inventory);
+    if (wasteAnalysis && !wasteAnalysis.error) {
+      if (wasteAnalysis.hasWaste) {
+        notes.push(`Waste optimization: ${wasteAnalysis.recommendation}`);
+      }
+    }
+  }
+
+  // Furnace array optimization (for bulk smelting)
+  if (stationProfile.type === "smelting" && quantity > 64 && task?.metadata?.furnaceCount) {
+    const furnaceOpt = optimizeFurnaceArray(item, quantity, task.metadata.furnaceCount);
+    if (furnaceOpt && !furnaceOpt.error) {
+      notes.push(`Furnace array: ${furnaceOpt.recommendation}`);
+      notes.push(`Time savings with ${furnaceOpt.furnaceCount} furnaces: ${furnaceOpt.efficiency}`);
+    }
+  }
+
   return createPlan({
     task,
     summary: quantity > 1 ? `Craft ${quantity}x ${item} using the ${station}.` : `Craft ${item} using the ${station}.`,
@@ -574,6 +690,15 @@ export function planCraftTask(task, context = {}) {
     estimatedDuration,
     resources: uniqueResources,
     risks,
-    notes
+    notes,
+    // Enhanced metadata
+    enhancements: {
+      recipeValidation: recipeValidation || null,
+      batchOptimization: batchOptimization || null,
+      hasSubstituteSuggestions: missingIngredients.some(m => {
+        const sub = suggestSubstitute(m.name, inventory);
+        return sub && !sub.error && sub.substitutes?.length > 0;
+      })
+    }
   });
 }

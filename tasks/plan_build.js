@@ -64,6 +64,176 @@ const BUILDING_TEMPLATES = {
     features: ["chimney", "storage", "lighting"]
   },
 
+  starter_house: {
+    name: "Starter House",
+    category: "residential",
+    dimensions: { length: 5, width: 5, height: 4 },
+    materials: {
+      oak_planks: 100,
+      glass_pane: 6,
+      oak_door: 1,
+      torch: 8,
+      crafting_table: 1,
+      furnace: 1,
+      bed: 1,
+      chest: 2
+    },
+    difficulty: "easy",
+    estimatedDuration: 12000,
+    roofStyle: "flat",
+    interior: true,
+    features: ["basic_survival", "minimal_materials"]
+  },
+
+  modern_house: {
+    name: "Modern House",
+    category: "residential",
+    dimensions: { length: 12, width: 10, height: 6 },
+    materials: {
+      quartz_block: 350,
+      white_concrete: 200,
+      glass_pane: 45,
+      iron_door: 1,
+      torch: 20,
+      glowstone: 12,
+      oak_planks: 80
+    },
+    difficulty: "medium",
+    estimatedDuration: 45000,
+    roofStyle: "flat",
+    interior: true,
+    features: ["modern_design", "large_windows", "open_floor_plan"]
+  },
+
+  medieval_house: {
+    name: "Medieval House",
+    category: "residential",
+    dimensions: { length: 8, width: 7, height: 7 },
+    materials: {
+      oak_planks: 250,
+      cobblestone: 180,
+      oak_log: 45,
+      glass_pane: 14,
+      oak_door: 1,
+      torch: 12,
+      oak_stairs: 30
+    },
+    difficulty: "medium",
+    estimatedDuration: 32000,
+    roofStyle: "steep",
+    interior: true,
+    foundation: "stone",
+    features: ["timber_frame", "authentic_medieval", "thatched_roof_style"]
+  },
+
+  log_cabin: {
+    name: "Log Cabin",
+    category: "residential",
+    dimensions: { length: 10, width: 8, height: 5 },
+    materials: {
+      oak_log: 320,
+      spruce_log: 100,
+      glass_pane: 12,
+      oak_door: 1,
+      torch: 14,
+      furnace: 1,
+      chest: 4,
+      crafting_table: 1
+    },
+    difficulty: "easy",
+    estimatedDuration: 28000,
+    roofStyle: "pitched",
+    interior: true,
+    terrain: "forest",
+    features: ["rustic", "natural_materials", "cozy"]
+  },
+
+  two_story_house: {
+    name: "Two Story House",
+    category: "residential",
+    dimensions: { length: 11, width: 9, height: 9 },
+    materials: {
+      oak_planks: 420,
+      cobblestone: 150,
+      glass_pane: 28,
+      oak_door: 2,
+      ladder: 8,
+      torch: 24,
+      chest: 5,
+      bed: 2
+    },
+    difficulty: "medium",
+    estimatedDuration: 50000,
+    roofStyle: "pitched",
+    interior: true,
+    foundation: "stone",
+    features: ["multiple_floors", "stairs", "bedrooms"]
+  },
+
+  mansion: {
+    name: "Mansion",
+    category: "residential",
+    dimensions: { length: 25, width: 20, height: 12 },
+    materials: {
+      quartz_block: 1200,
+      oak_planks: 800,
+      stone_bricks: 600,
+      glass_pane: 120,
+      iron_door: 3,
+      chandelier: 8,
+      carpet: 250,
+      torch: 50,
+      chest: 15
+    },
+    difficulty: "hard",
+    estimatedDuration: 180000,
+    roofStyle: "pitched",
+    interior: true,
+    foundation: "stone",
+    features: ["multiple_rooms", "grand_entrance", "luxurious", "balconies"]
+  },
+
+  underground_bunker: {
+    name: "Underground Bunker",
+    category: "residential",
+    dimensions: { length: 12, width: 10, height: 4 },
+    materials: {
+      stone_bricks: 450,
+      iron_door: 2,
+      redstone_torch: 8,
+      torch: 20,
+      iron_bars: 16,
+      chest: 10,
+      bed: 2,
+      ladder: 10
+    },
+    difficulty: "medium",
+    estimatedDuration: 55000,
+    terrain: "underground",
+    levelGround: true,
+    features: ["secure", "hidden", "self_sufficient"]
+  },
+
+  treehouse: {
+    name: "Treehouse",
+    category: "residential",
+    dimensions: { length: 8, width: 8, height: 6 },
+    materials: {
+      oak_planks: 280,
+      oak_log: 60,
+      oak_fence: 40,
+      ladder: 15,
+      glass_pane: 12,
+      oak_trapdoor: 4,
+      torch: 10
+    },
+    difficulty: "medium",
+    estimatedDuration: 38000,
+    requiresScaffolding: true,
+    terrain: "forest",
+    features: ["elevated", "nature_integration", "ladder_access"]
+  },
+
   // Defensive structures
   watchtower: {
     name: "Watchtower",
@@ -155,6 +325,206 @@ const BUILDING_TEMPLATES = {
     features: ["automation", "collection_system", "water_distribution"]
   },
 
+  wheat_farm: {
+    name: "Wheat Farm",
+    category: "agricultural",
+    dimensions: { length: 20, width: 20, height: 0 },
+    materials: {
+      dirt: 400,
+      water_bucket: 4,
+      fence: 80,
+      fence_gate: 2,
+      hoe: 1,
+      wheat_seeds: 128,
+      torch: 12
+    },
+    difficulty: "easy",
+    estimatedDuration: 20000,
+    terrain: "flat",
+    levelGround: true,
+    features: ["irrigation", "fencing", "crop_rotation"]
+  },
+
+  pumpkin_melon_farm: {
+    name: "Pumpkin and Melon Farm",
+    category: "agricultural",
+    dimensions: { length: 18, width: 12, height: 0 },
+    materials: {
+      dirt: 216,
+      farmland: 108,
+      water_bucket: 3,
+      fence: 60,
+      fence_gate: 1,
+      pumpkin_seeds: 32,
+      melon_seeds: 32,
+      torch: 10
+    },
+    difficulty: "easy",
+    estimatedDuration: 18000,
+    terrain: "flat",
+    levelGround: true,
+    features: ["alternating_rows", "water_channels"]
+  },
+
+  sugar_cane_farm: {
+    name: "Sugar Cane Farm",
+    category: "agricultural",
+    dimensions: { length: 16, width: 10, height: 0 },
+    materials: {
+      sand: 160,
+      water_bucket: 8,
+      sugar_cane: 80,
+      fence: 52,
+      fence_gate: 1,
+      chest: 2
+    },
+    difficulty: "easy",
+    estimatedDuration: 15000,
+    terrain: "flat",
+    levelGround: true,
+    features: ["water_rows", "rapid_growth"]
+  },
+
+  animal_pen: {
+    name: "Animal Pen",
+    category: "agricultural",
+    dimensions: { length: 12, width: 12, height: 2 },
+    materials: {
+      oak_fence: 48,
+      fence_gate: 2,
+      grass_block: 144,
+      torch: 8,
+      water_bucket: 1,
+      hay_bale: 5
+    },
+    difficulty: "easy",
+    estimatedDuration: 16000,
+    terrain: "flat",
+    levelGround: true,
+    features: ["fencing", "water_trough", "feeding_area"]
+  },
+
+  chicken_farm: {
+    name: "Chicken Farm",
+    category: "agricultural",
+    dimensions: { length: 10, width: 8, height: 3 },
+    materials: {
+      oak_planks: 180,
+      oak_fence: 36,
+      fence_gate: 1,
+      hopper: 4,
+      chest: 2,
+      torch: 10,
+      egg: 16
+    },
+    difficulty: "easy",
+    estimatedDuration: 22000,
+    terrain: "flat",
+    features: ["egg_collection", "breeding_area", "enclosed"]
+  },
+
+  cow_ranch: {
+    name: "Cow Ranch",
+    category: "agricultural",
+    dimensions: { length: 16, width: 14, height: 2 },
+    materials: {
+      oak_fence: 60,
+      fence_gate: 2,
+      grass_block: 224,
+      water_bucket: 2,
+      hay_bale: 8,
+      torch: 12,
+      chest: 2
+    },
+    difficulty: "easy",
+    estimatedDuration: 25000,
+    terrain: "flat",
+    levelGround: true,
+    features: ["grazing_area", "breeding_pen", "water_access"]
+  },
+
+  mob_farm: {
+    name: "Mob Spawner Farm",
+    category: "agricultural",
+    dimensions: { length: 9, width: 9, height: 12 },
+    materials: {
+      cobblestone: 600,
+      water_bucket: 4,
+      hopper: 6,
+      chest: 3,
+      ladder: 10,
+      torch: 20,
+      sign: 8
+    },
+    difficulty: "hard",
+    estimatedDuration: 70000,
+    requiresScaffolding: true,
+    terrain: "underground",
+    features: ["spawner_based", "collection_system", "item_sorting"]
+  },
+
+  iron_farm: {
+    name: "Iron Farm",
+    category: "agricultural",
+    dimensions: { length: 12, width: 12, height: 20 },
+    materials: {
+      building_blocks: 800,
+      glass: 120,
+      bed: 10,
+      villager_workstation: 10,
+      hopper: 8,
+      chest: 4,
+      water_bucket: 4,
+      lava_bucket: 1,
+      ladder: 18
+    },
+    difficulty: "expert",
+    estimatedDuration: 120000,
+    requiresScaffolding: true,
+    includesRedstone: true,
+    features: ["villager_mechanics", "automation", "high_yield"]
+  },
+
+  villager_trading_hall: {
+    name: "Villager Trading Hall",
+    category: "agricultural",
+    dimensions: { length: 20, width: 8, height: 4 },
+    materials: {
+      stone_bricks: 500,
+      glass_pane: 60,
+      iron_bars: 40,
+      villager_workstation: 15,
+      oak_trapdoor: 15,
+      chest: 10,
+      torch: 24,
+      carpet: 80
+    },
+    difficulty: "medium",
+    estimatedDuration: 55000,
+    interior: true,
+    features: ["organized_stalls", "job_stations", "easy_access"]
+  },
+
+  tree_farm: {
+    name: "Tree Farm",
+    category: "agricultural",
+    dimensions: { length: 24, width: 24, height: 0 },
+    materials: {
+      dirt: 144,
+      sapling: 144,
+      fence: 96,
+      fence_gate: 2,
+      axe: 1,
+      chest: 3,
+      torch: 16
+    },
+    difficulty: "easy",
+    estimatedDuration: 30000,
+    terrain: "flat",
+    levelGround: true,
+    features: ["organized_rows", "replanting_area", "log_storage"]
+  },
+
   // Storage & utility
   warehouse: {
     name: "Warehouse",
@@ -224,6 +594,356 @@ const BUILDING_TEMPLATES = {
     requiresScaffolding: true,
     threatLevel: "low",
     features: ["safety_railings", "lighting"]
+  },
+
+  // Specialty structures
+  barn: {
+    name: "Barn",
+    category: "specialty",
+    dimensions: { length: 16, width: 12, height: 10 },
+    materials: {
+      oak_planks: 550,
+      oak_log: 80,
+      cobblestone: 192,
+      oak_fence: 40,
+      fence_gate: 3,
+      glass_pane: 12,
+      hay_bale: 20,
+      chest: 6,
+      torch: 18,
+      ladder: 8
+    },
+    difficulty: "medium",
+    estimatedDuration: 60000,
+    roofStyle: "steep",
+    interior: true,
+    foundation: "stone",
+    features: ["storage_loft", "animal_stalls", "large_doors"]
+  },
+
+  stable: {
+    name: "Stable",
+    category: "specialty",
+    dimensions: { length: 14, width: 8, height: 5 },
+    materials: {
+      oak_planks: 320,
+      oak_fence: 56,
+      fence_gate: 6,
+      hay_bale: 12,
+      water_bucket: 2,
+      chest: 4,
+      torch: 14,
+      carpet: 30
+    },
+    difficulty: "easy",
+    estimatedDuration: 35000,
+    roofStyle: "pitched",
+    interior: true,
+    features: ["horse_stalls", "saddle_storage", "feeding_area"]
+  },
+
+  windmill: {
+    name: "Windmill",
+    category: "specialty",
+    dimensions: { length: 9, width: 9, height: 18 },
+    materials: {
+      stone_bricks: 500,
+      oak_planks: 280,
+      oak_fence: 64,
+      glass_pane: 16,
+      ladder: 16,
+      chest: 8,
+      torch: 20,
+      wheat: 64
+    },
+    difficulty: "hard",
+    estimatedDuration: 85000,
+    requiresScaffolding: true,
+    roofStyle: "pitched",
+    interior: true,
+    features: ["rotating_blades", "grain_storage", "multi_level"]
+  },
+
+  lighthouse: {
+    name: "Lighthouse",
+    category: "specialty",
+    dimensions: { length: 7, width: 7, height: 25 },
+    materials: {
+      stone_bricks: 650,
+      white_concrete: 200,
+      glass: 40,
+      glowstone: 30,
+      sea_lantern: 16,
+      ladder: 23,
+      iron_door: 1,
+      torch: 15
+    },
+    difficulty: "hard",
+    estimatedDuration: 95000,
+    requiresScaffolding: true,
+    terrain: "coastal",
+    features: ["beacon_light", "observation_deck", "spiral_stairs"]
+  },
+
+  blacksmith: {
+    name: "Blacksmith",
+    category: "specialty",
+    dimensions: { length: 10, width: 8, height: 6 },
+    materials: {
+      stone_bricks: 280,
+      cobblestone: 150,
+      oak_planks: 120,
+      glass_pane: 10,
+      anvil: 1,
+      furnace: 3,
+      lava_bucket: 1,
+      chest: 6,
+      torch: 16,
+      iron_bars: 12
+    },
+    difficulty: "medium",
+    estimatedDuration: 42000,
+    roofStyle: "pitched",
+    interior: true,
+    foundation: "stone",
+    features: ["forge", "anvil_station", "tool_storage", "chimney"]
+  },
+
+  well: {
+    name: "Village Well",
+    category: "specialty",
+    dimensions: { length: 5, width: 5, height: 8 },
+    materials: {
+      cobblestone: 180,
+      oak_planks: 40,
+      oak_fence: 12,
+      water_bucket: 1,
+      chain: 4,
+      bucket: 1
+    },
+    difficulty: "easy",
+    estimatedDuration: 18000,
+    foundation: "stone",
+    features: ["water_source", "decorative", "functional"]
+  },
+
+  bridge: {
+    name: "Stone Bridge",
+    category: "specialty",
+    dimensions: { length: 30, width: 5, height: 3 },
+    materials: {
+      stone_bricks: 450,
+      stone_brick_stairs: 60,
+      cobblestone: 150,
+      torch: 15,
+      iron_bars: 20
+    },
+    difficulty: "medium",
+    estimatedDuration: 38000,
+    foundation: "stone",
+    terrain: "river_crossing",
+    features: ["arched_design", "railings", "decorative"]
+  },
+
+  mine_entrance: {
+    name: "Mine Entrance",
+    category: "specialty",
+    dimensions: { length: 8, width: 8, height: 6 },
+    materials: {
+      stone_bricks: 250,
+      oak_planks: 120,
+      oak_log: 30,
+      rail: 16,
+      minecart: 1,
+      torch: 24,
+      chest: 4,
+      ladder: 20,
+      iron_door: 1
+    },
+    difficulty: "medium",
+    estimatedDuration: 45000,
+    terrain: "underground",
+    features: ["minecart_system", "storage_room", "lighting", "support_beams"]
+  },
+
+  smelting_array: {
+    name: "Smelting Array",
+    category: "specialty",
+    dimensions: { length: 12, width: 8, height: 4 },
+    materials: {
+      stone_bricks: 280,
+      furnace: 16,
+      hopper: 32,
+      chest: 16,
+      torch: 12,
+      oak_planks: 60,
+      comparator: 8,
+      redstone: 32
+    },
+    difficulty: "hard",
+    estimatedDuration: 50000,
+    includesRedstone: true,
+    interior: true,
+    features: ["auto_smelting", "bulk_processing", "item_sorting"]
+  },
+
+  greenhouse: {
+    name: "Greenhouse",
+    category: "specialty",
+    dimensions: { length: 14, width: 10, height: 6 },
+    materials: {
+      oak_planks: 200,
+      glass: 280,
+      dirt: 140,
+      water_bucket: 4,
+      torch: 16,
+      glowstone: 8,
+      chest: 4,
+      sapling: 20,
+      bone_meal: 64
+    },
+    difficulty: "medium",
+    estimatedDuration: 48000,
+    roofStyle: "pitched",
+    interior: true,
+    features: ["all_weather_growing", "glass_walls", "lighting_system"]
+  },
+
+  market_stall: {
+    name: "Market Stall",
+    category: "specialty",
+    dimensions: { length: 8, width: 6, height: 4 },
+    materials: {
+      oak_planks: 150,
+      oak_fence: 24,
+      oak_stairs: 16,
+      carpet: 48,
+      chest: 6,
+      torch: 8,
+      item_frame: 12
+    },
+    difficulty: "easy",
+    estimatedDuration: 22000,
+    roofStyle: "flat",
+    features: ["display_area", "storage", "canopy"]
+  },
+
+  // Advanced/Monument structures
+  cathedral: {
+    name: "Cathedral",
+    category: "monument",
+    dimensions: { length: 30, width: 20, height: 25 },
+    materials: {
+      stone_bricks: 2400,
+      stained_glass: 180,
+      quartz_block: 600,
+      oak_planks: 400,
+      carpet: 400,
+      torch: 60,
+      chandelier: 12,
+      bell: 3
+    },
+    difficulty: "expert",
+    estimatedDuration: 240000,
+    requiresScaffolding: true,
+    roofStyle: "steep",
+    interior: true,
+    foundation: "stone",
+    features: ["vaulted_ceiling", "stained_glass_windows", "bell_tower", "pews"]
+  },
+
+  castle_keep: {
+    name: "Castle Keep",
+    category: "monument",
+    dimensions: { length: 20, width: 20, height: 18 },
+    materials: {
+      stone_bricks: 2200,
+      cobblestone: 800,
+      oak_planks: 500,
+      iron_door: 3,
+      glass_pane: 60,
+      torch: 80,
+      ladder: 16,
+      chest: 20,
+      bed: 4
+    },
+    difficulty: "expert",
+    estimatedDuration: 200000,
+    requiresScaffolding: true,
+    roofStyle: "battlements",
+    interior: true,
+    foundation: "stone",
+    threatLevel: "low",
+    features: ["throne_room", "battlements", "multiple_floors", "dungeons"]
+  },
+
+  library: {
+    name: "Grand Library",
+    category: "monument",
+    dimensions: { length: 18, width: 14, height: 12 },
+    materials: {
+      oak_planks: 650,
+      bookshelf: 120,
+      oak_stairs: 80,
+      carpet: 200,
+      glass_pane: 50,
+      torch: 40,
+      enchanting_table: 1,
+      lectern: 12,
+      chest: 10
+    },
+    difficulty: "hard",
+    estimatedDuration: 120000,
+    roofStyle: "pitched",
+    interior: true,
+    features: ["multiple_levels", "reading_areas", "enchanting_section", "storage"]
+  },
+
+  workshop: {
+    name: "Workshop",
+    category: "utility",
+    dimensions: { length: 16, width: 12, height: 6 },
+    materials: {
+      stone_bricks: 400,
+      oak_planks: 320,
+      glass_pane: 24,
+      crafting_table: 4,
+      furnace: 6,
+      anvil: 2,
+      chest: 15,
+      barrel: 8,
+      torch: 24,
+      tool_rack: 8
+    },
+    difficulty: "medium",
+    estimatedDuration: 55000,
+    roofStyle: "flat",
+    interior: true,
+    features: ["crafting_stations", "organized_storage", "tool_area", "smelting"]
+  },
+
+  town_hall: {
+    name: "Town Hall",
+    category: "monument",
+    dimensions: { length: 20, width: 16, height: 10 },
+    materials: {
+      stone_bricks: 900,
+      oak_planks: 600,
+      glass_pane: 80,
+      oak_door: 3,
+      carpet: 250,
+      torch: 40,
+      lectern: 6,
+      bell: 1,
+      banner: 8,
+      chest: 8
+    },
+    difficulty: "hard",
+    estimatedDuration: 110000,
+    roofStyle: "steep",
+    interior: true,
+    foundation: "stone",
+    features: ["meeting_hall", "bell_tower", "storage_rooms", "decorative"]
   }
 };
 

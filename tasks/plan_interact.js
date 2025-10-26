@@ -1,5 +1,40 @@
 // tasks/plan_interact.js
 // Handles container or block interaction tasks like opening chests
+//
+// FEATURES:
+// - Container interaction planning with safety checks
+// - Command injection prevention and input sanitization
+// - Permission and ownership verification
+// - Trap detection and disarming procedures
+// - Smart transfer optimization with multiple strategies
+// - Inventory analysis and organization recommendations
+// - Container network integration for finding alternatives
+// - Upgrade suggestions based on usage patterns
+// - Transaction logging for audit trails
+// - Support for multiple container types (chest, barrel, shulker, ender chest, etc.)
+//
+// SECURITY:
+// - Input validation on all parameters
+// - Safe number conversion preventing NaN issues
+// - Command sanitization preventing injection attacks
+// - Permission checks before access
+// - Trap detection for risky containers
+//
+// USAGE:
+// const plan = planInteractTask({
+//   target: { x: 100, y: 64, z: 200 },
+//   metadata: {
+//     container: "chest",
+//     transfer: {
+//       take: [{ name: "diamond", count: 5 }],
+//       store: [{ name: "cobblestone", count: 64 }]
+//     },
+//     analyzeContents: true,
+//     autoOrganize: true,
+//     sortMethod: "by_category"
+//   }
+// }, context);
+//
 
 import {
   createPlan,
@@ -327,6 +362,10 @@ const ITEM_CATEGORIES = {
  * @returns {string} Category name
  */
 function categorizeItem(itemName) {
+  if (!itemName || typeof itemName !== "string") {
+    return "misc";
+  }
+  
   for (const [category, items] of Object.entries(ITEM_CATEGORIES)) {
     if (items.some(item => itemName.includes(item))) {
       return category;
@@ -342,23 +381,33 @@ function categorizeItem(itemName) {
  * @returns {object} Optimized transfer plan
  */
 function optimizeTransfer(transfer, strategy = "smart_sort") {
+  // Safety check for invalid transfer object
+  if (!transfer || (!transfer.take && !transfer.store)) {
+    return {
+      take: [],
+      store: [],
+      strategy: null,
+      estimatedTime: 0
+    };
+  }
+
   const strategyInfo = TRANSFER_STRATEGIES[strategy] || TRANSFER_STRATEGIES.smart_sort;
 
   const optimized = {
-    take: [...transfer.take],
-    store: [...transfer.store],
+    take: Array.isArray(transfer.take) ? [...transfer.take] : [],
+    store: Array.isArray(transfer.store) ? [...transfer.store] : [],
     strategy: strategyInfo.description,
     estimatedTime: 0
   };
 
   // Calculate estimated time (500ms per item operation)
-  optimized.estimatedTime = (transfer.take.length + transfer.store.length) * 500;
+  optimized.estimatedTime = (optimized.take.length + optimized.store.length) * 500;
 
   // Sort items by category for smart_sort
-  if (strategy === "smart_sort") {
+  if (strategy === "smart_sort" && optimized.store.length > 0) {
     optimized.store.sort((a, b) => {
-      const catA = categorizeItem(a.name);
-      const catB = categorizeItem(b.name);
+      const catA = categorizeItem(a?.name || "");
+      const catB = categorizeItem(b?.name || "");
       return catA.localeCompare(catB);
     });
   }
@@ -667,6 +716,37 @@ function suggestUpgrades(containerType, usageStats = {}) {
 // MAIN PLANNING FUNCTION (ENHANCED)
 // ============================================================================
 
+/**
+ * Plan a container interaction task with comprehensive safety checks and optimization
+ * @param {Object} task - The interaction task to plan
+ * @param {Object} task.target - Target location (coordinates or description)
+ * @param {Object} [task.metadata] - Additional task configuration
+ * @param {string} [task.metadata.container] - Container type (chest, barrel, etc.)
+ * @param {string} [task.metadata.interaction] - Interaction type (open_container, etc.)
+ * @param {Object} [task.metadata.transfer] - Transfer operations {take: [], store: []}
+ * @param {string} [task.metadata.requiresKey] - Key item required to unlock
+ * @param {string} [task.metadata.holdItem] - Item to hold during interaction
+ * @param {number} [task.metadata.duration] - Duration to keep container open (seconds)
+ * @param {boolean} [task.metadata.analyzeContents] - Enable inventory analysis
+ * @param {boolean} [task.metadata.autoOrganize] - Enable auto-organization
+ * @param {string} [task.metadata.sortMethod] - Sorting method (by_category, by_alphabet, etc.)
+ * @param {boolean} [task.metadata.recordContents] - Enable content logging
+ * @param {boolean} [task.metadata.enableTransactionLog] - Enable transaction logging
+ * @param {string} [task.metadata.ownership] - Container owner name
+ * @param {boolean} [task.metadata.private] - Whether container is private
+ * @param {boolean} [task.metadata.locked] - Whether container is locked
+ * @param {string} [task.metadata.lockType] - Type of lock (key_lock, combination_lock, etc.)
+ * @param {boolean} [task.metadata.redstoneLinked] - Container has redstone connections
+ * @param {boolean} [task.metadata.tntNearby] - TNT detected near container
+ * @param {string} [task.metadata.transferStrategy] - Transfer optimization strategy
+ * @param {Object} [context={}] - Execution context
+ * @param {Object} [context.inventory] - Current inventory
+ * @param {string} [context.playerName] - Player name for permissions
+ * @param {Object} [context.playerPosition] - Player position {x, y, z}
+ * @param {Object} [context.containerNetwork] - Network of linked containers
+ * @returns {Object} Interaction plan with steps, resources, risks, and notes
+ * @throws {Error} If task or task.target is missing
+ */
 export function planInteractTask(task, context = {}) {
   // Input validation
   if (!task || typeof task !== "object") {

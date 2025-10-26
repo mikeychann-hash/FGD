@@ -12,6 +12,15 @@ import {
   resolveQuantity
 } from "./helpers.js";
 
+// Build estimation constants
+const BUILD_TIME_BASE = 14000;  // Base construction time (ms)
+const BUILD_TIME_PER_BLOCK = 90;  // Additional time per block (ms)
+const BUILD_TIME_TALL_STRUCTURE = 4000;  // Extra time for tall builds (ms)
+const TALL_STRUCTURE_THRESHOLD = 10;  // Height threshold for tall structures (blocks)
+const VOLUME_TIME_MULTIPLIER = 5;  // Time multiplier for enclosed volume
+const SCAFFOLDING_HEIGHT_THRESHOLD = 6;  // Minimum height requiring scaffolding (blocks)
+const UNSPECIFIED_ITEM_NAME = "unspecified item";  // Constant for unspecified items
+
 function parseDimensions(metadata = {}) {
   const raw = metadata.dimensions || metadata.dimension || "";
   if (typeof raw === "string" && raw.includes("x")) {
@@ -19,14 +28,25 @@ function parseDimensions(metadata = {}) {
       .split("x")
       .map(part => Number.parseInt(part.trim(), 10))
       .filter(num => Number.isFinite(num) && num > 0);
+
+    // Validate that we have valid positive dimensions
+    if (parts.some(dim => dim <= 0)) {
+      return null;  // Reject non-positive dimensions
+    }
+
     if (parts.length === 3) {
       return { length: parts[0], width: parts[1], height: parts[2] };
     }
     if (parts.length === 2) {
+      const parsedHeight = metadata.height ? resolveQuantity(metadata.height, null) : null;
+      // Validate height if present
+      if (parsedHeight !== null && parsedHeight < 0) {
+        return null;
+      }
       return {
         length: parts[0],
         width: parts[1],
-        height: metadata.height ? resolveQuantity(metadata.height, null) : null
+        height: parsedHeight
       };
     }
   }
@@ -34,6 +54,12 @@ function parseDimensions(metadata = {}) {
   const length = resolveQuantity(metadata.length, null);
   const width = resolveQuantity(metadata.width, null);
   const height = resolveQuantity(metadata.height ?? metadata.floors, null);
+
+  // Validate individual dimensions - reject negative values
+  if (length !== null && length <= 0) return null;
+  if (width !== null && width <= 0) return null;
+  if (height !== null && height < 0) return null;  // Allow 0 height for flat structures
+
   if (length && width) {
     return { length, width, height };
   }
@@ -70,6 +96,11 @@ function normalizeMaterials(task) {
 }
 
 export function planBuildTask(task, context = {}) {
+  // Validate input task
+  if (!task || typeof task !== 'object') {
+    throw new Error('Invalid task: task must be a non-null object');
+  }
+
   const blueprint = normalizeItemName(task?.metadata?.blueprint || task?.metadata?.structure || task.details);
   const targetDescription = describeTarget(task.target);
   const orientation = normalizeItemName(task?.metadata?.orientation || task?.metadata?.facing || "");
@@ -84,7 +115,7 @@ export function planBuildTask(task, context = {}) {
 
   const materialRequirements = normalizeMaterials(task);
   const missingMaterials = materialRequirements.filter(req => {
-    if (!req?.name || req.name === "unspecified item") {
+    if (!req?.name || req.name === UNSPECIFIED_ITEM_NAME) {
       return false;
     }
     if (req.count && req.count > 0) {
@@ -103,7 +134,7 @@ export function planBuildTask(task, context = {}) {
   const toolChecklist = [];
   const addTool = tool => {
     const normalized = normalizeItemName(tool);
-    if (!normalized || normalized === "unspecified item") {
+    if (!normalized || normalized === UNSPECIFIED_ITEM_NAME) {
       return;
     }
     if (!toolChecklist.includes(normalized)) {
@@ -111,7 +142,7 @@ export function planBuildTask(task, context = {}) {
     }
   };
 
-  if (height && height > 6) {
+  if (height && height > SCAFFOLDING_HEIGHT_THRESHOLD) {
     addTool("scaffolding");
   }
   if (task?.metadata?.terrain === "rocky" || task?.metadata?.foundation === "stone") {
@@ -226,7 +257,7 @@ export function planBuildTask(task, context = {}) {
     })
   );
 
-  if (height && height > 6) {
+  if (height && height > SCAFFOLDING_HEIGHT_THRESHOLD) {
     steps.push(
       createStep({
         title: "Place scaffolding",
@@ -296,7 +327,7 @@ export function planBuildTask(task, context = {}) {
     ...new Set(
       materialRequirements
         .map(req => req.name)
-        .filter(name => name && name !== "unspecified item")
+        .filter(name => name && name !== UNSPECIFIED_ITEM_NAME)
     )
   ];
   if (toolChecklist.length > 0) {
@@ -307,7 +338,7 @@ export function planBuildTask(task, context = {}) {
     }
   }
   const risks = [];
-  if (height && height > 6) {
+  if (height && height > SCAFFOLDING_HEIGHT_THRESHOLD) {
     risks.push("Elevated work area increases fall damage risk.");
   }
   if (task?.metadata?.environment === "nether") {
@@ -323,8 +354,12 @@ export function planBuildTask(task, context = {}) {
     risks.push(`Large footprint (~${floorArea} blocks) increases build time and supply demand.`);
   }
 
-  const volumeWeight = enclosedVolume && enclosedVolume > 0 ? enclosedVolume * 5 : 0;
-  const estimatedDuration = 14000 + blockCount * 90 + (height && height > 10 ? 4000 : 0) + volumeWeight;
+  const volumeWeight = enclosedVolume && enclosedVolume > 0 ? enclosedVolume * VOLUME_TIME_MULTIPLIER : 0;
+  const estimatedDuration =
+    BUILD_TIME_BASE +
+    blockCount * BUILD_TIME_PER_BLOCK +
+    (height && height > TALL_STRUCTURE_THRESHOLD ? BUILD_TIME_TALL_STRUCTURE : 0) +
+    volumeWeight;
 
   const notes = [];
   if (orientation) {

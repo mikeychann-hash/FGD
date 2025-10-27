@@ -14,7 +14,9 @@ const DEFAULT_FUSION_DATA = {
     version: "2.0.0",
     lastMerge: null,
     mergeCount: 0,
-    sources: []
+    sources: [],
+    lastMergeDuration: null,
+    mergeDurations: []
   }
 };
 
@@ -91,6 +93,15 @@ export class FusionCore extends EventEmitter {
         timestamp: Date.now(),
         duration: Date.now() - mergeStartTime
       };
+
+      this.fusionData.metadata.lastMergeDuration = mergeRecord.duration;
+      if (!Array.isArray(this.fusionData.metadata.mergeDurations)) {
+        this.fusionData.metadata.mergeDurations = [];
+      }
+      this.fusionData.metadata.mergeDurations.push(mergeRecord.duration);
+      if (this.fusionData.metadata.mergeDurations.length > 100) {
+        this.fusionData.metadata.mergeDurations.shift();
+      }
       this.mergeHistory.push(mergeRecord);
       if (this.mergeHistory.length > 100) this.mergeHistory.shift();
 
@@ -217,5 +228,44 @@ export class FusionCore extends EventEmitter {
 
   generateMergeId() {
     return `merge_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  getMergeStats() {
+    const history = [...this.mergeHistory];
+    if (history.length === 0) {
+      return {
+        mergeCount: this.fusionData.metadata.mergeCount || 0,
+        averageDuration: this.fusionData.metadata.lastMergeDuration || null,
+        averageInterval: null,
+        lastMerge: this.fusionData.metadata.lastMerge,
+        mergesPerHour: 0
+      };
+    }
+
+    const durations = history.map(entry => entry.duration);
+    const averageDuration = durations.reduce((sum, value) => sum + value, 0) / durations.length;
+
+    const intervals = [];
+    for (let i = 1; i < history.length; i++) {
+      intervals.push(history[i].timestamp - history[i - 1].timestamp);
+    }
+    const averageInterval = intervals.length > 0
+      ? intervals.reduce((sum, value) => sum + value, 0) / intervals.length
+      : null;
+
+    const timespan = history.length > 1
+      ? history[history.length - 1].timestamp - history[0].timestamp
+      : 0;
+    const mergesPerHour = timespan > 0
+      ? (history.length / timespan) * 3600000
+      : 0;
+
+    return {
+      mergeCount: this.fusionData.metadata.mergeCount || history.length,
+      averageDuration,
+      averageInterval,
+      lastMerge: this.fusionData.metadata.lastMerge,
+      mergesPerHour
+    };
   }
 }

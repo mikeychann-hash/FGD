@@ -981,22 +981,7 @@ function parseTaskConfiguration(task, context) {
   const weather = normalizeOptionalName(
     task?.metadata?.weather || context?.weather || context?.bridgeState?.weather
   );
-  
-  const environment = normalizeItemName(
-    task?.metadata?.environment ||
-    context?.environment ||
-    context?.bridgeState?.environment?.biome ||
-    "overworld"
-  );
-  
-  const timeOfDay = normalizeOptionalName(
-    task?.metadata?.timeOfDay || context?.timeOfDay || context?.bridgeState?.timeOfDay
-  );
-  
-  const weather = normalizeOptionalName(
-    task?.metadata?.weather || context?.weather || context?.bridgeState?.weather
-  );
-  
+
   const stanceKey = normalizeOptionalName(
     task?.metadata?.stance ||
     context?.npc?.stance ||
@@ -1004,9 +989,7 @@ function parseTaskConfiguration(task, context) {
     (tactic.includes("ranged") ? "ranged" : "guard")
   ) || "guard";
   const stanceProfile = stanceProfiles[stanceKey] || stanceProfiles.guard;
-  
-  const stanceProfile = stanceProfiles[stanceKey] || stanceProfiles.guard;
-  
+
   // Parse squad members
   const squadMembersRaw = Array.isArray(task?.metadata?.squadMembers)
     ? task.metadata.squadMembers
@@ -1015,15 +998,7 @@ function parseTaskConfiguration(task, context) {
     : Array.isArray(task?.metadata?.team)
     ? task.metadata.team
     : [];
-  const squadMembers = squadMembersRaw
-    .map(entry => {
-      if (!entry) {
-        return null;
-      }
-      if (typeof entry === "string") {
-        return entry;
-      }
-  
+
   const squadMembers = squadMembersRaw
     .map(entry => {
       if (!entry) return null;
@@ -1051,9 +1026,7 @@ function parseTaskConfiguration(task, context) {
   const coverMembers = assignedRoles.length > 0
     ? assignedRoles.filter(role => ["healer", "support"].includes(role.role)).map(role => role.name)
     : squadDisplayNames.slice(3);
-    .filter(Boolean)
-    .map(formatDisplayName);
-  
+
   // Parse enemy types
   const additionalTargets = [];
   if (Array.isArray(task?.metadata?.enemyTypes)) {
@@ -1535,26 +1508,6 @@ function collectCountermeasureItems(config) {
     }
   });
 
-  const inventory = extractInventory(context);
-
-  const environmentProfile = environmentProfiles.find(profile => {
-    try {
-      return profile.matches(environment);
-    } catch (error) {
-      return false;
-    }
-  });
-
-  const environmentHazards = collectEnvironmentHazards({
-    environment,
-    enemyTypes,
-    context: { ...context, weather }
-  });
-  const allies = Array.isArray(context?.bridgeState?.allies)
-    ? context.bridgeState.allies
-    : [];
-
-  
   if (environmentProfile?.counterItems) {
     environmentProfile.counterItems.forEach(item => {
       const normalized = normalizeItemName(item);
@@ -1675,8 +1628,6 @@ function buildPreparationSteps(config) {
     })
   );
 
-  if (weaponRecommendations.matches.length > 0) {
-  
   // Weapon alignments
   if (weaponRecommendations.matches.length > 0) {
     const weaponMatchDescription = weaponRecommendations.matches
@@ -1811,21 +1762,6 @@ function buildTacticalSteps(config) {
     );
   }
 
-  if (stanceProfile?.description) {
-    const stanceDescriptionParts = [
-      `${formatDisplayName(stanceProfile.name)} stance: ${stanceProfile.description}`
-    ];
-    if (stanceProfile.engagementDistance) {
-      stanceDescriptionParts.push(`Maintain ${stanceProfile.engagementDistance}.`);
-    }
-    if (stanceWeaponsDisplay.length > 0) {
-      stanceDescriptionParts.push(`Favor ${formatList(stanceWeaponsDisplay)} for primary damage.`);
-    }
-    if (stanceProfile.squadAdvice) {
-      stanceDescriptionParts.push(stanceProfile.squadAdvice);
-    }
-
-  
   // Stance adoption
   if (stanceProfile?.description) {
     const stanceWeaponsDisplay = [primaryWeapon, secondaryWeapon, ...stanceExtras]
@@ -1843,7 +1779,6 @@ function buildTacticalSteps(config) {
       createStep({
         title: "Adopt stance",
         type: "strategy",
-        description: stanceDescriptionParts.join(" "),
         description: stanceDescription,
         metadata: {
           stance: stanceProfile.name,
@@ -1943,7 +1878,9 @@ function buildTacticalSteps(config) {
       `Eliminate threats following the priority order: ${prioritizedEnemies
         .map(detail => detail.displayName)
         .join(", ")}.`
-  
+    );
+  }
+
   // Environmental conditions
   const conditionAdvice = [];
   const weatherValue = weather || "";
@@ -1978,51 +1915,11 @@ function buildTacticalSteps(config) {
       })
     );
   }
-  
+  }
+
   return steps;
 }
 
-  if (stanceProfile?.engagementDistance) {
-    engageDescriptionParts.push(`Maintain ${stanceProfile.engagementDistance} as part of the ${formatDisplayName(stanceProfile.name)} stance.`);
-  }
-  if (stanceWeaponsDisplay.length > 0) {
-    engageDescriptionParts.push(`Keep ${formatList(stanceWeaponsDisplay)} ready for focus targets.`);
-  }
-
-  const conditionAdvice = [];
-  const weatherValue = weather || "";
-  if (timeOfDay === "night") {
-    conditionAdvice.push("Night visibility is low—carry torches and leverage shields against surprise hits.");
-  }
-  if (timeOfDay === "night" && enemyTypes.includes("skeleton")) {
-    conditionAdvice.push("Avoid trading open-field shots with skeletons at night; pull them into cover or wait for dawn.");
-  }
-  if (timeOfDay === "day" && enemyTypes.includes("zombie")) {
-    conditionAdvice.push("Use daylight to weaken zombies in exposed areas when possible.");
-  }
-  if (weatherValue.includes("storm") || weatherValue.includes("thunder")) {
-    conditionAdvice.push("Thunderstorms spawn extra mobs and can trigger charged creepers—limit time in open terrain.");
-  }
-  if (weatherValue.includes("rain") && enemyTypes.includes("blaze")) {
-    conditionAdvice.push("Rain hampers blaze fireballs—fight them outdoors to capitalize on the weather.");
-  }
-  if (environmentHazards.advice.length > 0) {
-    conditionAdvice.push(...environmentHazards.advice);
-  }
-
-  if (conditionAdvice.length > 0) {
-    steps.push(
-      createStep({
-        title: "Adapt to conditions",
-        type: "awareness",
-        description: conditionAdvice.join(" "),
-        metadata: { timeOfDay, weather, hazards: environmentHazards.hazards }
-      })
-    );
-  }
-
-  if (squadLeaderName || squadDisplayNames.length > 0) {
-    const squadDescriptionParts = [];
 /**
  * Build coordination steps
  */
@@ -2126,7 +2023,8 @@ function buildCoordinationSteps(config) {
       })
     );
   }
-  
+  }
+
   return steps;
 }
 
@@ -2187,11 +2085,9 @@ function buildActionSteps(config) {
     })
   );
 
-  if (support) {
-    const supportDisplay = formatDisplayName(support);
-  
   // Support coordination
   if (support) {
+    const supportDisplay = formatDisplayName(support);
     steps.push(
       createStep({
         title: "Coordinate support",
@@ -2285,15 +2181,7 @@ function buildRisks(config) {
   } else if (durabilityAlerts.some(alert => alert.level === "low")) {
     risks.push("Several weapons are at half durability; carry backups in case they fail mid-combat.");
   }
-  if (weaponRecommendations.matches.some(m => !m.available)) {
-    risks.push("Optimal weapon enchantments are missing; expect longer time-to-kill on priority targets.");
-  }
-  if (durabilityAlerts.some(a => a.level === "critical")) {
-    risks.push("Critical durability reported—swap or repair weapons before they break mid-fight.");
-  } else if (durabilityAlerts.some(a => a.level === "low")) {
-    risks.push("Several weapons are at half durability; carry backups in case they fail mid-combat.");
-  }
-  
+
   // Enemy-specific risks
   prioritizedEnemies.forEach(detail => {
     if (detail.risk && !risks.includes(detail.risk)) {
@@ -2312,11 +2200,7 @@ function buildRisks(config) {
     lightning: "Lightning strikes likely during storms—avoid tall metal structures.",
     "void fall": "Void exposure—any knockback could be fatal without slow falling."
   };
-  const combinedHazards = new Set([...(environmentProfile?.hazards || []), ...(environmentHazards.hazards || [])]);
-  combinedHazards.forEach(hazard => {
-    const normalizedHazard = normalizeItemName(hazard);
-    const message = hazardRiskMessages[normalizedHazard];
-  
+
   const combinedHazards = new Set([
     ...(environmentProfile?.hazards || []),
     ...(environmentHazards.hazards || [])

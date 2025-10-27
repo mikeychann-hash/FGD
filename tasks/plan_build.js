@@ -1492,6 +1492,376 @@ const TERRAIN_PROFILES = {
   }
 };
 
+// Progressive Build System - Phase-based construction planning
+const PROGRESSIVE_BUILD_PHASES = {
+  site_preparation: {
+    name: "Site Preparation",
+    order: 1,
+    timePercentage: 0.10, // 10% of total build time
+    criticalPath: true,
+    blockers: [],
+    canParallel: [],
+    description: "Clear area, level ground, mark foundation boundaries",
+    checkpoints: ["Area cleared", "Ground leveled", "Corners marked"],
+    skillLevel: "basic"
+  },
+
+  foundation: {
+    name: "Foundation",
+    order: 2,
+    timePercentage: 0.15, // 15% of total
+    criticalPath: true,
+    blockers: ["site_preparation"],
+    canParallel: [],
+    description: "Lay foundation blocks, ensure level base, reinforce corners",
+    checkpoints: ["Foundation outlined", "Base blocks placed", "Level verified"],
+    skillLevel: "basic"
+  },
+
+  framework: {
+    name: "Framework & Structure",
+    order: 3,
+    timePercentage: 0.10,
+    criticalPath: true,
+    blockers: ["foundation"],
+    canParallel: [],
+    description: "Build corner pillars, place support beams, establish structure",
+    checkpoints: ["Corner posts erected", "Support beams placed", "Framework stable"],
+    skillLevel: "intermediate"
+  },
+
+  walls: {
+    name: "Walls",
+    order: 4,
+    timePercentage: 0.25, // 25% of total
+    criticalPath: true,
+    blockers: ["framework"],
+    canParallel: [],
+    description: "Construct exterior walls, install doors, place windows",
+    checkpoints: ["First wall complete", "Half walls done", "All walls erected", "Openings placed"],
+    skillLevel: "basic"
+  },
+
+  floors: {
+    name: "Interior Floors",
+    order: 5,
+    timePercentage: 0.08,
+    criticalPath: false,
+    blockers: ["foundation"],
+    canParallel: ["walls"],
+    description: "Lay interior flooring for all levels",
+    checkpoints: ["Ground floor done", "Upper floors complete"],
+    skillLevel: "basic"
+  },
+
+  roof: {
+    name: "Roof",
+    order: 6,
+    timePercentage: 0.18, // 18% of total
+    criticalPath: true,
+    blockers: ["walls"],
+    canParallel: ["floors"],
+    description: "Construct roof structure, add roofing material, ensure water-tight",
+    checkpoints: ["Roof frame built", "Roofing halfway", "Roof complete"],
+    skillLevel: "intermediate"
+  },
+
+  weatherproofing: {
+    name: "Weatherproofing",
+    order: 7,
+    timePercentage: 0.05,
+    criticalPath: true,
+    blockers: ["roof"],
+    canParallel: [],
+    description: "Seal gaps, add overhangs, install drainage",
+    checkpoints: ["Gaps sealed", "Water tested"],
+    skillLevel: "intermediate"
+  },
+
+  interior_walls: {
+    name: "Interior Walls & Rooms",
+    order: 8,
+    timePercentage: 0.10,
+    criticalPath: false,
+    blockers: ["walls", "floors"],
+    canParallel: ["weatherproofing"],
+    description: "Build interior room dividers, install interior doors",
+    checkpoints: ["Room divisions marked", "Interior walls built", "Doors placed"],
+    skillLevel: "basic"
+  },
+
+  lighting: {
+    name: "Lighting System",
+    order: 9,
+    timePercentage: 0.06,
+    criticalPath: false,
+    blockers: ["walls", "roof"],
+    canParallel: ["interior_walls", "exterior_decoration"],
+    description: "Place torches, lanterns, and lighting fixtures throughout",
+    checkpoints: ["Exterior lit", "Interior lit", "No dark spots"],
+    skillLevel: "basic"
+  },
+
+  redstone: {
+    name: "Redstone Systems",
+    order: 10,
+    timePercentage: 0.12,
+    criticalPath: false,
+    blockers: ["walls", "interior_walls"],
+    canParallel: [],
+    description: "Install redstone circuits, wire mechanisms, test automation",
+    checkpoints: ["Wiring complete", "Circuits tested", "All systems operational"],
+    skillLevel: "advanced"
+  },
+
+  furnishing: {
+    name: "Furnishing & Interior",
+    order: 11,
+    timePercentage: 0.08,
+    criticalPath: false,
+    blockers: ["interior_walls", "lighting"],
+    canParallel: ["exterior_decoration"],
+    description: "Place furniture, storage, decorative items",
+    checkpoints: ["Essential furniture placed", "Storage organized", "Decorations added"],
+    skillLevel: "basic"
+  },
+
+  exterior_decoration: {
+    name: "Exterior Decoration",
+    order: 12,
+    timePercentage: 0.05,
+    criticalPath: false,
+    blockers: ["walls", "roof"],
+    canParallel: ["furnishing", "lighting"],
+    description: "Add external decorative elements, landscaping touches",
+    checkpoints: ["Decorative blocks placed", "Landscaping done"],
+    skillLevel: "intermediate"
+  },
+
+  final_inspection: {
+    name: "Final Inspection & Cleanup",
+    order: 13,
+    timePercentage: 0.05,
+    criticalPath: true,
+    blockers: ["weatherproofing", "lighting", "furnishing"],
+    canParallel: [],
+    description: "Verify all systems, remove scaffolding, cleanup site",
+    checkpoints: ["Structure inspected", "Scaffolding removed", "Site cleaned"],
+    skillLevel: "basic"
+  }
+};
+
+/**
+ * Calculate phase timings based on total build duration
+ * @param {number} totalDuration - Total build time in ms
+ * @param {Object} options - Build options (includesRedstone, includeInterior, etc.)
+ * @returns {Array} Array of phases with calculated times
+ */
+function calculateBuildPhases(totalDuration, options = {}) {
+  const {
+    includesRedstone = false,
+    includeInterior = true,
+    requiresScaffolding = false,
+    complexity = "medium"
+  } = options;
+
+  const phases = [];
+  let activePhases = { ...PROGRESSIVE_BUILD_PHASES };
+
+  // Filter out phases based on build options
+  if (!includesRedstone) {
+    delete activePhases.redstone;
+  }
+
+  if (!includeInterior) {
+    delete activePhases.interior_walls;
+    delete activePhases.furnishing;
+  }
+
+  // Calculate total percentage
+  let totalPercentage = Object.values(activePhases).reduce((sum, phase) => sum + phase.timePercentage, 0);
+
+  // Normalize percentages if needed
+  const normalizer = totalPercentage > 0 ? 1.0 / totalPercentage : 1.0;
+
+  // Build phases array with calculated times
+  let accumulatedTime = 0;
+
+  for (const [phaseKey, phaseData] of Object.entries(activePhases)) {
+    const normalizedPercentage = phaseData.timePercentage * normalizer;
+    const phaseTime = Math.ceil(totalDuration * normalizedPercentage);
+    const startTime = accumulatedTime;
+    const endTime = accumulatedTime + phaseTime;
+
+    phases.push({
+      key: phaseKey,
+      name: phaseData.name,
+      order: phaseData.order,
+      startTime,
+      endTime,
+      duration: phaseTime,
+      percentage: Math.round(normalizedPercentage * 100),
+      criticalPath: phaseData.criticalPath,
+      blockers: phaseData.blockers,
+      canParallel: phaseData.canParallel,
+      description: phaseData.description,
+      checkpoints: phaseData.checkpoints,
+      skillLevel: phaseData.skillLevel
+    });
+
+    accumulatedTime = endTime;
+  }
+
+  // Sort by order
+  phases.sort((a, b) => a.order - b.order);
+
+  return phases;
+}
+
+/**
+ * Generate milestones from build phases
+ * @param {Array} phases - Array of build phases
+ * @param {number} totalDuration - Total build time
+ * @returns {Array} Array of milestone objects
+ */
+function generateMilestones(phases, totalDuration) {
+  const milestones = [];
+
+  // Major milestones based on critical path phases
+  const criticalPhases = phases.filter(p => p.criticalPath);
+
+  for (const phase of criticalPhases) {
+    milestones.push({
+      name: `${phase.name} Complete`,
+      time: phase.endTime,
+      percentage: Math.round((phase.endTime / totalDuration) * 100),
+      type: "phase_complete",
+      critical: true,
+      description: `${phase.name} phase finished`,
+      checkpoints: phase.checkpoints
+    });
+  }
+
+  // Add quarter milestones
+  const quarterTime = totalDuration / 4;
+  for (let i = 1; i <= 3; i++) {
+    const time = quarterTime * i;
+    milestones.push({
+      name: `${i * 25}% Complete`,
+      time,
+      percentage: i * 25,
+      type: "progress_marker",
+      critical: false,
+      description: `Build is ${i * 25}% complete`
+    });
+  }
+
+  // Add start and end milestones
+  milestones.unshift({
+    name: "Construction Start",
+    time: 0,
+    percentage: 0,
+    type: "start",
+    critical: true,
+    description: "Begin construction"
+  });
+
+  milestones.push({
+    name: "Construction Complete",
+    time: totalDuration,
+    percentage: 100,
+    type: "completion",
+    critical: true,
+    description: "Build finished and inspected"
+  });
+
+  // Sort by time
+  milestones.sort((a, b) => a.time - b.time);
+
+  // Remove duplicate percentages (keep critical ones)
+  const seen = new Set();
+  const uniqueMilestones = milestones.filter(m => {
+    const key = m.percentage;
+    if (seen.has(key)) {
+      return m.critical; // Keep critical if duplicate
+    }
+    seen.add(key);
+    return true;
+  });
+
+  return uniqueMilestones;
+}
+
+/**
+ * Determine critical path through build phases
+ * @param {Array} phases - Array of build phases
+ * @returns {Array} Array of phase keys on critical path
+ */
+function determineCriticalPath(phases) {
+  const criticalPath = [];
+  const phaseMap = new Map(phases.map(p => [p.key, p]));
+
+  // Start with phases that have no blockers
+  let currentPhases = phases.filter(p => p.blockers.length === 0 && p.criticalPath);
+
+  while (currentPhases.length > 0) {
+    // Add current critical phases to path
+    for (const phase of currentPhases) {
+      if (phase.criticalPath) {
+        criticalPath.push(phase.key);
+      }
+    }
+
+    // Find next phases that are blocked by current ones
+    const currentKeys = currentPhases.map(p => p.key);
+    currentPhases = phases.filter(p =>
+      p.criticalPath &&
+      !criticalPath.includes(p.key) &&
+      p.blockers.some(blocker => currentKeys.includes(blocker))
+    );
+  }
+
+  return criticalPath;
+}
+
+/**
+ * Calculate parallel work opportunities
+ * @param {Array} phases - Array of build phases
+ * @returns {Array} Array of parallel phase groups
+ */
+function calculateParallelWork(phases) {
+  const parallelGroups = [];
+  const processed = new Set();
+
+  for (const phase of phases) {
+    if (processed.has(phase.key) || phase.canParallel.length === 0) {
+      continue;
+    }
+
+    const group = {
+      primary: phase.key,
+      parallel: [],
+      description: `${phase.name} can be done in parallel with:`
+    };
+
+    // Find phases that can be done in parallel
+    for (const parallelKey of phase.canParallel) {
+      const parallelPhase = phases.find(p => p.key === parallelKey);
+      if (parallelPhase) {
+        group.parallel.push(parallelKey);
+        processed.add(parallelKey);
+      }
+    }
+
+    if (group.parallel.length > 0) {
+      parallelGroups.push(group);
+      processed.add(phase.key);
+    }
+  }
+
+  return parallelGroups;
+}
+
 /**
  * Look up a terrain profile by name or normalized name
  * @param {string} terrainType - Terrain identifier
@@ -2167,6 +2537,18 @@ export function planBuildTask(task, context = {}) {
 
   const estimatedDuration = Math.ceil((baseDuration * terrainTimeMultiplier) + terrainClearanceTime);
 
+  // Calculate progressive build phases and milestones
+  const buildPhases = calculateBuildPhases(estimatedDuration, {
+    includesRedstone: enhancedTask?.metadata?.includesRedstone || false,
+    includeInterior: enhancedTask?.metadata?.interior !== false,
+    requiresScaffolding: enhancedTask?.metadata?.requiresScaffolding || (height && height > SCAFFOLDING_HEIGHT_THRESHOLD),
+    complexity: template?.difficulty || "medium"
+  });
+
+  const milestones = generateMilestones(buildPhases, estimatedDuration);
+  const criticalPath = determineCriticalPath(buildPhases);
+  const parallelWork = calculateParallelWork(buildPhases);
+
   const notes = [];
 
   // Add template usage note
@@ -2222,6 +2604,34 @@ export function planBuildTask(task, context = {}) {
     notes.push(`Key features: ${template.features.join(', ')}.`);
   }
 
+  // Add progressive build information
+  if (buildPhases && buildPhases.length > 0) {
+    const phaseCount = buildPhases.length;
+    const criticalPhaseCount = buildPhases.filter(p => p.criticalPath).length;
+    notes.push(`Build divided into ${phaseCount} phases (${criticalPhaseCount} on critical path).`);
+
+    // Add critical path summary
+    if (criticalPath && criticalPath.length > 0) {
+      const criticalPhaseNames = criticalPath
+        .map(key => buildPhases.find(p => p.key === key)?.name)
+        .filter(Boolean)
+        .slice(0, 3); // First 3 for brevity
+      notes.push(`Critical path: ${criticalPhaseNames.join(' → ')}${criticalPath.length > 3 ? '...' : ''}.`);
+    }
+
+    // Add parallel work opportunities
+    if (parallelWork && parallelWork.length > 0) {
+      notes.push(`${parallelWork.length} opportunities for parallel work to reduce build time.`);
+    }
+
+    // Add key milestones
+    const majorMilestones = milestones.filter(m => m.critical && m.type === 'phase_complete').slice(0, 3);
+    if (majorMilestones.length > 0) {
+      const milestoneText = majorMilestones.map(m => `${m.name} (${m.percentage}%)`).join(', ');
+      notes.push(`Key milestones: ${milestoneText}.`);
+    }
+  }
+
   return createPlan({
     task: enhancedTask,
     summary: `Construct ${blueprint} at ${targetDescription}.`,
@@ -2229,6 +2639,11 @@ export function planBuildTask(task, context = {}) {
     estimatedDuration,
     resources,
     risks,
-    notes
+    notes,
+    // Add progressive build metadata
+    buildPhases,
+    milestones,
+    criticalPath,
+    parallelWork
   });
 }

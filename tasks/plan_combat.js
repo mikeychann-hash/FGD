@@ -1,5 +1,6 @@
 // tasks/plan_combat.js
 // Planning logic for combat engagements - REFACTORED
+// Uses shared combat utilities from combat_utils.js
 
 import {
   createPlan,
@@ -12,19 +13,31 @@ import {
   resolveQuantity
 } from "./helpers.js";
 
+import {
+  COMBAT_CONSTANTS,
+  COMBAT_EQUIPMENT,
+  THREAT_ASSESSMENT,
+  ENEMY_PROFILES,
+  DEFAULT_ENEMY_PROFILE,
+  ENEMY_COUNTERMEASURES,
+  WEAPON_MATCHUPS
+} from "./combat_utils.js";
+
 // ============================================================================
 // CONFIGURATION CONSTANTS
 // ============================================================================
 
+// Combat-specific timing constants (kept local as they're specific to combat duration calculations)
 const COMBAT_CONFIG = {
   BASE_DURATION_MS: 9000,
   DURATION_PER_ENEMY_MS: 1200,
-  DURABILITY_CRITICAL_THRESHOLD: 0.25,
-  DURABILITY_LOW_THRESHOLD: 0.50,
-  HEALTH_CRITICAL_THRESHOLD: 0.25,
-  HEALTH_LOW_THRESHOLD: 0.35,
-  HEALTH_HEALER_THRESHOLD: 0.50,
-  HEALTH_ALLY_THRESHOLD: 0.30
+  // Shared thresholds from combat_utils.js
+  DURABILITY_CRITICAL_THRESHOLD: COMBAT_CONSTANTS.DURABILITY_CRITICAL_THRESHOLD,
+  DURABILITY_LOW_THRESHOLD: COMBAT_CONSTANTS.DURABILITY_LOW_THRESHOLD,
+  HEALTH_CRITICAL_THRESHOLD: COMBAT_CONSTANTS.HEALTH_CRITICAL_THRESHOLD,
+  HEALTH_LOW_THRESHOLD: COMBAT_CONSTANTS.HEALTH_LOW_THRESHOLD,
+  HEALTH_HEALER_THRESHOLD: COMBAT_CONSTANTS.HEALTH_HEALER_THRESHOLD,
+  HEALTH_ALLY_THRESHOLD: COMBAT_CONSTANTS.HEALTH_ALLY_THRESHOLD
 };
 
 const ROLE_ORDER = ["leader", "tank", "dps", "healer", "scout"];
@@ -54,7 +67,7 @@ function formatDisplayName(name) {
  */
 function normalizeOptionalName(value) {
   const normalized = normalizeItemName(value);
-  return normalized === "unspecified item" ? "" : normalized;
+  return normalized === COMBAT_CONSTANTS.UNSPECIFIED_ITEM ? "" : normalized;
 }
 
 function formatList(values = []) {
@@ -111,8 +124,10 @@ function normalizeWeatherValue(value) {
 // ============================================================================
 // DATA PROFILES
 // ============================================================================
+// NOTE: Using shared enemy profiles from combat_utils.js as base, with local extensions
+// for combat-specific enemies not yet in the shared module
 
-const enemyProfiles = {
+const localEnemyProfiles = {
   "charged creeper": {
     priority: 1,
     reason: "Explosion is instantly lethal in close quarters.",
@@ -265,14 +280,15 @@ const enemyProfiles = {
   }
 };
 
-const defaultEnemyProfile = {
-  priority: 4,
-  reason: "Standard hostile threat—monitor but lower urgency.",
-  dodge: "Circle strafe to reduce incoming hits and retreat if pressure mounts.",
-  risk: "Unknown enemy behavior—remain alert for special attacks."
-};
+// Merge shared profiles with local extensions (local profiles take precedence)
+const enemyProfiles = { ...ENEMY_PROFILES, ...localEnemyProfiles };
 
-const enemyCountermeasures = {
+// Using shared default profile and countermeasures
+const defaultEnemyProfile = DEFAULT_ENEMY_PROFILE;
+const enemyCountermeasures = ENEMY_COUNTERMEASURES;
+
+// Extended local countermeasures (merged with shared)
+const localEnemyCountermeasures = {
   "charged creeper": ["blast protection armor", "bow"],
   creeper: ["blast protection armor", "shield"],
   "wither skeleton": ["milk bucket", "smite sword"],
@@ -300,43 +316,8 @@ const enemyCountermeasures = {
   phantom: ["bow", "slow falling potion"]
 };
 
-const enemyWeaponMatchups = [
-  {
-    enemies: ["zombie", "husk", "drowned", "skeleton", "stray", "wither skeleton", "wither"],
-    weapon: "smite sword",
-    reason: "Smite enchantments amplify damage to undead foes."
-  },
-  {
-    enemies: ["spider", "cave spider"],
-    weapon: "bane of arthropods sword",
-    reason: "Bane of Arthropods slows and bursts spider mobs."
-  },
-  {
-    enemies: ["creeper", "charged creeper"],
-    weapon: "bow",
-    reason: "Ranged focus avoids blast radius while detonating creepers safely."
-  },
-  {
-    enemies: ["blaze", "ghast"],
-    weapon: "power bow",
-    reason: "Strong bows counter airborne fire mobs from range."
-  },
-  {
-    enemies: ["guardian", "elder guardian"],
-    weapon: "impaling trident",
-    reason: "Impaling tridents shred aquatic guardians underwater."
-  },
-  {
-    enemies: ["ravager", "piglin brute", "zoglin", "hoglin"],
-    weapon: "netherite axe",
-    reason: "High damage axes break through armored brutes quickly."
-  },
-  {
-    enemies: ["phantom"],
-    weapon: "crossbow",
-    reason: "Crossbows pierce swooping phantoms during flight."
-  }
-];
+// Using shared weapon matchups from combat_utils.js
+const enemyWeaponMatchups = WEAPON_MATCHUPS;
 
 const squadRoleProfiles = {
   leader: {
@@ -1501,7 +1482,7 @@ function collectCountermeasureItems(config) {
     if (Array.isArray(counters)) {
       counters.forEach(item => {
         const normalized = normalizeItemName(item);
-        if (normalized && normalized !== "unspecified item") {
+        if (normalized && normalized !== COMBAT_CONSTANTS.UNSPECIFIED_ITEM) {
           recommendedCounterItems.add(normalized);
         }
       });
@@ -1511,7 +1492,7 @@ function collectCountermeasureItems(config) {
   if (environmentProfile?.counterItems) {
     environmentProfile.counterItems.forEach(item => {
       const normalized = normalizeItemName(item);
-      if (normalized && normalized !== "unspecified item") {
+      if (normalized && normalized !== COMBAT_CONSTANTS.UNSPECIFIED_ITEM) {
         recommendedCounterItems.add(normalized);
       }
     });
@@ -2561,7 +2542,7 @@ export function planCombatTask(task, context = {}) {
       ...prioritizedEnemies.map(d => d.displayName.toLowerCase()),
       config.target,
       config.support
-    ].filter(name => name && name !== "unspecified item"))
+    ].filter(name => name && name !== COMBAT_CONSTANTS.UNSPECIFIED_ITEM))
   ];
   
   // Build risks and notes

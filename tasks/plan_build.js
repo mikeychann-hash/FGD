@@ -2341,6 +2341,482 @@ function getRecommendedFallProtection(height, environment = "overworld") {
   return validOptions.slice(0, 3);
 }
 
+// ============================================================================
+// Building Validation System
+// ============================================================================
+
+/**
+ * Comprehensive building validation system
+ * Validates dimensions, materials, block compatibility, and game mechanics
+ */
+const BUILDING_VALIDATOR = {
+  // World height limits by dimension
+  WORLD_HEIGHT_LIMITS: {
+    overworld: { min: -64, max: 320 },
+    nether: { min: 0, max: 128 },
+    the_end: { min: 0, max: 256 },
+    underground: { min: -64, max: 64 },
+    underwater: { min: -64, max: 63 },
+    sky: { min: 64, max: 320 }
+  },
+
+  // Physical constants
+  PLAYER_HEIGHT: 1.8,
+  MIN_DOOR_HEIGHT: 2,
+  MIN_COMFORTABLE_HEIGHT: 3,
+  MAX_REASONABLE_LENGTH: 200,
+  MAX_REASONABLE_WIDTH: 200,
+  VERY_LARGE_THRESHOLD: 100,
+  CRAMPED_THRESHOLD: 3,
+
+  // Build size warnings
+  BUILD_TIME_THRESHOLDS: {
+    quick: 300000,      // 5 minutes
+    moderate: 1800000,  // 30 minutes
+    long: 3600000,      // 1 hour
+    very_long: 7200000, // 2 hours
+    extreme: 14400000   // 4 hours
+  },
+
+  // Block incompatibilities by environment
+  INCOMPATIBLE_BLOCKS: {
+    nether: ["water", "ice", "blue_ice", "packed_ice", "frosted_ice", "snow", "powder_snow"],
+    the_end: ["water", "ice", "blue_ice", "packed_ice"],
+    underwater: ["torch", "redstone_torch", "campfire", "soul_campfire"],
+    sky: [] // Most blocks work in sky
+  },
+
+  // Blocks that have special biome behaviors
+  BIOME_SENSITIVE_BLOCKS: {
+    ice: {
+      meltsIn: ["desert", "mesa", "savanna", "jungle", "nether"],
+      warning: "Ice will melt in warm biomes"
+    },
+    snow: {
+      meltsIn: ["desert", "mesa", "savanna", "jungle", "nether"],
+      warning: "Snow will melt in warm biomes"
+    },
+    water: {
+      freezesIn: ["ice_plains", "snowy_tundra", "frozen_ocean"],
+      warning: "Water may freeze in cold biomes"
+    },
+    grass_block: {
+      diesIn: ["nether", "the_end"],
+      warning: "Grass blocks turn to dirt in Nether/End"
+    },
+    mycelium: {
+      spreadsIn: ["mushroom_island"],
+      warning: "Mycelium spreads to dirt in mushroom biomes"
+    }
+  },
+
+  // Gravity-affected blocks (require support)
+  GRAVITY_BLOCKS: ["sand", "red_sand", "gravel", "concrete_powder", "anvil"],
+
+  // Blocks requiring support blocks beneath them
+  REQUIRES_SUPPORT: [
+    "torch", "redstone_torch", "rail", "powered_rail", "detector_rail",
+    "activator_rail", "lever", "button", "pressure_plate", "carpet",
+    "flower", "sapling", "mushroom", "crop", "sugar_cane"
+  ],
+
+  /**
+   * Validate build dimensions
+   * @param {Object} dimensions - {length, width, height}
+   * @param {Object} options - Additional validation options
+   * @returns {Object} Validation result with errors and warnings
+   */
+  checkDimensions(dimensions, options = {}) {
+    const errors = [];
+    const warnings = [];
+    const { length = 0, width = 0, height = 0 } = dimensions || {};
+    const { environment = "overworld", yPosition = 64, includesInterior = false } = options;
+
+    // Basic dimension validation
+    if (!dimensions || typeof dimensions !== 'object') {
+      errors.push("Dimensions must be an object with length, width, and height");
+      return { valid: false, errors, warnings };
+    }
+
+    // Check for missing or invalid dimensions
+    if (!length || length <= 0) {
+      errors.push("Length must be a positive number");
+    }
+    if (!width || width <= 0) {
+      errors.push("Width must be a positive number");
+    }
+    if (!height || height <= 0) {
+      errors.push("Height must be a positive number");
+    }
+
+    if (errors.length > 0) {
+      return { valid: false, errors, warnings };
+    }
+
+    // World height limit checks
+    const heightLimit = this.WORLD_HEIGHT_LIMITS[environment] || this.WORLD_HEIGHT_LIMITS.overworld;
+    const buildTop = yPosition + height;
+    const buildBottom = yPosition;
+
+    if (buildTop > heightLimit.max) {
+      errors.push(`Build exceeds height limit: ${buildTop} > ${heightLimit.max} (${environment})`);
+    }
+    if (buildBottom < heightLimit.min) {
+      errors.push(`Build below minimum height: ${buildBottom} < ${heightLimit.min} (${environment})`);
+    }
+
+    // Height warnings
+    if (height < this.MIN_DOOR_HEIGHT) {
+      warnings.push("Too short for a door - player cannot enter");
+    } else if (height < this.MIN_COMFORTABLE_HEIGHT && includesInterior) {
+      warnings.push("Interior height cramped - player will bump head");
+    }
+
+    // Size warnings
+    if (length < this.CRAMPED_THRESHOLD) {
+      warnings.push("Very small length - cramped interior");
+    }
+    if (width < this.CRAMPED_THRESHOLD) {
+      warnings.push("Very small width - cramped interior");
+    }
+
+    if (length > this.VERY_LARGE_THRESHOLD) {
+      warnings.push(`Very large length (${length}) - may take hours to build`);
+    }
+    if (width > this.VERY_LARGE_THRESHOLD) {
+      warnings.push(`Very large width (${width}) - may take hours to build`);
+    }
+    if (height > this.VERY_LARGE_THRESHOLD) {
+      warnings.push(`Very tall (${height}) - requires extensive scaffolding and safety measures`);
+    }
+
+    if (length > this.MAX_REASONABLE_LENGTH) {
+      warnings.push(`Extremely large length (${length}) - consider breaking into multiple builds`);
+    }
+    if (width > this.MAX_REASONABLE_WIDTH) {
+      warnings.push(`Extremely large width (${width}) - consider breaking into multiple builds`);
+    }
+
+    // Volume warnings
+    const volume = length * width * height;
+    if (volume > 1000000) {
+      warnings.push(`Massive volume (${volume.toLocaleString()} blocks) - extremely time consuming`);
+    } else if (volume > 100000) {
+      warnings.push(`Very large volume (${volume.toLocaleString()} blocks) - multi-hour project`);
+    }
+
+    // Aspect ratio warnings
+    const maxDim = Math.max(length, width);
+    const minDim = Math.min(length, width);
+    if (maxDim / minDim > 10) {
+      warnings.push("Unusual aspect ratio - very elongated structure");
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      volume,
+      aspectRatio: maxDim / minDim
+    };
+  },
+
+  /**
+   * Validate material sufficiency and compatibility
+   * @param {Array|Object} materials - Materials list
+   * @param {Object} dimensions - Build dimensions
+   * @param {Object} options - Validation options
+   * @returns {Object} Validation result
+   */
+  checkMaterials(materials, dimensions, options = {}) {
+    const errors = [];
+    const warnings = [];
+    const { length = 0, width = 0, height = 0 } = dimensions || {};
+    const {
+      environment = "overworld",
+      biome = "plains",
+      isHollow = true,
+      includesRoof = true,
+      includesFoundation = true
+    } = options;
+
+    if (!materials) {
+      errors.push("No materials specified");
+      return { sufficient: false, errors, warnings };
+    }
+
+    // Convert materials to array format if object
+    let materialArray = [];
+    if (Array.isArray(materials)) {
+      materialArray = materials;
+    } else if (typeof materials === 'object') {
+      materialArray = Object.entries(materials).map(([name, count]) => ({
+        name: normalizeItemName(name),
+        count: parseInt(count, 10) || 0
+      }));
+    }
+
+    if (materialArray.length === 0) {
+      warnings.push("No materials provided - cannot validate sufficiency");
+      return { sufficient: false, errors, warnings };
+    }
+
+    // Calculate total blocks needed
+    const volume = length * width * height;
+    let estimatedBlocksNeeded;
+
+    if (isHollow) {
+      // Hollow structure: walls, roof, foundation
+      const wallBlocks = 2 * height * (length + width - 2);
+      const roofBlocks = includesRoof ? length * width : 0;
+      const foundationBlocks = includesFoundation ? length * width : 0;
+      estimatedBlocksNeeded = wallBlocks + roofBlocks + foundationBlocks;
+    } else {
+      // Solid structure
+      estimatedBlocksNeeded = volume;
+    }
+
+    // Count total materials
+    const totalBlocks = materialArray.reduce((sum, mat) => {
+      const count = parseInt(mat.count, 10) || 0;
+      return sum + count;
+    }, 0);
+
+    // Material sufficiency check
+    const sufficiencyRatio = totalBlocks / estimatedBlocksNeeded;
+
+    if (sufficiencyRatio < 0.1) {
+      errors.push(`Severely insufficient materials: ${totalBlocks} blocks for ~${estimatedBlocksNeeded} needed`);
+    } else if (sufficiencyRatio < 0.5) {
+      errors.push(`Insufficient materials: ${totalBlocks} blocks for ~${estimatedBlocksNeeded} needed`);
+    } else if (sufficiencyRatio < 0.9) {
+      warnings.push(`Low materials: ${totalBlocks} blocks for ~${estimatedBlocksNeeded} needed (${Math.round(sufficiencyRatio * 100)}%)`);
+    } else if (sufficiencyRatio > 3) {
+      warnings.push(`Excess materials: ${totalBlocks} blocks for ~${estimatedBlocksNeeded} needed`);
+    }
+
+    // Check block compatibility with environment
+    const compatibilityIssues = this.checkBlockCompatibility(materialArray, environment, biome);
+    errors.push(...compatibilityIssues.errors);
+    warnings.push(...compatibilityIssues.warnings);
+
+    return {
+      sufficient: errors.length === 0 && sufficiencyRatio >= 0.5,
+      sufficiencyRatio,
+      totalBlocks,
+      estimatedBlocksNeeded,
+      errors,
+      warnings
+    };
+  },
+
+  /**
+   * Check if blocks are compatible with environment and biome
+   * @param {Array} materials - Materials list
+   * @param {string} environment - Environment type
+   * @param {string} biome - Biome type
+   * @returns {Object} Compatibility issues
+   */
+  checkBlockCompatibility(materials, environment = "overworld", biome = "plains") {
+    const errors = [];
+    const warnings = [];
+
+    if (!Array.isArray(materials)) {
+      return { errors, warnings };
+    }
+
+    const incompatibleBlocks = this.INCOMPATIBLE_BLOCKS[environment] || [];
+
+    materials.forEach(material => {
+      const blockName = normalizeItemName(material.name || material);
+
+      // Check environment incompatibilities
+      incompatibleBlocks.forEach(incompatible => {
+        if (blockName.includes(incompatible)) {
+          errors.push(`${material.name || material} cannot be placed in ${environment}`);
+        }
+      });
+
+      // Check biome-specific issues
+      Object.entries(this.BIOME_SENSITIVE_BLOCKS).forEach(([block, behavior]) => {
+        if (blockName.includes(normalizeItemName(block))) {
+          if (behavior.meltsIn && behavior.meltsIn.includes(biome)) {
+            warnings.push(`${material.name || material}: ${behavior.warning}`);
+          }
+          if (behavior.freezesIn && behavior.freezesIn.includes(biome)) {
+            warnings.push(`${material.name || material}: ${behavior.warning}`);
+          }
+          if (behavior.diesIn && behavior.diesIn.includes(environment)) {
+            warnings.push(`${material.name || material}: ${behavior.warning}`);
+          }
+        }
+      });
+
+      // Check gravity-affected blocks
+      this.GRAVITY_BLOCKS.forEach(gravityBlock => {
+        if (blockName.includes(gravityBlock)) {
+          warnings.push(`${material.name || material} is affected by gravity - requires support or will fall`);
+        }
+      });
+    });
+
+    return { errors, warnings };
+  },
+
+  /**
+   * Validate world height limits for build
+   * @param {Object} dimensions - Build dimensions
+   * @param {number} yPosition - Starting Y position
+   * @param {string} environment - Environment type
+   * @returns {Object} Validation result
+   */
+  checkWorldLimits(dimensions, yPosition = 64, environment = "overworld") {
+    const errors = [];
+    const warnings = [];
+    const { height = 0 } = dimensions || {};
+
+    const limits = this.WORLD_HEIGHT_LIMITS[environment] || this.WORLD_HEIGHT_LIMITS.overworld;
+    const buildTop = yPosition + height;
+    const buildBottom = yPosition;
+
+    if (buildTop > limits.max) {
+      errors.push(`Build top (Y=${buildTop}) exceeds height limit (Y=${limits.max})`);
+    }
+    if (buildBottom < limits.min) {
+      errors.push(`Build bottom (Y=${buildBottom}) below height limit (Y=${limits.min})`);
+    }
+
+    // Warnings for near-limit builds
+    if (buildTop > limits.max - 10 && buildTop <= limits.max) {
+      warnings.push(`Build approaches height limit - only ${limits.max - buildTop} blocks clearance`);
+    }
+    if (buildBottom < limits.min + 10 && buildBottom >= limits.min) {
+      warnings.push(`Build near bedrock - only ${buildBottom - limits.min} blocks clearance`);
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      buildTop,
+      buildBottom,
+      clearanceAbove: limits.max - buildTop,
+      clearanceBelow: buildBottom - limits.min
+    };
+  },
+
+  /**
+   * Check structural integrity considerations
+   * @param {Object} dimensions - Build dimensions
+   * @param {Array} materials - Materials list
+   * @returns {Object} Structural warnings
+   */
+  checkStructuralIntegrity(dimensions, materials) {
+    const warnings = [];
+    const { length = 0, width = 0, height = 0 } = dimensions || {};
+
+    // Large unsupported roofs
+    const roofSpan = Math.max(length, width);
+    if (roofSpan > 20) {
+      warnings.push("Large roof span - consider adding support pillars");
+    }
+
+    // Tall thin structures
+    const maxHorizontal = Math.max(length, width);
+    if (height > maxHorizontal * 3) {
+      warnings.push("Very tall thin structure - may look unstable");
+    }
+
+    // Glass structures
+    const hasGlass = materials.some(mat => {
+      const name = normalizeItemName(mat.name || mat);
+      return name.includes("glass");
+    });
+    if (hasGlass && height > 50) {
+      warnings.push("Tall glass structure - consider adding support frames");
+    }
+
+    return { warnings };
+  },
+
+  /**
+   * Comprehensive build plan validation
+   * @param {Object} plan - Complete build plan
+   * @param {Object} context - Additional context
+   * @returns {Object} Full validation results
+   */
+  validateBuildPlan(plan, context = {}) {
+    const allErrors = [];
+    const allWarnings = [];
+    const validationResults = {};
+
+    // Extract plan details
+    const dimensions = plan.dimensions || context.dimensions || {};
+    const materials = plan.materials || context.materials || [];
+    const environment = context.environment || plan.environment || "overworld";
+    const biome = context.biome || plan.biome || "plains";
+    const yPosition = context.yPosition || 64;
+    const estimatedDuration = plan.estimatedDuration || 0;
+
+    // Validate dimensions
+    const dimValidation = this.checkDimensions(dimensions, {
+      environment,
+      yPosition,
+      includesInterior: plan.interior || false
+    });
+    validationResults.dimensions = dimValidation;
+    allErrors.push(...dimValidation.errors);
+    allWarnings.push(...dimValidation.warnings);
+
+    // Validate materials
+    if (materials && materials.length > 0) {
+      const matValidation = this.checkMaterials(materials, dimensions, {
+        environment,
+        biome,
+        isHollow: true,
+        includesRoof: plan.roofStyle !== "none",
+        includesFoundation: true
+      });
+      validationResults.materials = matValidation;
+      allErrors.push(...matValidation.errors);
+      allWarnings.push(...matValidation.warnings);
+    }
+
+    // Validate world limits
+    const worldValidation = this.checkWorldLimits(dimensions, yPosition, environment);
+    validationResults.worldLimits = worldValidation;
+    allErrors.push(...worldValidation.errors);
+    allWarnings.push(...worldValidation.warnings);
+
+    // Check structural integrity
+    if (materials && materials.length > 0) {
+      const structValidation = this.checkStructuralIntegrity(dimensions, materials);
+      validationResults.structural = structValidation;
+      allWarnings.push(...structValidation.warnings);
+    }
+
+    // Time estimation validation
+    if (estimatedDuration > this.BUILD_TIME_THRESHOLDS.extreme) {
+      allWarnings.push(`Estimated duration: ${Math.round(estimatedDuration / 60000)} minutes - extremely long build`);
+    } else if (estimatedDuration > this.BUILD_TIME_THRESHOLDS.very_long) {
+      allWarnings.push(`Estimated duration: ${Math.round(estimatedDuration / 60000)} minutes - very long build`);
+    }
+
+    return {
+      valid: allErrors.length === 0,
+      errors: allErrors,
+      warnings: allWarnings,
+      validationResults,
+      summary: {
+        totalErrors: allErrors.length,
+        totalWarnings: allWarnings.length,
+        valid: allErrors.length === 0,
+        acceptable: allErrors.length === 0 && allWarnings.length < 5
+      }
+    };
+  }
+};
+
 /**
  * Look up a terrain profile by name or normalized name
  * @param {string} terrainType - Terrain identifier
@@ -3054,6 +3530,22 @@ export function planBuildTask(task, context = {}) {
     enhancedTask?.metadata?.environment || "overworld"
   );
 
+  // Validate build plan comprehensively
+  const validation = BUILDING_VALIDATOR.validateBuildPlan(
+    {
+      dimensions,
+      materials: materialRequirements,
+      estimatedDuration,
+      interior: enhancedTask?.metadata?.interior !== false,
+      roofStyle: enhancedTask?.metadata?.roofStyle || template?.roofStyle || "flat"
+    },
+    {
+      environment: enhancedTask?.metadata?.environment || "overworld",
+      biome: enhancedTask?.metadata?.biome || terrainProfile?.name || "plains",
+      yPosition: enhancedTask?.metadata?.yPosition || context.yPosition || 64
+    }
+  );
+
   const notes = [];
 
   // Add template usage note
@@ -3159,6 +3651,57 @@ export function planBuildTask(task, context = {}) {
     }
   }
 
+  // Add validation results to risks and notes
+  if (validation) {
+    // Add validation errors as critical risks
+    if (validation.errors && validation.errors.length > 0) {
+      risks.push(...validation.errors.map(err => `VALIDATION ERROR: ${err}`));
+    }
+
+    // Add validation summary note
+    if (!validation.valid) {
+      notes.push(`BUILD VALIDATION FAILED: ${validation.summary.totalErrors} error(s) found.`);
+    } else if (validation.warnings && validation.warnings.length > 0) {
+      notes.push(`Build validation passed with ${validation.warnings.length} warning(s).`);
+    } else {
+      notes.push(`Build validation: PASSED (no issues).`);
+    }
+
+    // Add key warnings as notes
+    if (validation.warnings && validation.warnings.length > 0) {
+      const topWarnings = validation.warnings.slice(0, 3); // Show top 3 warnings
+      topWarnings.forEach(warning => {
+        notes.push(`Warning: ${warning}`);
+      });
+
+      if (validation.warnings.length > 3) {
+        notes.push(`...and ${validation.warnings.length - 3} more warning(s).`);
+      }
+    }
+
+    // Add validation summary details
+    if (validation.validationResults) {
+      const { dimensions: dimVal, materials: matVal, worldLimits: worldVal } = validation.validationResults;
+
+      if (dimVal && dimVal.volume) {
+        notes.push(`Validated volume: ${dimVal.volume.toLocaleString()} blocks.`);
+      }
+
+      if (matVal && matVal.sufficiencyRatio) {
+        const percentage = Math.round(matVal.sufficiencyRatio * 100);
+        if (percentage >= 100) {
+          notes.push(`Material sufficiency: ${percentage}% (adequate).`);
+        } else if (percentage >= 90) {
+          notes.push(`Material sufficiency: ${percentage}% (tight but adequate).`);
+        }
+      }
+
+      if (worldVal && worldVal.clearanceAbove !== undefined && worldVal.clearanceBelow !== undefined) {
+        notes.push(`Height clearance: ${worldVal.clearanceBelow} blocks below, ${worldVal.clearanceAbove} blocks above.`);
+      }
+    }
+  }
+
   return createPlan({
     task: enhancedTask,
     summary: `Construct ${blueprint} at ${targetDescription}.`,
@@ -3175,6 +3718,8 @@ export function planBuildTask(task, context = {}) {
     // Add safety metadata
     safetyRisk,
     safetyRecommendations,
-    fallProtection
+    fallProtection,
+    // Add validation metadata
+    validation
   });
 }

@@ -1862,6 +1862,485 @@ function calculateParallelWork(phases) {
   return parallelGroups;
 }
 
+// Safety & Fall Protection System
+const FALL_PROTECTION_OPTIONS = {
+  water_bucket: {
+    name: "Water Bucket",
+    effectiveness: "excellent",
+    cost: "low",
+    minHeight: 4,
+    description: "Place water at bottom to negate fall damage",
+    materials: ["water_bucket:1"],
+    skillLevel: "basic",
+    limitations: ["Doesn't work in Nether", "Can freeze in cold biomes"]
+  },
+
+  scaffolding: {
+    name: "Scaffolding",
+    effectiveness: "excellent",
+    cost: "medium",
+    minHeight: 6,
+    description: "Climbable blocks for safe vertical access",
+    materials: ["scaffolding:64"],
+    skillLevel: "basic",
+    limitations: []
+  },
+
+  ladder: {
+    name: "Ladder",
+    effectiveness: "good",
+    cost: "low",
+    minHeight: 6,
+    description: "Wall-mounted climbing aid",
+    materials: ["ladder:32"],
+    skillLevel: "basic",
+    limitations: ["Requires wall support", "Slower than scaffolding"]
+  },
+
+  hay_bale: {
+    name: "Hay Bale",
+    effectiveness: "good",
+    cost: "low",
+    minHeight: 4,
+    description: "Reduces fall damage by 80% when landed on",
+    materials: ["hay_bale:4"],
+    skillLevel: "basic",
+    limitations: ["Must land directly on hay"]
+  },
+
+  slime_block: {
+    name: "Slime Block",
+    effectiveness: "excellent",
+    cost: "high",
+    minHeight: 4,
+    description: "Bounces player, negating fall damage",
+    materials: ["slime_block:4"],
+    skillLevel: "intermediate",
+    limitations: ["Expensive", "Bounces player"]
+  },
+
+  powder_snow: {
+    name: "Powder Snow",
+    effectiveness: "good",
+    cost: "medium",
+    minHeight: 4,
+    description: "Negates fall damage but causes freezing",
+    materials: ["powder_snow_bucket:2", "leather_boots:1"],
+    skillLevel: "intermediate",
+    limitations: ["Causes freezing damage", "Requires leather boots"]
+  },
+
+  vines: {
+    name: "Vines",
+    effectiveness: "moderate",
+    cost: "low",
+    minHeight: 6,
+    description: "Climbable plants, slow descent",
+    materials: ["vine:32"],
+    skillLevel: "basic",
+    limitations: ["Slow", "Can be hard to grab"]
+  },
+
+  feather_falling_boots: {
+    name: "Feather Falling Boots",
+    effectiveness: "good",
+    cost: "high",
+    minHeight: 10,
+    description: "Enchanted boots reduce fall damage significantly",
+    materials: ["diamond_boots:1", "enchanted_book:1"],
+    skillLevel: "advanced",
+    limitations: ["Requires enchanting", "Doesn't eliminate all damage"]
+  },
+
+  elytra: {
+    name: "Elytra",
+    effectiveness: "excellent",
+    cost: "very_high",
+    minHeight: 20,
+    description: "Glide to safety from any height",
+    materials: ["elytra:1", "firework_rocket:16"],
+    skillLevel: "expert",
+    limitations: ["Requires End access", "Durability concerns"]
+  },
+
+  slow_falling_potion: {
+    name: "Slow Falling Potion",
+    effectiveness: "excellent",
+    cost: "medium",
+    minHeight: 10,
+    description: "Negates all fall damage while active",
+    materials: ["slow_falling_potion:2"],
+    skillLevel: "intermediate",
+    limitations: ["Limited duration", "Requires brewing"]
+  }
+};
+
+const SAFETY_HEIGHT_THRESHOLDS = {
+  caution: 4,        // Start warning about falls
+  elevated: 10,      // Moderate fall risk
+  dangerous: 20,     // High fall risk
+  extreme: 50,       // Extreme fall risk
+  lethal: 100        // Certain death without protection
+};
+
+const ENVIRONMENT_HAZARDS = {
+  overworld: {
+    primary: ["fall_damage", "mob_spawns"],
+    secondary: ["weather"],
+    severity: "low"
+  },
+  nether: {
+    primary: ["lava", "fire", "ghasts", "fall_into_lava"],
+    secondary: ["hoglins", "piglins"],
+    severity: "extreme"
+  },
+  the_end: {
+    primary: ["void", "endermen", "shulkers"],
+    secondary: ["dragon"],
+    severity: "extreme"
+  },
+  underground: {
+    primary: ["cave_ins", "lava_pockets", "mob_spawns", "getting_lost"],
+    secondary: ["suffocation"],
+    severity: "high"
+  },
+  underwater: {
+    primary: ["drowning", "guardians"],
+    secondary: ["mining_fatigue", "low_visibility"],
+    severity: "high"
+  },
+  sky: {
+    primary: ["fall_damage", "phantoms", "lightning"],
+    secondary: ["wind"],
+    severity: "high"
+  }
+};
+
+/**
+ * Assess safety risk based on build parameters
+ * @param {Object} params - Build parameters {height, environment, terrain, weather}
+ * @returns {Object} Risk assessment with level and factors
+ */
+function assessSafetyRisk(params = {}) {
+  const {
+    height = 0,
+    environment = "overworld",
+    terrain = null,
+    weather = null,
+    hasMobs = true,
+    proximity = {} // {lava: boolean, water: boolean, void: boolean}
+  } = params;
+
+  let riskScore = 0;
+  const riskFactors = [];
+
+  // Height-based risk
+  if (height >= SAFETY_HEIGHT_THRESHOLDS.caution) {
+    riskScore += 1;
+    riskFactors.push(`Working at ${height} blocks height`);
+  }
+  if (height >= SAFETY_HEIGHT_THRESHOLDS.elevated) {
+    riskScore += 2;
+    riskFactors.push("Elevated work area");
+  }
+  if (height >= SAFETY_HEIGHT_THRESHOLDS.dangerous) {
+    riskScore += 3;
+    riskFactors.push("Dangerous height - lethal falls possible");
+  }
+  if (height >= SAFETY_HEIGHT_THRESHOLDS.extreme) {
+    riskScore += 4;
+    riskFactors.push("Extreme height - certain death from falls");
+  }
+
+  // Environment-based risk
+  const envHazards = ENVIRONMENT_HAZARDS[environment] || ENVIRONMENT_HAZARDS.overworld;
+  if (envHazards.severity === "high") {
+    riskScore += 3;
+  } else if (envHazards.severity === "extreme") {
+    riskScore += 5;
+  }
+
+  // Add environment hazards to factors
+  if (envHazards.primary.length > 0) {
+    riskFactors.push(`Environment hazards: ${envHazards.primary.join(', ')}`);
+  }
+
+  // Proximity hazards
+  if (proximity.void) {
+    riskScore += 5;
+    riskFactors.push("Void proximity - instant death if fall");
+  }
+  if (proximity.lava) {
+    riskScore += 3;
+    riskFactors.push("Lava proximity - fire damage risk");
+  }
+
+  // Terrain-specific risks
+  if (terrain) {
+    const terrainRisks = {
+      mountainside: 2,
+      mountain_peak: 3,
+      ravine: 4,
+      underwater: 2,
+      underground: 1,
+      nether_wastes: 3,
+      the_end: 4,
+      end_islands: 5
+    };
+
+    const terrainRisk = terrainRisks[terrain] || 0;
+    if (terrainRisk > 0) {
+      riskScore += terrainRisk;
+    }
+  }
+
+  // Weather hazards
+  if (weather === "stormy") {
+    riskScore += 1;
+    riskFactors.push("Stormy weather - lightning risk");
+  }
+
+  // Mob hazards
+  if (hasMobs && environment !== "mushroom_island") {
+    riskScore += 1;
+    riskFactors.push("Hostile mob presence");
+  }
+
+  // Determine risk level
+  let riskLevel = "low";
+  if (riskScore >= 12) {
+    riskLevel = "extreme";
+  } else if (riskScore >= 8) {
+    riskLevel = "high";
+  } else if (riskScore >= 4) {
+    riskLevel = "medium";
+  }
+
+  return {
+    level: riskLevel,
+    score: riskScore,
+    factors: riskFactors,
+    environmentHazards: envHazards
+  };
+}
+
+/**
+ * Generate safety recommendations based on risk assessment
+ * @param {Object} riskAssessment - Risk assessment object
+ * @param {Object} buildParams - Build parameters
+ * @returns {Array} Array of safety recommendations
+ */
+function generateSafetyRecommendations(riskAssessment, buildParams = {}) {
+  const recommendations = [];
+  const { level, factors, environmentHazards } = riskAssessment;
+  const { height = 0, environment = "overworld" } = buildParams;
+
+  // Fall protection recommendations
+  if (height >= SAFETY_HEIGHT_THRESHOLDS.caution) {
+    const protectionOptions = [];
+
+    if (height >= SAFETY_HEIGHT_THRESHOLDS.extreme && environment !== "nether") {
+      protectionOptions.push(FALL_PROTECTION_OPTIONS.slow_falling_potion);
+      protectionOptions.push(FALL_PROTECTION_OPTIONS.elytra);
+    } else if (height >= SAFETY_HEIGHT_THRESHOLDS.dangerous) {
+      protectionOptions.push(FALL_PROTECTION_OPTIONS.scaffolding);
+      protectionOptions.push(FALL_PROTECTION_OPTIONS.feather_falling_boots);
+      if (environment !== "nether") {
+        protectionOptions.push(FALL_PROTECTION_OPTIONS.water_bucket);
+      }
+    } else if (height >= SAFETY_HEIGHT_THRESHOLDS.elevated) {
+      protectionOptions.push(FALL_PROTECTION_OPTIONS.scaffolding);
+      protectionOptions.push(FALL_PROTECTION_OPTIONS.ladder);
+      if (environment !== "nether") {
+        protectionOptions.push(FALL_PROTECTION_OPTIONS.water_bucket);
+      }
+    } else {
+      protectionOptions.push(FALL_PROTECTION_OPTIONS.hay_bale);
+      protectionOptions.push(FALL_PROTECTION_OPTIONS.ladder);
+    }
+
+    if (protectionOptions.length > 0) {
+      recommendations.push({
+        type: "fall_protection",
+        priority: "high",
+        title: "Fall Protection Required",
+        description: `Working at ${height} blocks requires fall protection`,
+        options: protectionOptions.map(opt => ({
+          name: opt.name,
+          effectiveness: opt.effectiveness,
+          cost: opt.cost,
+          materials: opt.materials
+        }))
+      });
+    }
+  }
+
+  // Environment-specific recommendations
+  if (environment === "nether") {
+    recommendations.push({
+      type: "environment",
+      priority: "critical",
+      title: "Nether Safety Essentials",
+      description: "Building in the Nether requires special precautions",
+      requirements: [
+        "Fire Resistance potions (essential)",
+        "Building blocks for lava barriers",
+        "Bow for ghast defense",
+        "Avoid water placement (evaporates)"
+      ]
+    });
+  }
+
+  if (environment === "the_end" || buildParams.terrain?.includes("end")) {
+    recommendations.push({
+      type: "environment",
+      priority: "critical",
+      title: "End Dimension Safety",
+      description: "The void is instant death - extreme caution required",
+      requirements: [
+        "Slow Falling potions mandatory",
+        "Ender pearls for emergency escapes",
+        "Building blocks in hotbar at all times",
+        "Never dig straight down"
+      ]
+    });
+  }
+
+  if (environment === "underwater" || buildParams.terrain === "underwater") {
+    recommendations.push({
+      type: "environment",
+      priority: "high",
+      title: "Underwater Construction Safety",
+      description: "Drowning and guardians are primary threats",
+      requirements: [
+        "Water Breathing potions",
+        "Conduit for underwater breathing",
+        "Night Vision potions for visibility",
+        "Depth Strider boots for mobility"
+      ]
+    });
+  }
+
+  // Risk level-based recommendations
+  if (level === "extreme") {
+    recommendations.push({
+      type: "general",
+      priority: "critical",
+      title: "Extreme Risk - Maximum Precautions",
+      description: "This build poses extreme safety risks",
+      requirements: [
+        "Never work alone - have backup player nearby",
+        "Keep bed/respawn point nearby",
+        "Store valuables before working",
+        "Plan escape routes before starting",
+        "Bring extra sets of equipment"
+      ]
+    });
+  } else if (level === "high") {
+    recommendations.push({
+      type: "general",
+      priority: "high",
+      title: "High Risk - Enhanced Safety Measures",
+      description: "Significant hazards present - exercise caution",
+      requirements: [
+        "Establish safe work zones",
+        "Mark dangerous areas clearly",
+        "Keep emergency supplies accessible",
+        "Test safety equipment before use"
+      ]
+    });
+  }
+
+  // Mob safety
+  if (factors.some(f => f.includes("mob"))) {
+    recommendations.push({
+      type: "mob_safety",
+      priority: "medium",
+      title: "Mob Protection",
+      description: "Prevent hostile mob interference during construction",
+      requirements: [
+        "Light work area to prevent spawns (light level 8+)",
+        "Build perimeter fence or walls",
+        "Bring weapons and armor",
+        "Place torches as you build"
+      ]
+    });
+  }
+
+  // Weather safety
+  if (buildParams.weather === "stormy" || height >= SAFETY_HEIGHT_THRESHOLDS.dangerous) {
+    recommendations.push({
+      type: "weather",
+      priority: "medium",
+      title: "Lightning Protection",
+      description: "Elevated structures attract lightning",
+      requirements: [
+        "Avoid building during storms if possible",
+        "Install lightning rods on tall structures",
+        "Avoid wearing metal armor during storms",
+        "Create sheltered work areas"
+      ]
+    });
+  }
+
+  // General safety best practices
+  recommendations.push({
+    type: "best_practices",
+    priority: "low",
+    title: "General Safety Best Practices",
+    description: "Standard safety protocols for all builds",
+    requirements: [
+      "Keep food in inventory for health regeneration",
+      "Bring extra tools as backups",
+      "Mark your path for easy return",
+      "Save progress frequently (bed respawn)",
+      "Avoid building when tired or distracted"
+    ]
+  });
+
+  return recommendations;
+}
+
+/**
+ * Get recommended fall protection for given height and environment
+ * @param {number} height - Build height
+ * @param {string} environment - Environment type
+ * @returns {Array} Recommended fall protection options
+ */
+function getRecommendedFallProtection(height, environment = "overworld") {
+  const recommended = [];
+
+  if (height < SAFETY_HEIGHT_THRESHOLDS.caution) {
+    return recommended; // No fall protection needed
+  }
+
+  // Filter options based on environment
+  const validOptions = Object.values(FALL_PROTECTION_OPTIONS).filter(option => {
+    // Water buckets don't work in Nether
+    if (option.name === "Water Bucket" && environment === "nether") {
+      return false;
+    }
+    // Check minimum height requirement
+    if (height < option.minHeight) {
+      return false;
+    }
+    return true;
+  });
+
+  // Sort by effectiveness and cost
+  const effectivenessOrder = { excellent: 3, good: 2, moderate: 1 };
+  const costOrder = { low: 1, medium: 2, high: 3, very_high: 4 };
+
+  validOptions.sort((a, b) => {
+    const effDiff = effectivenessOrder[b.effectiveness] - effectivenessOrder[a.effectiveness];
+    if (effDiff !== 0) return effDiff;
+    return costOrder[a.cost] - costOrder[b.cost];
+  });
+
+  // Return top 3 options
+  return validOptions.slice(0, 3);
+}
+
 /**
  * Look up a terrain profile by name or normalized name
  * @param {string} terrainType - Terrain identifier
@@ -2549,6 +3028,32 @@ export function planBuildTask(task, context = {}) {
   const criticalPath = determineCriticalPath(buildPhases);
   const parallelWork = calculateParallelWork(buildPhases);
 
+  // Assess safety risks and generate recommendations
+  const safetyRisk = assessSafetyRisk({
+    height: height || (dimensions?.height) || 0,
+    environment: enhancedTask?.metadata?.environment || "overworld",
+    terrain: terrainProfile?.name || enhancedTask?.metadata?.terrain,
+    weather: enhancedTask?.metadata?.weather,
+    hasMobs: enhancedTask?.metadata?.threatLevel !== "none",
+    proximity: {
+      void: terrainProfile?.name?.includes("end") || terrainProfile?.name?.includes("ravine"),
+      lava: terrainProfile?.name?.includes("nether") || enhancedTask?.metadata?.environment === "nether"
+    }
+  });
+
+  const safetyRecommendations = generateSafetyRecommendations(safetyRisk, {
+    height: height || (dimensions?.height) || 0,
+    environment: enhancedTask?.metadata?.environment || "overworld",
+    terrain: terrainProfile?.name || enhancedTask?.metadata?.terrain,
+    weather: enhancedTask?.metadata?.weather
+  });
+
+  // Get fall protection recommendations
+  const fallProtection = getRecommendedFallProtection(
+    height || (dimensions?.height) || 0,
+    enhancedTask?.metadata?.environment || "overworld"
+  );
+
   const notes = [];
 
   // Add template usage note
@@ -2632,6 +3137,28 @@ export function planBuildTask(task, context = {}) {
     }
   }
 
+  // Add safety information
+  if (safetyRisk && safetyRisk.level !== "low") {
+    notes.push(`Safety Risk Level: ${safetyRisk.level.toUpperCase()} (score: ${safetyRisk.score}).`);
+
+    if (safetyRisk.factors && safetyRisk.factors.length > 0) {
+      const topFactors = safetyRisk.factors.slice(0, 2); // Show top 2 risk factors
+      notes.push(`Primary risks: ${topFactors.join(', ')}.`);
+    }
+  }
+
+  if (fallProtection && fallProtection.length > 0) {
+    const protectionNames = fallProtection.map(p => p.name).join(', ');
+    notes.push(`Recommended fall protection: ${protectionNames}.`);
+  }
+
+  if (safetyRecommendations && safetyRecommendations.length > 0) {
+    const criticalRecs = safetyRecommendations.filter(r => r.priority === "critical" || r.priority === "high");
+    if (criticalRecs.length > 0) {
+      notes.push(`${criticalRecs.length} critical safety recommendations - review before starting.`);
+    }
+  }
+
   return createPlan({
     task: enhancedTask,
     summary: `Construct ${blueprint} at ${targetDescription}.`,
@@ -2644,6 +3171,10 @@ export function planBuildTask(task, context = {}) {
     buildPhases,
     milestones,
     criticalPath,
-    parallelWork
+    parallelWork,
+    // Add safety metadata
+    safetyRisk,
+    safetyRecommendations,
+    fallProtection
   });
 }

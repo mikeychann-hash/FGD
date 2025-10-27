@@ -1131,6 +1131,458 @@ const MATERIAL_CALCULATOR = {
   }
 };
 
+// Terrain Analysis Profiles
+const TERRAIN_PROFILES = {
+  flat_plains: {
+    name: "Flat Plains",
+    preparation: "minimal",
+    difficulty: "easy",
+    clearanceTime: 60000, // ms
+    timeMultiplier: 1.0,
+    tools: ["shovel"],
+    materials: [],
+    considerations: ["Ideal building terrain", "May need basic leveling"],
+    risks: []
+  },
+
+  rolling_hills: {
+    name: "Rolling Hills",
+    preparation: "light",
+    difficulty: "easy",
+    clearanceTime: 120000,
+    timeMultiplier: 1.15,
+    tools: ["shovel", "dirt"],
+    materials: ["dirt:32"],
+    considerations: ["Minor elevation changes", "Light terraforming needed"],
+    risks: ["Uneven foundation may require adjustment"]
+  },
+
+  hilly: {
+    name: "Hilly Terrain",
+    preparation: "moderate",
+    difficulty: "medium",
+    clearanceTime: 300000,
+    timeMultiplier: 1.3,
+    tools: ["shovel", "pickaxe", "dirt"],
+    materials: ["dirt:64", "cobblestone:32"],
+    considerations: ["May need retaining walls", "Uneven foundation", "Terracing recommended"],
+    risks: ["Water drainage issues", "Foundation instability"]
+  },
+
+  mountainside: {
+    name: "Mountainside",
+    preparation: "extensive",
+    difficulty: "hard",
+    clearanceTime: 900000,
+    timeMultiplier: 1.8,
+    tools: ["pickaxe", "shovel", "scaffolding", "cobblestone"],
+    materials: ["cobblestone:128", "scaffolding:64"],
+    considerations: ["Steep drops", "Rockslides possible", "Platform building required", "Extensive excavation"],
+    risks: ["Fall damage from heights", "Unstable terrain", "Difficult material transport"]
+  },
+
+  mountain_peak: {
+    name: "Mountain Peak",
+    preparation: "extreme",
+    difficulty: "expert",
+    clearanceTime: 1200000,
+    timeMultiplier: 2.0,
+    tools: ["pickaxe", "shovel", "scaffolding", "ladder"],
+    materials: ["stone:256", "scaffolding:128", "ladder:32"],
+    considerations: ["Extreme elevation", "Weather exposure", "Limited flat space", "Platform construction essential"],
+    risks: ["Fatal falls", "Limited escape routes", "Phantom spawns at height", "Lightning strikes"]
+  },
+
+  forest: {
+    name: "Forest",
+    preparation: "moderate",
+    difficulty: "medium",
+    clearanceTime: 240000,
+    timeMultiplier: 1.25,
+    tools: ["axe", "shovel", "sapling"],
+    materials: ["torch:16"],
+    considerations: ["Tree removal required", "Keep saplings for replanting", "Root removal"],
+    risks: ["Mob spawning in shadows", "Fire hazard from lightning"]
+  },
+
+  dense_forest: {
+    name: "Dense Forest",
+    preparation: "extensive",
+    difficulty: "hard",
+    clearanceTime: 480000,
+    timeMultiplier: 1.5,
+    tools: ["axe", "shovel", "torch", "sapling"],
+    materials: ["torch:32", "sapling:16"],
+    considerations: ["Extensive clearing needed", "Dark environment", "Difficult navigation", "Replanting encouraged"],
+    risks: ["High mob spawn rate", "Easy to get lost", "Fire spread risk"]
+  },
+
+  jungle: {
+    name: "Jungle",
+    preparation: "extreme",
+    difficulty: "expert",
+    clearanceTime: 600000,
+    timeMultiplier: 1.7,
+    tools: ["axe", "machete", "torch", "ladder"],
+    materials: ["torch:48", "vine:32"],
+    considerations: ["Dense vegetation", "Tall trees", "Vines everywhere", "Uneven terrain"],
+    risks: ["Very high mob spawn rate", "Ocelots and parrots", "Easy to fall", "Poor visibility"]
+  },
+
+  swamp: {
+    name: "Swamp",
+    preparation: "extensive",
+    difficulty: "hard",
+    clearanceTime: 420000,
+    timeMultiplier: 1.6,
+    tools: ["shovel", "dirt", "lily_pad"],
+    materials: ["dirt:128", "gravel:64", "lily_pad:16"],
+    considerations: ["Waterlogged terrain", "Slime spawns", "Poor footing", "Foundation reinforcement critical"],
+    risks: ["Drowning hazard", "Slime attacks", "Witch huts nearby", "Difficult material transport"]
+  },
+
+  desert: {
+    name: "Desert",
+    preparation: "light",
+    difficulty: "easy",
+    clearanceTime: 90000,
+    timeMultiplier: 1.1,
+    tools: ["shovel", "water_bucket"],
+    materials: ["water_bucket:2"],
+    considerations: ["Sand removal easy", "No water sources", "Hot and dry", "Sandstone foundation recommended"],
+    risks: ["Husks spawn at night", "Limited resources", "No natural shade"]
+  },
+
+  beach: {
+    name: "Beach/Coastal",
+    preparation: "moderate",
+    difficulty: "medium",
+    clearanceTime: 180000,
+    timeMultiplier: 1.2,
+    tools: ["shovel", "cobblestone", "torch"],
+    materials: ["cobblestone:64", "gravel:32"],
+    considerations: ["Sand foundation unstable", "Water proximity", "Drowned spawns", "Tide considerations"],
+    risks: ["Drowned attacks", "Trident damage", "Foundation erosion", "Limited building space"]
+  },
+
+  underwater: {
+    name: "Underwater",
+    preparation: "extreme",
+    difficulty: "expert",
+    clearanceTime: 1800000,
+    timeMultiplier: 2.5,
+    tools: ["conduit", "sponge", "prismarine", "water_breathing_potion"],
+    materials: ["sponge:64", "glass:128", "prismarine:256"],
+    potions: ["water_breathing", "night_vision"],
+    considerations: ["Water removal essential", "Conduit power needed", "Sponge drying", "Limited visibility"],
+    risks: ["Drowning", "Guardians and elder guardians", "Slow movement", "Mining fatigue curse"]
+  },
+
+  underground: {
+    name: "Underground",
+    preparation: "extensive",
+    difficulty: "hard",
+    clearanceTime: 720000,
+    timeMultiplier: 1.9,
+    tools: ["pickaxe", "torch", "ladder", "bucket"],
+    materials: ["torch:128", "ladder:32", "cobblestone:64"],
+    considerations: ["Excavation required", "Cave-ins possible", "Constant lighting needed", "Ventilation shafts"],
+    risks: ["Cave-ins", "Lava pockets", "Hostile mobs", "Getting lost", "Suffocation"]
+  },
+
+  cavern: {
+    name: "Cavern",
+    preparation: "moderate",
+    difficulty: "medium",
+    clearanceTime: 300000,
+    timeMultiplier: 1.4,
+    tools: ["torch", "cobblestone", "ladder"],
+    materials: ["torch:64", "cobblestone:128"],
+    considerations: ["Pre-existing space", "Wall reinforcement", "Floor leveling", "Mob-proofing essential"],
+    risks: ["Mob spawns from dark areas", "Unstable ceiling", "Lava flows", "Water seepage"]
+  },
+
+  ravine: {
+    name: "Ravine",
+    preparation: "extreme",
+    difficulty: "expert",
+    clearanceTime: 960000,
+    timeMultiplier: 2.2,
+    tools: ["pickaxe", "cobblestone", "scaffolding", "water_bucket"],
+    materials: ["cobblestone:256", "scaffolding:128"],
+    considerations: ["Extreme vertical depth", "Bridge building required", "Wall stabilization", "Multi-level platforms"],
+    risks: ["Fatal falls", "Lava at bottom", "Mob spawns on ledges", "Difficult escape"]
+  },
+
+  nether_wastes: {
+    name: "Nether Wastes",
+    preparation: "extreme",
+    difficulty: "expert",
+    clearanceTime: 600000,
+    timeMultiplier: 2.0,
+    tools: ["fire_resistance_potion", "cobblestone", "building_blocks"],
+    materials: ["cobblestone:256", "building_blocks:128"],
+    potions: ["fire_resistance"],
+    considerations: ["Lava everywhere", "No water available", "Ghast attacks", "Fire spread", "Piglin aggression"],
+    risks: ["Lava burns", "Ghast fireballs", "Falling into lava", "Piglin attacks if no gold", "Accidental portal destruction"]
+  },
+
+  nether_fortress: {
+    name: "Nether Fortress Area",
+    preparation: "extreme",
+    difficulty: "expert",
+    clearanceTime: 720000,
+    timeMultiplier: 2.3,
+    tools: ["fire_resistance_potion", "building_blocks", "bow"],
+    materials: ["cobblestone:256", "building_blocks:192"],
+    potions: ["fire_resistance", "strength"],
+    considerations: ["Blaze spawners", "Wither skeletons", "Narrow bridges", "Lava moats"],
+    risks: ["Blaze attacks", "Wither effect", "Knocked off bridges", "Continuous spawns"]
+  },
+
+  basalt_deltas: {
+    name: "Basalt Deltas",
+    preparation: "extreme",
+    difficulty: "expert",
+    clearanceTime: 840000,
+    timeMultiplier: 2.4,
+    tools: ["fire_resistance_potion", "pickaxe", "building_blocks"],
+    materials: ["basalt:256", "building_blocks:128"],
+    potions: ["fire_resistance", "slow_falling"],
+    considerations: ["Uneven basalt pillars", "Magma cubes", "Lava rivers", "Difficult terrain navigation"],
+    risks: ["Magma cube attacks", "Lava pockets", "Fall damage from pillars", "Ghast spawns"]
+  },
+
+  soul_sand_valley: {
+    name: "Soul Sand Valley",
+    preparation: "extreme",
+    difficulty: "expert",
+    clearanceTime: 660000,
+    timeMultiplier: 2.1,
+    tools: ["fire_resistance_potion", "soul_sand", "soul_soil"],
+    materials: ["building_blocks:192", "soul_sand:64"],
+    potions: ["fire_resistance", "speed"],
+    considerations: ["Soul sand slows movement", "Skeletons everywhere", "Blue fire", "Ghast spawns"],
+    risks: ["Skeleton ambush", "Ghast attacks", "Slow escape", "Blue fire damage"]
+  },
+
+  crimson_forest: {
+    name: "Crimson Forest",
+    preparation: "extreme",
+    difficulty: "hard",
+    clearanceTime: 540000,
+    timeMultiplier: 1.8,
+    tools: ["axe", "fire_resistance_potion", "warped_fungus"],
+    materials: ["crimson_planks:128"],
+    potions: ["fire_resistance"],
+    considerations: ["Crimson trees", "Hoglins", "Piglins", "Dense fungus", "Gold armor required"],
+    risks: ["Hoglin charges", "Piglin aggression", "Ghasts from distance"]
+  },
+
+  warped_forest: {
+    name: "Warped Forest",
+    preparation: "extreme",
+    difficulty: "hard",
+    clearanceTime: 540000,
+    timeMultiplier: 1.75,
+    tools: ["axe", "fire_resistance_potion"],
+    materials: ["warped_planks:128"],
+    potions: ["fire_resistance"],
+    considerations: ["Warped trees", "Endermen everywhere", "Fewer hostile mobs", "Eerie particles"],
+    risks: ["Enderman aggression", "Teleportation surprises", "Disorientation from particles"]
+  },
+
+  the_end: {
+    name: "The End",
+    preparation: "extreme",
+    difficulty: "expert",
+    clearanceTime: 900000,
+    timeMultiplier: 2.5,
+    tools: ["building_blocks", "ender_pearl", "slow_falling_potion"],
+    materials: ["building_blocks:512", "end_stone:256"],
+    potions: ["slow_falling", "strength"],
+    considerations: ["Void below", "Endermen everywhere", "Shulkers", "Dragon may still be alive", "Limited resources"],
+    risks: ["Falling into void (instant death)", "Enderman swarms", "Shulker levitation", "Dragon attacks", "No escape without portal"]
+  },
+
+  end_islands: {
+    name: "End Outer Islands",
+    preparation: "extreme",
+    difficulty: "expert",
+    clearanceTime: 1080000,
+    timeMultiplier: 2.7,
+    tools: ["building_blocks", "ender_pearl", "elytra", "slow_falling_potion"],
+    materials: ["building_blocks:768", "chorus_fruit:32"],
+    potions: ["slow_falling", "strength", "regeneration"],
+    considerations: ["Islands separated by void", "Shulker cities", "Chorus plants", "End ships", "Bridge building essential"],
+    risks: ["Void falls", "Shulker levitation into void", "Enderman knockback", "Running out of blocks", "Elytra malfunction"]
+  },
+
+  mushroom_island: {
+    name: "Mushroom Island",
+    preparation: "minimal",
+    difficulty: "easy",
+    clearanceTime: 75000,
+    timeMultiplier: 0.9,
+    tools: ["shovel", "shears"],
+    materials: [],
+    considerations: ["No hostile mob spawns", "Mycelium ground", "Giant mushrooms", "Mooshrooms only"],
+    risks: []
+  },
+
+  ice_plains: {
+    name: "Ice Plains",
+    preparation: "moderate",
+    difficulty: "medium",
+    clearanceTime: 210000,
+    timeMultiplier: 1.3,
+    tools: ["pickaxe", "shovel", "silk_touch"],
+    materials: ["packed_ice:64", "blue_ice:32"],
+    considerations: ["Ice removal or preservation", "Cold environment", "Polar bears", "Frozen water sources"],
+    risks: ["Strays spawn", "Polar bear aggression", "Slippery surfaces"]
+  },
+
+  snowy_tundra: {
+    name: "Snowy Tundra",
+    preparation: "moderate",
+    difficulty: "medium",
+    clearanceTime: 180000,
+    timeMultiplier: 1.25,
+    tools: ["shovel", "torch"],
+    materials: ["torch:24"],
+    considerations: ["Snow layer removal", "Cold biome", "Snow accumulation", "Limited visibility in snowstorms"],
+    risks: ["Strays spawn", "Snowstorms reduce visibility", "Ice hazards"]
+  },
+
+  frozen_ocean: {
+    name: "Frozen Ocean",
+    preparation: "extreme",
+    difficulty: "expert",
+    clearanceTime: 1200000,
+    timeMultiplier: 2.4,
+    tools: ["pickaxe", "water_breathing_potion", "silk_touch", "conduit"],
+    materials: ["packed_ice:256", "blue_ice:128", "prismarine:128"],
+    potions: ["water_breathing", "night_vision", "water_resistance"],
+    considerations: ["Ice ceiling", "Underwater building", "Polar bears on ice", "Drowned spawns"],
+    risks: ["Drowning", "Polar bear attacks", "Drowned with tridents", "Trapped under ice", "Guardians"]
+  },
+
+  mesa_badlands: {
+    name: "Mesa/Badlands",
+    preparation: "moderate",
+    difficulty: "medium",
+    clearanceTime: 240000,
+    timeMultiplier: 1.35,
+    tools: ["shovel", "pickaxe"],
+    materials: ["terracotta:64", "red_sand:32"],
+    considerations: ["Terracotta layers", "Red sand", "Extreme elevation changes", "Abandoned mineshafts"],
+    risks: ["Cave spider spawns", "Unstable overhangs", "Fall damage from cliffs"]
+  },
+
+  savanna: {
+    name: "Savanna",
+    preparation: "light",
+    difficulty: "easy",
+    clearanceTime: 120000,
+    timeMultiplier: 1.1,
+    tools: ["axe", "shovel"],
+    materials: ["acacia_log:16"],
+    considerations: ["Sparse trees", "Mostly flat", "Acacia wood available", "Villages common"],
+    risks: ["Limited shade", "Hostile mobs at night"]
+  }
+};
+
+/**
+ * Look up a terrain profile by name or normalized name
+ * @param {string} terrainType - Terrain identifier
+ * @returns {Object|null} Terrain profile or null
+ */
+function findTerrainProfile(terrainType) {
+  if (!terrainType || typeof terrainType !== 'string') {
+    return null;
+  }
+
+  const normalized = normalizeItemName(terrainType);
+
+  // Direct lookup
+  if (TERRAIN_PROFILES[terrainType]) {
+    return TERRAIN_PROFILES[terrainType];
+  }
+
+  // Normalized lookup
+  if (TERRAIN_PROFILES[normalized]) {
+    return TERRAIN_PROFILES[normalized];
+  }
+
+  // Fuzzy match on profile names
+  for (const [key, profile] of Object.entries(TERRAIN_PROFILES)) {
+    const profileNameNormalized = normalizeItemName(profile.name);
+    if (profileNameNormalized === normalized || key === normalized) {
+      return profile;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Apply terrain profile to task, adding terrain-specific requirements
+ * @param {Object} task - Task object
+ * @param {Object} terrainProfile - Terrain profile object
+ * @returns {Object} Task with terrain modifications
+ */
+function applyTerrainProfile(task, terrainProfile) {
+  if (!terrainProfile) {
+    return task;
+  }
+
+  const enhancedTask = { ...task };
+  const metadata = { ...task.metadata };
+
+  // Add terrain-specific tools if not already present
+  if (terrainProfile.tools && terrainProfile.tools.length > 0) {
+    const existingTools = metadata.requiredTools || [];
+    const newTools = [...new Set([...existingTools, ...terrainProfile.tools])];
+    metadata.requiredTools = newTools;
+  }
+
+  // Add terrain-specific materials
+  if (terrainProfile.materials && terrainProfile.materials.length > 0) {
+    const terrainMaterials = terrainProfile.materials.map(mat => {
+      if (typeof mat === 'string') {
+        const [name, count] = mat.includes(':') ? mat.split(':') : [mat, 1];
+        return { name: normalizeItemName(name), count: parseInt(count, 10) };
+      }
+      return mat;
+    });
+
+    const existingMaterials = metadata.materials || [];
+    metadata.terrainMaterials = terrainMaterials;
+
+    // Merge with existing if we want combined list
+    if (existingMaterials.length === 0) {
+      metadata.materials = terrainMaterials;
+    }
+  }
+
+  // Add potions if required
+  if (terrainProfile.potions && terrainProfile.potions.length > 0) {
+    metadata.requiredPotions = terrainProfile.potions;
+  }
+
+  // Store terrain info for later reference
+  metadata.terrainProfile = terrainProfile.name;
+  metadata.terrainDifficulty = terrainProfile.difficulty;
+  metadata.terrainPreparation = terrainProfile.preparation;
+
+  enhancedTask.metadata = metadata;
+  enhancedTask.terrainUsed = terrainProfile.name;
+  enhancedTask.terrainClearanceTime = terrainProfile.clearanceTime;
+  enhancedTask.terrainTimeMultiplier = terrainProfile.timeMultiplier || 1.0;
+
+  return enhancedTask;
+}
+
 /**
  * Look up a building template by name or normalized name
  * @param {string} templateName - Template identifier
@@ -1373,7 +1825,16 @@ export function planBuildTask(task, context = {}) {
   const template = findBuildingTemplate(templateName);
 
   // Apply template if found, otherwise use original task
-  const enhancedTask = template ? applyTemplateToTask(task, template) : task;
+  let enhancedTask = template ? applyTemplateToTask(task, template) : task;
+
+  // Check for and apply terrain profile
+  const terrainType = enhancedTask?.metadata?.terrain || enhancedTask?.metadata?.terrainType || enhancedTask?.metadata?.biome;
+  const terrainProfile = findTerrainProfile(terrainType);
+
+  // Apply terrain profile if found
+  if (terrainProfile) {
+    enhancedTask = applyTerrainProfile(enhancedTask, terrainProfile);
+  }
 
   const blueprint = normalizeItemName(
     enhancedTask?.metadata?.blueprint ||
@@ -1500,7 +1961,41 @@ export function planBuildTask(task, context = {}) {
     })
   );
 
-  if (enhancedTask?.metadata?.terrain === "uneven" || enhancedTask?.metadata?.levelGround) {
+  // Add terrain-specific preparation step
+  if (terrainProfile) {
+    const terrainStepTitle = terrainProfile.preparation === "minimal" ? "Inspect terrain" : "Prepare terrain";
+    const terrainStepDescription = terrainProfile.considerations && terrainProfile.considerations.length > 0
+      ? `${terrainProfile.name} terrain requires ${terrainProfile.preparation} preparation. ${terrainProfile.considerations.join(' ')}`
+      : `Prepare ${terrainProfile.name} terrain for construction (${terrainProfile.preparation} preparation required).`;
+
+    steps.push(
+      createStep({
+        title: terrainStepTitle,
+        type: "preparation",
+        description: terrainStepDescription,
+        metadata: {
+          terrainType: terrainProfile.name,
+          difficulty: terrainProfile.difficulty,
+          estimatedTime: terrainProfile.clearanceTime,
+          requiredTools: terrainProfile.tools,
+          considerations: terrainProfile.considerations
+        }
+      })
+    );
+
+    // Add potion preparation step if potions are required
+    if (terrainProfile.potions && terrainProfile.potions.length > 0) {
+      steps.push(
+        createStep({
+          title: "Prepare potions",
+          type: "inventory",
+          description: `Brew required potions for ${terrainProfile.name}: ${terrainProfile.potions.join(', ')}. Bring extras for safety.`,
+          metadata: { potions: terrainProfile.potions }
+        })
+      );
+    }
+  } else if (enhancedTask?.metadata?.terrain === "uneven" || enhancedTask?.metadata?.levelGround) {
+    // Fallback for generic terrain specification
     steps.push(
       createStep({
         title: "Prepare terrain",
@@ -1643,21 +2138,67 @@ export function planBuildTask(task, context = {}) {
     risks.push(`${template.name} is rated as expert difficulty; advanced knowledge required.`);
   }
 
+  // Add terrain-specific risks
+  if (terrainProfile && terrainProfile.risks && terrainProfile.risks.length > 0) {
+    risks.push(...terrainProfile.risks);
+
+    // Add terrain difficulty warning
+    if (terrainProfile.difficulty === "hard") {
+      risks.push(`${terrainProfile.name} is challenging terrain; expect ${terrainProfile.preparation} site preparation.`);
+    }
+    if (terrainProfile.difficulty === "expert") {
+      risks.push(`${terrainProfile.name} is expert-level terrain; requires specialized equipment and experience.`);
+    }
+  }
+
   const volumeWeight = enclosedVolume && enclosedVolume > 0 ? enclosedVolume * VOLUME_TIME_MULTIPLIER : 0;
 
   // Use template duration if available, otherwise calculate
-  const estimatedDuration = enhancedTask.templateEstimatedDuration || (
+  let baseDuration = enhancedTask.templateEstimatedDuration || (
     BUILD_TIME_BASE +
     blockCount * BUILD_TIME_PER_BLOCK +
     (height && height > TALL_STRUCTURE_THRESHOLD ? BUILD_TIME_TALL_STRUCTURE : 0) +
     volumeWeight
   );
 
+  // Apply terrain time multiplier if terrain profile is used
+  const terrainTimeMultiplier = terrainProfile ? terrainProfile.timeMultiplier : 1.0;
+  const terrainClearanceTime = terrainProfile ? terrainProfile.clearanceTime : 0;
+
+  const estimatedDuration = Math.ceil((baseDuration * terrainTimeMultiplier) + terrainClearanceTime);
+
   const notes = [];
 
   // Add template usage note
   if (template) {
     notes.push(`Using template: ${template.name} (${template.category}).`);
+  }
+
+  // Add terrain profile notes
+  if (terrainProfile) {
+    notes.push(`Terrain: ${terrainProfile.name} (${terrainProfile.difficulty} difficulty, ${terrainProfile.preparation} preparation).`);
+
+    if (terrainProfile.considerations && terrainProfile.considerations.length > 0) {
+      notes.push(`Terrain considerations: ${terrainProfile.considerations.join(', ')}.`);
+    }
+
+    if (terrainClearanceTime > 0) {
+      const clearanceMinutes = Math.ceil(terrainClearanceTime / 60000);
+      notes.push(`Estimated terrain clearance time: ${clearanceMinutes} minutes.`);
+    }
+
+    if (terrainTimeMultiplier !== 1.0) {
+      const percentChange = Math.round((terrainTimeMultiplier - 1.0) * 100);
+      if (percentChange > 0) {
+        notes.push(`Terrain increases build time by ${percentChange}%.`);
+      } else {
+        notes.push(`Terrain reduces build time by ${Math.abs(percentChange)}%.`);
+      }
+    }
+
+    if (terrainProfile.potions && terrainProfile.potions.length > 0) {
+      notes.push(`Required potions: ${terrainProfile.potions.join(', ')}.`);
+    }
   }
 
   if (orientation) {

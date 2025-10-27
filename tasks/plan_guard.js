@@ -12,13 +12,19 @@ import {
   resolveQuantity
 } from "./helpers.js";
 
-// Default equipment and configuration constants
-const DEFAULT_PRIMARY_WEAPON = "sword";
-const DEFAULT_SECONDARY_WEAPON = "shield";
-const DEFAULT_ARMOR = "armor";
+import {
+  COMBAT_CONSTANTS,
+  COMBAT_EQUIPMENT,
+  DEFENSIVE_SYSTEMS
+} from "./combat_utils.js";
+
+// Default equipment and configuration constants (using shared constants)
+const DEFAULT_PRIMARY_WEAPON = COMBAT_CONSTANTS.DEFAULT_PRIMARY_WEAPON;
+const DEFAULT_SECONDARY_WEAPON = COMBAT_CONSTANTS.DEFAULT_SECONDARY_WEAPON;
+const DEFAULT_ARMOR = COMBAT_CONSTANTS.DEFAULT_ARMOR;
+const DEFAULT_STANCE = COMBAT_CONSTANTS.DEFAULT_STANCE;
+const UNSPECIFIED_ITEM = COMBAT_CONSTANTS.UNSPECIFIED_ITEM;
 const DEFAULT_ALARM = "bell";
-const DEFAULT_STANCE = "defensive";
-const UNSPECIFIED_ITEM = "unspecified item";
 
 // Duration constants (in milliseconds)
 const BASE_DURATION_MS = 10000;
@@ -30,6 +36,7 @@ const DEFAULT_REPORT_CADENCE = "regular";
 
 /**
  * Plans a guard task with equipment preparation, positioning, and patrol logic.
+ * Uses shared combat utilities from combat_utils.js for equipment validation and defensive systems.
  *
  * @param {Object} task - The guard task to plan
  * @param {Object} task.target - The target location to guard (required)
@@ -44,6 +51,7 @@ const DEFAULT_REPORT_CADENCE = "regular";
  * @param {string} [task.metadata.secondaryWeapon] - Secondary weapon type
  * @param {Array|string} [task.metadata.potions] - Potions to carry
  * @param {boolean} [task.metadata.fortify] - Whether to fortify the area
+ * @param {string} [task.metadata.threatLevel] - Threat level (low, medium, high, extreme)
  * @param {boolean} [task.metadata.highThreat] - High threat level indicator
  * @param {string} [task.metadata.rotation] - Guard rotation schedule
  * @param {Object} [task.metadata.safeZone] - Fallback safe zone location
@@ -80,8 +88,9 @@ export function planGuardTask(task, context = {}) {
     equipment.push(DEFAULT_PRIMARY_WEAPON);
   }
 
-  const inventory = extractInventory(context);
-  const missingEquipment = equipment.filter(item => !hasInventoryItem(inventory, item));
+  // Use shared equipment validation
+  const equipmentValidation = COMBAT_EQUIPMENT.validateEquipment(equipment, context);
+  const missingEquipment = equipmentValidation.missing;
 
   const steps = [];
 
@@ -97,7 +106,7 @@ export function planGuardTask(task, context = {}) {
       title: "Equip gear",
       type: "preparation",
       description: equipDescription,
-      metadata: { equipment, missing: missingEquipment }
+      metadata: { equipment, missing: missingEquipment, validation: equipmentValidation }
     })
   );
 
@@ -125,12 +134,29 @@ export function planGuardTask(task, context = {}) {
   );
 
   if (task?.metadata?.fortify) {
+    // Use shared defensive systems for fortification recommendations
+    const threatLevel = task?.metadata?.threatLevel || "medium";
+    const timeAvailable = shiftDurationMinutes ? Math.min(shiftDurationMinutes * 0.3, 20) : 15;
+    const defensiveSetup = DEFENSIVE_SYSTEMS.suggestDefensiveSetup({
+      threatLevel,
+      availableMaterials: extractInventory(context),
+      timeAvailable
+    });
+
+    const fortifyDescription = defensiveSetup.recommendations.length > 0
+      ? `Fortify area: ${defensiveSetup.recommendations.map(r => r.type).join(", ")}. Estimated setup: ${defensiveSetup.estimatedTime} minutes.`
+      : "Place defensive blocks, lighting, and traps as requested before starting the watch.";
+
     steps.push(
       createStep({
         title: "Fortify area",
         type: "construction",
-        description: `Place defensive blocks, lighting, and traps as requested before starting the watch.`,
-        metadata: { fortify: task.metadata.fortify }
+        description: fortifyDescription,
+        metadata: {
+          fortify: task.metadata.fortify,
+          defensiveSetup,
+          recommendations: defensiveSetup.recommendations
+        }
       })
     );
   }

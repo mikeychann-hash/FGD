@@ -9,6 +9,18 @@ import { planGuardTask } from "./plan_guard.js";
 import { planCraftTask } from "./plan_craft.js";
 import { planInteractTask } from "./plan_interact.js";
 import { planCombatTask } from "./plan_combat.js";
+import { planEatTask } from "./plan_eat.js";
+import { planSleepTask } from "./plan_sleep.js";
+import { planDoorTask } from "./plan_door.js";
+import { planClimbTask } from "./plan_climb.js";
+import { planRedstoneTask } from "./plan_redstone.js";
+import { planThrowTask } from "./plan_throw.js";
+import { planTradeTask } from "./plan_trade.js";
+import { planMinecartTask } from "./plan_minecart.js";
+import { planItemFrameTask } from "./plan_display.js";
+import { planComposterTask } from "./plan_composter.js";
+import { planScaffoldingTask } from "./plan_scaffolding.js";
+import { planRangedTask } from "./plan_ranged.js";
 
 import {
   describeTarget,
@@ -42,7 +54,19 @@ const TASK_PLANNERS = {
   guard: planGuardTask,
   craft: planCraftTask,
   interact: planInteractTask,
-  combat: planCombatTask
+  combat: planCombatTask,
+  eat: planEatTask,
+  sleep: planSleepTask,
+  door: planDoorTask,
+  climb: planClimbTask,
+  redstone: planRedstoneTask,
+  throw: planThrowTask,
+  trade: planTradeTask,
+  minecart: planMinecartTask,
+  display: planItemFrameTask,
+  composter: planComposterTask,
+  scaffolding: planScaffoldingTask,
+  ranged: planRangedTask
 };
 
 export function planTask(task, context = {}) {
@@ -64,3 +88,27 @@ export function planTask(task, context = {}) {
 export function hasPlanner(action) {
   return Boolean(TASK_PLANNERS[action]);
 }
+
+// Export individual task planners
+export {
+  planBuildTask,
+  planMineTask,
+  planExploreTask,
+  planGatherTask,
+  planGuardTask,
+  planCraftTask,
+  planInteractTask,
+  planCombatTask,
+  planEatTask,
+  planSleepTask,
+  planDoorTask,
+  planClimbTask,
+  planRedstoneTask,
+  planThrowTask,
+  planTradeTask,
+  planMinecartTask,
+  planItemFrameTask,
+  planComposterTask,
+  planScaffoldingTask,
+  planRangedTask
+};

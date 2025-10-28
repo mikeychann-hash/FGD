@@ -18,6 +18,9 @@ import { planThrowTask } from "./plan_throw.js";
 import { planTradeTask } from "./plan_trade.js";
 import { planMinecartTask } from "./plan_minecart.js";
 import { planItemFrameTask } from "./plan_display.js";
+import { planComposterTask } from "./plan_composter.js";
+import { planScaffoldingTask } from "./plan_scaffolding.js";
+import { planRangedTask } from "./plan_ranged.js";
 
 import {
   describeTarget,
@@ -60,7 +63,10 @@ const TASK_PLANNERS = {
   throw: planThrowTask,
   trade: planTradeTask,
   minecart: planMinecartTask,
-  display: planItemFrameTask
+  display: planItemFrameTask,
+  composter: planComposterTask,
+  scaffolding: planScaffoldingTask,
+  ranged: planRangedTask
 };
 
 export function planTask(task, context = {}) {
@@ -101,5 +107,8 @@ export {
   planThrowTask,
   planTradeTask,
   planMinecartTask,
-  planItemFrameTask
+  planItemFrameTask,
+  planComposterTask,
+  planScaffoldingTask,
+  planRangedTask
 };

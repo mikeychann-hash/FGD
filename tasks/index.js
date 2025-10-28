@@ -16,6 +16,8 @@ import { planClimbTask } from "./plan_climb.js";
 import { planRedstoneTask } from "./plan_redstone.js";
 import { planThrowTask } from "./plan_throw.js";
 import { planTradeTask } from "./plan_trade.js";
+import { planMinecartTask } from "./plan_minecart.js";
+import { planItemFrameTask } from "./plan_display.js";
 
 import {
   describeTarget,
@@ -56,7 +58,9 @@ const TASK_PLANNERS = {
   climb: planClimbTask,
   redstone: planRedstoneTask,
   throw: planThrowTask,
-  trade: planTradeTask
+  trade: planTradeTask,
+  minecart: planMinecartTask,
+  display: planItemFrameTask
 };
 
 export function planTask(task, context = {}) {
@@ -95,5 +99,7 @@ export {
   planClimbTask,
   planRedstoneTask,
   planThrowTask,
-  planTradeTask
+  planTradeTask,
+  planMinecartTask,
+  planItemFrameTask
 };

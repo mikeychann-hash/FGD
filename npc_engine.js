@@ -1,5 +1,48 @@
 // ai/npc_engine.js
 // Core AI task manager for AICraft NPCs
+//
+// MODULARIZATION RECOMMENDATIONS:
+// ================================
+// This file has grown to 730+ lines and could benefit from being split into focused modules:
+//
+// 1. ai/npc_engine/autonomy.js
+//    - enableModelAutonomy()
+//    - disableModelAutonomy()
+//    - runAutonomyCycle()
+//    Purpose: Isolate AI-driven autonomous task generation logic
+//
+// 2. ai/npc_engine/queue.js
+//    - enqueueTask()
+//    - processQueue()
+//    - findQueueIndexForNpc()
+//    - Back-pressure logic and queue management
+//    Purpose: Dedicated queue management with priority and back-pressure handling
+//
+// 3. ai/npc_engine/dispatch.js
+//    - dispatchTask()
+//    - simulateTaskExecution()
+//    - assignTask()
+//    - completeTask()
+//    Purpose: Task execution and lifecycle management
+//
+// 4. ai/npc_engine/bridge.js
+//    - attachBridgeListeners()
+//    - detachBridgeListeners()
+//    - handleBridge*() methods
+//    - spawnNPC()
+//    Purpose: External communication and bridge integration
+//
+// 5. ai/npc_engine/core.js
+//    - NPCEngine class skeleton with NPC registration
+//    - getStatus()
+//    - Configuration and initialization
+//    Purpose: Main orchestration and public API
+//
+// Benefits of modularization:
+// - Easier testing of individual subsystems
+// - Reduced cognitive load when working on specific features
+// - Better separation of concerns
+// - Enables parallel development on different subsystems
 
 import EventEmitter from "events";
 
@@ -10,6 +53,7 @@ import { planTask } from "./tasks/index.js";
 
 const TASK_TIMEOUT = 30000; // 30 seconds max per task
 const SIMULATED_TASK_DURATION = 3000;
+const DEFAULT_MAX_QUEUE_SIZE = 100; // Default back-pressure threshold
 const PRIORITY_WEIGHT = {
   high: 2,
   normal: 1,
@@ -32,6 +76,17 @@ function normalizePriority(priority) {
     return priority;
   }
   return "normal";
+}
+
+function normalizeControlRatio(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.min(1, Math.max(0, value));
+  }
+  const parsed = Number(value);
+  if (Number.isFinite(parsed)) {
+    return Math.min(1, Math.max(0, parsed));
+  }
+  return undefined;
 }
 
 function cloneTask(task) {
@@ -60,6 +115,7 @@ export class NPCEngine extends EventEmitter {
     this.requireFeedback = options.requireFeedback ?? true;
     this.modelControlRatio = normalizeControlRatio(options.modelControlRatio);
     this.interpreterOptions = { ...(options.interpreterOptions || {}) };
+    this.maxQueueSize = options.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE;
     this.autonomyConfig = null;
     this.autonomyTimer = null;
     this.autonomyRunning = false;
@@ -313,6 +369,46 @@ export class NPCEngine extends EventEmitter {
   }
 
   enqueueTask(task) {
+    // Back-pressure: check if queue is at capacity
+    if (this.taskQueue.length >= this.maxQueueSize) {
+      const incomingPriority = PRIORITY_WEIGHT[task.priority] ?? PRIORITY_WEIGHT.normal;
+
+      // Find the lowest priority task in the queue
+      let lowestPriorityIndex = -1;
+      let lowestPriorityValue = Infinity;
+
+      for (let i = this.taskQueue.length - 1; i >= 0; i--) {
+        const queuedPriority = PRIORITY_WEIGHT[this.taskQueue[i].task.priority] ?? PRIORITY_WEIGHT.normal;
+        if (queuedPriority < lowestPriorityValue) {
+          lowestPriorityValue = queuedPriority;
+          lowestPriorityIndex = i;
+        }
+      }
+
+      // If incoming task has higher priority than lowest in queue, drop the lowest
+      if (incomingPriority > lowestPriorityValue) {
+        const dropped = this.taskQueue.splice(lowestPriorityIndex, 1)[0];
+        console.warn(
+          `⚠️  Queue at capacity (${this.maxQueueSize}). Dropped lower priority task: ${dropped.task.action}`
+        );
+        this.emit("task_dropped", {
+          task: cloneTask(dropped.task),
+          reason: "back_pressure",
+          droppedFor: cloneTask(task)
+        });
+      } else {
+        // Incoming task is lower or equal priority, reject it
+        console.warn(
+          `⚠️  Queue at capacity (${this.maxQueueSize}). Rejecting task: ${task.action} (priority: ${task.priority})`
+        );
+        this.emit("task_rejected", {
+          task: cloneTask(task),
+          reason: "back_pressure"
+        });
+        return -1; // Indicate rejection
+      }
+    }
+
     const entry = {
       task: cloneTask(task),
       enqueuedAt: Date.now()
@@ -553,6 +649,10 @@ export class NPCEngine extends EventEmitter {
       idle: 0,
       working: 0,
       queueLength: this.taskQueue.length,
+      maxQueueSize: this.maxQueueSize,
+      queueUtilization: this.maxQueueSize > 0
+        ? Math.round((this.taskQueue.length / this.maxQueueSize) * 100)
+        : 0,
       queueByPriority: { high: 0, normal: 0, low: 0 },
       npcs: [],
       bridgeConnected: Boolean(this.bridge?.isConnected?.())
@@ -714,17 +814,6 @@ export class NPCEngine extends EventEmitter {
   setModelControlRatio(ratio) {
     this.modelControlRatio = normalizeControlRatio(ratio);
   }
-}
-
-function normalizeControlRatio(value) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.min(1, Math.max(0, value));
-  }
-  const parsed = Number(value);
-  if (Number.isFinite(parsed)) {
-    return Math.min(1, Math.max(0, parsed));
-  }
-  return undefined;
 }
 
 if (process.argv[1].includes("npc_engine.js")) {

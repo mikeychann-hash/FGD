@@ -1,5 +1,5 @@
 :root {
-  /* Color Palette */
+  /* Dark Theme (Default) */
   --bg-gradient: radial-gradient(circle at top left, #1f2937, #0b1120 55%, #050810 100%);
   --card-bg: rgba(17, 24, 39, 0.92);
   --card-border: rgba(148, 163, 184, 0.12);
@@ -10,6 +10,7 @@
   --success: #34d399;
   --danger: #f87171;
   --warning: #fbbf24;
+  --shadow-color: rgba(15, 23, 42, 0.8);
 
   /* Typography */
   --font-display: "Inter", "Segoe UI", sans-serif;
@@ -24,6 +25,26 @@
   /* Effects */
   --blur-amount: 14px;
   --transition-speed: 0.2s;
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --bg-gradient: radial-gradient(circle at top left, #f8fafc, #e0e7ff 55%, #dbeafe 100%);
+  --card-bg: rgba(255, 255, 255, 0.95);
+  --card-border: rgba(148, 163, 184, 0.25);
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.15);
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --success: #10b981;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --shadow-color: rgba(15, 23, 42, 0.1);
+}
+
+/* Smooth theme transitions */
+* {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
 /* ===================================
@@ -800,3 +821,34 @@ footer {
   text-align: center;
   padding-top: var(--spacing-section);
 }
+
+/* ===================================
+   Theme Toggle
+   =================================== */
+
+#theme-toggle {
+  margin-left: auto;
+  padding: 8px 16px;
+  background: rgba(96, 165, 250, 0.1);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  color: var(--text-primary);
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all var(--transition-speed) ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#theme-toggle:hover {
+  background: rgba(96, 165, 250, 0.2);
+  border-color: rgba(96, 165, 250, 0.5);
+  transform: translateY(-2px);
+}
+
+#theme-toggle:active {
+  transform: translateY(0);
+}
+

@@ -22,6 +22,9 @@
         <a href="admin.html" class="nav-link">
           <span aria-hidden="true">⚡</span> Admin Panel
         </a>
+        <button id="theme-toggle" aria-label="Toggle theme">
+          <span aria-hidden="true">☀️</span> Light Mode
+        </button>
       </nav>
     </div>
     <p>Monitor the health, performance, and coordination of the AICraft collective. Tune policies, inspect fusion knowledge, and spot anomalies across the cluster at a glance.</p>
@@ -90,6 +93,8 @@
     &copy; <span id="year"></span> AICraft Cluster Intelligence Network
   </footer>
 
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="theme.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>

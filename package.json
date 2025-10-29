@@ -1,15 +1,18 @@
 {
-  "name": "web",
-  "version": "1.0.0",
+  "name": "aicraft-cluster-dashboard",
+  "version": "2.0.0",
   "type": "module",
   "main": "server.js",
   "license": "GPL-3.0",
+  "description": "AICraft Cluster Dashboard with real-time monitoring",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node --watch server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.0",
+    "socket.io": "^4.6.1",
     "rcon-client": "^5.0.5",
     "ws": "^8.17.0"
   }

@@ -4,7 +4,7 @@
 import EventEmitter from "events";
 
 import { interpretCommand } from "./interpreter.js";
-import { generateModelTasks, DEFAULT_AUTONOMY_PROMPT_TEXT } from "./model_director.js";
+import { generateModelTasks, DEFAULT_AUTONOMY_PROMPT } from "./model_director.js";
 import { validateTask } from "./task_schema.js";
 import { planTask } from "./tasks/index.js";
 
@@ -112,7 +112,7 @@ export class NPCEngine extends EventEmitter {
     this.disableModelAutonomy();
 
     const {
-      instructions = DEFAULT_AUTONOMY_PROMPT_TEXT,
+      instructions = DEFAULT_AUTONOMY_PROMPT,
       intervalMs = 10000,
       maxTasks = 3,
       allowWhenBusy = false,

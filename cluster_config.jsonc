@@ -1,0 +1,19 @@
+{
+  // Unique name for this node in the cluster
+  // Use descriptive names like "PC_Node", "Xbox_Node", etc.
+  "nodeName": "Node_A",
+
+  // WebSocket server port for this node
+  // Default port range: 8800 (Node A), 8801 (Node B), 8802 (Node C)
+  "port": 8800,
+
+  // List of peer nodes to connect to
+  // IMPORTANT: Replace "localhost" with your PC's local IP address
+  // Find your IP: Windows (ipconfig), Mac/Linux (ifconfig)
+  // Example: "ws://192.168.1.100:8801"
+  // Xbox must be on the same WiFi network to connect
+  "peers": [
+    "ws://localhost:8801",
+    "ws://localhost:8802"
+  ]
+}

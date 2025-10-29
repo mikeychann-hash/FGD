@@ -22,9 +22,9 @@ const DEFAULT_CONFIG = {
 };
 
 export class NodeSyncManager extends EventEmitter {
-  constructor(configPath = "./cluster/cluster_config.json") {
+  constructor(configPath = "./cluster_config.jsonc") {
     super();
-    
+
     this.configPath = configPath;
     this.config = { ...DEFAULT_CONFIG };
     this.peers = new Map();
@@ -38,17 +38,40 @@ export class NodeSyncManager extends EventEmitter {
       broadcastsSent: 0,
       errors: 0
     };
-    
+
     this.loadConfig();
+  }
+
+  /**
+   * Strips JSON comments (// and /* *\/) from a string
+   * Supports both single-line and multi-line comments
+   */
+  stripJsonComments(jsonString) {
+    // Remove single-line comments
+    let result = jsonString.replace(/\/\/.*$/gm, '');
+    // Remove multi-line comments
+    result = result.replace(/\/\*[\s\S]*?\*\//g, '');
+    return result;
   }
 
   loadConfig() {
     try {
-      if (fsSync.existsSync(this.configPath)) {
-        const data = fsSync.readFileSync(this.configPath, "utf-8");
-        const loadedConfig = JSON.parse(data);
+      // Try .jsonc first, then fall back to .json for backward compatibility
+      let configPath = this.configPath;
+      if (!fsSync.existsSync(configPath)) {
+        const altPath = this.configPath.replace('.jsonc', '.json');
+        if (fsSync.existsSync(altPath)) {
+          configPath = altPath;
+          console.log(`[Config] Using fallback config: ${altPath}`);
+        }
+      }
+
+      if (fsSync.existsSync(configPath)) {
+        const data = fsSync.readFileSync(configPath, "utf-8");
+        const cleanedData = this.stripJsonComments(data);
+        const loadedConfig = JSON.parse(cleanedData);
         this.config = { ...DEFAULT_CONFIG, ...loadedConfig };
-        console.log(`⚙️  Cluster config loaded for ${this.config.nodeName}`);
+        console.log(`⚙️  Cluster config loaded for ${this.config.nodeName} from ${configPath}`);
       } else {
         console.log("📝 Using default cluster configuration");
       }

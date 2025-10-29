@@ -1,4 +1,5 @@
 :root {
+  /* Color Palette */
   --bg-gradient: radial-gradient(circle at top left, #1f2937, #0b1120 55%, #050810 100%);
   --card-bg: rgba(17, 24, 39, 0.92);
   --card-border: rgba(148, 163, 184, 0.12);
@@ -9,8 +10,25 @@
   --success: #34d399;
   --danger: #f87171;
   --warning: #fbbf24;
+
+  /* Typography */
   --font-display: "Inter", "Segoe UI", sans-serif;
+
+  /* Spacing & Layout */
+  --border-radius-card: 16px;
+  --border-radius-element: 12px;
+  --spacing-section: 24px;
+  --spacing-card: 24px;
+  --spacing-element: 16px;
+
+  /* Effects */
+  --blur-amount: 14px;
+  --transition-speed: 0.2s;
 }
+
+/* ===================================
+   Reset & Base Styles
+   =================================== */
 
 * {
   box-sizing: border-box;
@@ -30,12 +48,30 @@ body {
 }
 
 a {
-  color: inherit;
+  color: var(--accent);
+  text-decoration: none;
 }
 
+a:hover {
+  text-decoration: underline;
+}
+
+/* Focus styles for accessibility */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ===================================
+   Typography
+   =================================== */
+
 h1,
- h2,
- h3 {
+h2,
+h3 {
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -46,10 +82,14 @@ h1,
   font-size: 14px;
 }
 
+/* ===================================
+   Layout Components
+   =================================== */
+
 header {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--spacing-element);
 }
 
 header .title-row {
@@ -65,21 +105,30 @@ header p {
   max-width: 720px;
 }
 
+/* ===================================
+   Dashboard Specific
+   =================================== */
+
 #cluster-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 20px;
 }
 
+/* ===================================
+   Card Components
+   =================================== */
+
 section,
 .card {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: 16px;
-  padding: 24px;
-  backdrop-filter: blur(14px);
+  border-radius: var(--border-radius-card);
+  padding: var(--spacing-card);
+  -webkit-backdrop-filter: blur(var(--blur-amount));
+  backdrop-filter: blur(var(--blur-amount));
   box-shadow: 0 24px 48px -32px rgba(15, 23, 42, 0.8);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform var(--transition-speed) ease, box-shadow var(--transition-speed) ease;
 }
 
 section:hover,
@@ -88,6 +137,7 @@ section:hover,
   box-shadow: 0 32px 60px -40px rgba(15, 23, 42, 0.9);
 }
 
+/* Node Cards */
 .node-card {
   display: flex;
   flex-direction: column;
@@ -122,6 +172,10 @@ section:hover,
   color: var(--accent);
 }
 
+/* ===================================
+   Metrics & Stats
+   =================================== */
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -147,19 +201,27 @@ section:hover,
   font-size: 13px;
 }
 
+/* ===================================
+   Charts
+   =================================== */
+
 #charts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 24px;
+  gap: var(--spacing-section);
 }
 
 canvas {
   margin-top: 12px;
   background: rgba(15, 23, 42, 0.72);
-  border-radius: 12px;
+  border-radius: var(--border-radius-element);
   padding: 14px;
   border: 1px solid rgba(96, 165, 250, 0.1);
 }
+
+/* ===================================
+   Policy Controls
+   =================================== */
 
 #policy-panel {
   display: flex;
@@ -179,17 +241,21 @@ canvas {
   width: 100%;
 }
 
+/* ===================================
+   Buttons
+   =================================== */
+
 button {
   align-self: flex-start;
   border: none;
   padding: 12px 20px;
-  border-radius: 12px;
+  border-radius: var(--border-radius-element);
   background: linear-gradient(120deg, var(--accent), #2563eb);
-  color: #0b1120;
+  color: #fff;
   font-weight: 600;
   letter-spacing: 0.02em;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform var(--transition-speed) ease, box-shadow var(--transition-speed) ease;
   box-shadow: 0 10px 20px -12px rgba(37, 99, 235, 0.8);
 }
 
@@ -198,6 +264,14 @@ button:hover {
   box-shadow: 0 16px 28px -16px rgba(37, 99, 235, 0.9);
 }
 
+button:active {
+  transform: translateY(0);
+}
+
+/* ===================================
+   Fusion Sidebar
+   =================================== */
+
 #fusion-sidebar {
   position: sticky;
   top: 32px;
@@ -205,7 +279,7 @@ button:hover {
   width: min(280px, 100%);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--spacing-element);
   border: 1px solid rgba(248, 250, 252, 0.06);
 }
 
@@ -238,29 +312,42 @@ button:hover {
   color: var(--accent);
   text-decoration: none;
   font-weight: 500;
-  transition: background 0.2s ease;
+  transition: background var(--transition-speed) ease;
 }
 
 #view-fusion:hover {
   background: rgba(96, 165, 250, 0.22);
+  text-decoration: none;
 }
+
+/* ===================================
+   Dashboard Layout
+   =================================== */
 
 .dashboard-layout {
   display: grid;
-  gap: 24px;
+  gap: var(--spacing-section);
   align-items: start;
 }
 
 .main-content {
   display: grid;
-  gap: 24px;
+  gap: var(--spacing-section);
 }
+
+/* ===================================
+   Responsive Design
+   =================================== */
 
 @media (min-width: 1100px) {
   .dashboard-layout {
     grid-template-columns: minmax(0, 1fr) 320px;
   }
 }
+
+/* ===================================
+   Breadcrumbs & Navigation
+   =================================== */
 
 .fusion-breadcrumb {
   display: inline-flex;
@@ -269,12 +356,22 @@ button:hover {
   color: var(--text-secondary);
   font-size: 14px;
   margin-top: -12px;
+  transition: color var(--transition-speed) ease;
 }
+
+.fusion-breadcrumb:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* ===================================
+   Fusion Details Page
+   =================================== */
 
 #fusion-details {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 24px;
+  gap: var(--spacing-section);
   align-items: start;
 }
 
@@ -287,6 +384,8 @@ button:hover {
   font-size: 13px;
   line-height: 1.6;
   box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.04);
+  overflow-x: auto;
+  word-wrap: break-word;
 }
 
 .fusion-stats {
@@ -308,15 +407,25 @@ button:hover {
   font-size: 28px;
   font-weight: 600;
   color: var(--accent);
+  line-height: 1.2;
 }
+
+/* ===================================
+   Badges
+   =================================== */
 
 .badge-warning {
   color: var(--warning);
 }
+
+/* ===================================
+   Footer
+   =================================== */
 
 footer {
   margin-top: auto;
   color: var(--text-secondary);
   font-size: 13px;
   text-align: center;
+  padding-top: var(--spacing-section);
 }

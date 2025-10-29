@@ -1,107 +1,22 @@
-// ai/npc_engine.js
+// npc_engine.js
 // Core AI task manager for AICraft NPCs
 //
-// MODULARIZATION RECOMMENDATIONS:
-// ================================
-// This file has grown to 730+ lines and could benefit from being split into focused modules:
-//
-// 1. ai/npc_engine/autonomy.js
-//    - enableModelAutonomy()
-//    - disableModelAutonomy()
-//    - runAutonomyCycle()
-//    Purpose: Isolate AI-driven autonomous task generation logic
-//
-// 2. ai/npc_engine/queue.js
-//    - enqueueTask()
-//    - processQueue()
-//    - findQueueIndexForNpc()
-//    - Back-pressure logic and queue management
-//    Purpose: Dedicated queue management with priority and back-pressure handling
-//
-// 3. ai/npc_engine/dispatch.js
-//    - dispatchTask()
-//    - simulateTaskExecution()
-//    - assignTask()
-//    - completeTask()
-//    Purpose: Task execution and lifecycle management
-//
-// 4. ai/npc_engine/bridge.js
-//    - attachBridgeListeners()
-//    - detachBridgeListeners()
-//    - handleBridge*() methods
-//    - spawnNPC()
-//    Purpose: External communication and bridge integration
-//
-// 5. ai/npc_engine/core.js
-//    - NPCEngine class skeleton with NPC registration
-//    - getStatus()
-//    - Configuration and initialization
-//    Purpose: Main orchestration and public API
-//
-// Benefits of modularization:
-// - Easier testing of individual subsystems
-// - Reduced cognitive load when working on specific features
-// - Better separation of concerns
-// - Enables parallel development on different subsystems
+// This file has been refactored into focused modules for better maintainability:
+// - npc_engine/utils.js - Shared utilities and helper functions
+// - npc_engine/autonomy.js - AI-driven autonomous task generation
+// - npc_engine/queue.js - Priority queue and back-pressure management
+// - npc_engine/dispatch.js - Task execution lifecycle management
+// - npc_engine/bridge.js - External communication and bridge integration
 
 import EventEmitter from "events";
 
 import { interpretCommand } from "./interpreter.js";
-import { generateModelTasks, DEFAULT_AUTONOMY_PROMPT_TEXT } from "./model_director.js";
 import { validateTask } from "./task_schema.js";
-import { planTask } from "./tasks/index.js";
-
-const TASK_TIMEOUT = 30000; // 30 seconds max per task
-const SIMULATED_TASK_DURATION = 3000;
-const DEFAULT_MAX_QUEUE_SIZE = 100; // Default back-pressure threshold
-const PRIORITY_WEIGHT = {
-  high: 2,
-  normal: 1,
-  low: 0
-};
-
-const ACTION_ROLE_PREFERENCES = {
-  build: ["builder", "worker"],
-  mine: ["miner", "worker"],
-  explore: ["scout", "explorer", "builder"],
-  gather: ["farmer", "gatherer", "miner"],
-  guard: ["guard", "fighter"],
-  craft: ["crafter", "builder"],
-  interact: ["support", "builder", "worker"],
-  combat: ["fighter", "guard"]
-};
-
-function normalizePriority(priority) {
-  if (["low", "normal", "high"].includes(priority)) {
-    return priority;
-  }
-  return "normal";
-}
-
-function normalizeControlRatio(value) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.min(1, Math.max(0, value));
-  }
-  const parsed = Number(value);
-  if (Number.isFinite(parsed)) {
-    return Math.min(1, Math.max(0, parsed));
-  }
-  return undefined;
-}
-
-function cloneTask(task) {
-  return {
-    ...task,
-    target:
-      task.target && typeof task.target === "object"
-        ? { ...task.target }
-        : task.target ?? null,
-    metadata: task.metadata ? { ...task.metadata } : {},
-    preferredNpcTypes: Array.isArray(task.preferredNpcTypes)
-      ? [...task.preferredNpcTypes]
-      : []
-  };
-}
+import { normalizeControlRatio, normalizePriority, cloneTask, getPreferredNpcTypes } from "./npc_engine/utils.js";
+import { AutonomyManager } from "./npc_engine/autonomy.js";
+import { QueueManager } from "./npc_engine/queue.js";
+import { DispatchManager } from "./npc_engine/dispatch.js";
+import { BridgeManager } from "./npc_engine/bridge.js";
 
 export class NPCEngine extends EventEmitter {
   constructor(options = {}) {
@@ -115,30 +30,34 @@ export class NPCEngine extends EventEmitter {
     this.requireFeedback = options.requireFeedback ?? true;
     this.modelControlRatio = normalizeControlRatio(options.modelControlRatio);
     this.interpreterOptions = { ...(options.interpreterOptions || {}) };
-    this.maxQueueSize = options.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE;
-    this.autonomyConfig = null;
-    this.autonomyTimer = null;
-    this.autonomyRunning = false;
-    this.bridgeHandlers = {
-      npc_update: payload => this.handleBridgeUpdate(payload),
-      task_feedback: payload => this.handleBridgeFeedback(payload),
-      npc_spawned: payload => this.handleBridgeSpawn(payload)
-    };
+    this.maxQueueSize = options.maxQueueSize ?? 100;
+
+    // Initialize manager modules
+    this.autonomyManager = new AutonomyManager(this);
+    this.queueManager = new QueueManager(this);
+    this.dispatchManager = new DispatchManager(this);
+    this.bridgeManager = new BridgeManager(this);
 
     if (this.bridge) {
-      this.attachBridgeListeners(this.bridge);
+      this.bridgeManager.attachBridgeListeners(this.bridge);
     }
   }
+
+  // ============================================================================
+  // Bridge Management
+  // ============================================================================
 
   setBridge(bridge) {
-    if (this.bridge) {
-      this.detachBridgeListeners(this.bridge);
-    }
-    this.bridge = bridge;
-    if (this.bridge) {
-      this.attachBridgeListeners(this.bridge);
-    }
+    this.bridgeManager.setBridge(bridge);
   }
+
+  async spawnNPC(id) {
+    return this.bridgeManager.spawnNPC(id);
+  }
+
+  // ============================================================================
+  // NPC Registration
+  // ============================================================================
 
   registerNPC(id, type = "builder", options = {}) {
     const spawnPosition = options.position || this.defaultSpawnPosition;
@@ -161,111 +80,7 @@ export class NPCEngine extends EventEmitter {
       });
     }
 
-    this.processQueue();
-  }
-
-  enableModelAutonomy(options = {}) {
-    this.disableModelAutonomy();
-
-    const {
-      instructions = DEFAULT_AUTONOMY_PROMPT_TEXT,
-      intervalMs = 10000,
-      maxTasks = 3,
-      allowWhenBusy = false,
-      mockResponse = null,
-      temperature = 0.3,
-      sender = "model_autonomy"
-    } = options;
-
-    this.autonomyConfig = {
-      instructions,
-      intervalMs: Math.max(1000, intervalMs),
-      maxTasks,
-      allowWhenBusy,
-      mockResponse,
-      temperature,
-      sender
-    };
-
-    this.autonomyTimer = setInterval(() => {
-      this.runAutonomyCycle().catch(err => {
-        console.error("❌ Autonomy cycle failed:", err.message);
-      });
-    }, this.autonomyConfig.intervalMs);
-
-    // Kick off an immediate cycle so it feels responsive
-    this.runAutonomyCycle({ force: true }).catch(err => {
-      console.error("❌ Initial autonomy cycle failed:", err.message);
-    });
-
-    console.log(
-      `🧠 Model autonomy enabled (interval ${this.autonomyConfig.intervalMs}ms, max ${this.autonomyConfig.maxTasks} tasks).`
-    );
-  }
-
-  disableModelAutonomy() {
-    if (this.autonomyTimer) {
-      clearInterval(this.autonomyTimer);
-      this.autonomyTimer = null;
-    }
-    this.autonomyConfig = null;
-    this.autonomyRunning = false;
-  }
-
-  async runAutonomyCycle({ force = false } = {}) {
-    if (!this.autonomyConfig || this.autonomyRunning) {
-      return;
-    }
-
-    const busyNPC = [...this.npcs.values()].some(npc => npc.state === "working");
-    const queueNotEmpty = this.taskQueue.length > 0;
-
-    if (!force && !this.autonomyConfig.allowWhenBusy && (busyNPC || queueNotEmpty)) {
-      return;
-    }
-
-    this.autonomyRunning = true;
-    try {
-      const statusSnapshot = this.getStatus();
-      const { tasks, rationale } = await generateModelTasks({
-        statusSnapshot,
-        instructions: this.autonomyConfig.instructions,
-        maxTasks: this.autonomyConfig.maxTasks,
-        mockResponse: this.autonomyConfig.mockResponse,
-        temperature: this.autonomyConfig.temperature
-      });
-
-      if (rationale) {
-        console.log(`🧠 Autonomy rationale: ${rationale}`);
-      }
-
-      if (!tasks || tasks.length === 0) {
-        return;
-      }
-
-      for (const task of tasks) {
-        const validation = validateTask(task);
-        if (!validation.valid) {
-          console.warn(`⚠️  Autonomy task rejected: ${validation.errors.join("; ")}`);
-          continue;
-        }
-
-        const normalizedTask = this.normalizeTask(task, this.autonomyConfig.sender);
-        const available = this.findIdleNPC(normalizedTask);
-
-        if (!available) {
-          const position = this.enqueueTask(normalizedTask);
-          console.log(
-            `📥 Autonomy queued task (${normalizedTask.action}) at position ${position}`
-          );
-          continue;
-        }
-
-        this.assignTask(available, normalizedTask);
-      }
-    } finally {
-      this.autonomyRunning = false;
-    }
+    this.queueManager.processQueue();
   }
 
   unregisterNPC(id) {
@@ -277,7 +92,7 @@ export class NPCEngine extends EventEmitter {
 
     if (npc?.task) {
       const taskClone = cloneTask(npc.task);
-      this.enqueueTask(taskClone);
+      this.queueManager.enqueueTask(taskClone);
       this.emit("task_requeued", {
         task: cloneTask(taskClone),
         npcId: id,
@@ -293,8 +108,24 @@ export class NPCEngine extends EventEmitter {
     console.log(`👋 Unregistered NPC ${id}`);
     this.emit("npc_unregistered", { id });
 
-    this.processQueue();
+    this.queueManager.processQueue();
   }
+
+  // ============================================================================
+  // Autonomy Management
+  // ============================================================================
+
+  enableModelAutonomy(options = {}) {
+    this.autonomyManager.enableModelAutonomy(options);
+  }
+
+  disableModelAutonomy() {
+    this.autonomyManager.disableModelAutonomy();
+  }
+
+  // ============================================================================
+  // Task Handling
+  // ============================================================================
 
   async handleCommand(inputText, sender = "system") {
     const interpreterOptions = { ...this.interpreterOptions };
@@ -319,7 +150,7 @@ export class NPCEngine extends EventEmitter {
     const available = this.findIdleNPC(normalizedTask);
 
     if (!available) {
-      const position = this.enqueueTask(normalizedTask);
+      const position = this.queueManager.enqueueTask(normalizedTask);
       const idleNPCs = this.getIdleNPCs();
       if (idleNPCs.length > 0 && normalizedTask.preferredNpcTypes.length > 0) {
         console.warn(
@@ -334,31 +165,14 @@ export class NPCEngine extends EventEmitter {
       return null;
     }
 
-    return this.assignTask(available, normalizedTask);
-  }
-
-  findIdleNPC(task = null) {
-    const idleNPCs = this.getIdleNPCs();
-    if (idleNPCs.length === 0) return null;
-
-    if (!task) {
-      return idleNPCs[0];
-    }
-
-    const preferredTypes = this.getPreferredNpcTypes(task);
-    if (preferredTypes.length === 0) {
-      return idleNPCs[0];
-    }
-
-    const preferredMatch = idleNPCs.find(npc => preferredTypes.includes(npc.type));
-    return preferredMatch || null;
+    return this.dispatchManager.assignTask(available, normalizedTask);
   }
 
   normalizeTask(task, sender = "system") {
     const normalizedPriority = normalizePriority(task.priority);
     const createdAt = typeof task.createdAt === "number" ? task.createdAt : Date.now();
     const origin = task.sender || sender || "system";
-    const preferredNpcTypes = this.getPreferredNpcTypes(task);
+    const preferredNpcTypes = getPreferredNpcTypes(task);
     return {
       ...cloneTask(task),
       priority: normalizedPriority,
@@ -368,279 +182,33 @@ export class NPCEngine extends EventEmitter {
     };
   }
 
-  enqueueTask(task) {
-    // Back-pressure: check if queue is at capacity
-    if (this.taskQueue.length >= this.maxQueueSize) {
-      const incomingPriority = PRIORITY_WEIGHT[task.priority] ?? PRIORITY_WEIGHT.normal;
+  assignTask(npc, task) {
+    return this.dispatchManager.assignTask(npc, task);
+  }
 
-      // Find the lowest priority task in the queue
-      let lowestPriorityIndex = -1;
-      let lowestPriorityValue = Infinity;
+  // ============================================================================
+  // NPC Queries
+  // ============================================================================
 
-      for (let i = this.taskQueue.length - 1; i >= 0; i--) {
-        const queuedPriority = PRIORITY_WEIGHT[this.taskQueue[i].task.priority] ?? PRIORITY_WEIGHT.normal;
-        if (queuedPriority < lowestPriorityValue) {
-          lowestPriorityValue = queuedPriority;
-          lowestPriorityIndex = i;
-        }
-      }
+  findIdleNPC(task = null) {
+    const idleNPCs = this.getIdleNPCs();
+    if (idleNPCs.length === 0) return null;
 
-      // If incoming task has higher priority than lowest in queue, drop the lowest
-      if (incomingPriority > lowestPriorityValue) {
-        const dropped = this.taskQueue.splice(lowestPriorityIndex, 1)[0];
-        console.warn(
-          `⚠️  Queue at capacity (${this.maxQueueSize}). Dropped lower priority task: ${dropped.task.action}`
-        );
-        this.emit("task_dropped", {
-          task: cloneTask(dropped.task),
-          reason: "back_pressure",
-          droppedFor: cloneTask(task)
-        });
-      } else {
-        // Incoming task is lower or equal priority, reject it
-        console.warn(
-          `⚠️  Queue at capacity (${this.maxQueueSize}). Rejecting task: ${task.action} (priority: ${task.priority})`
-        );
-        this.emit("task_rejected", {
-          task: cloneTask(task),
-          reason: "back_pressure"
-        });
-        return -1; // Indicate rejection
-      }
+    if (!task) {
+      return idleNPCs[0];
     }
 
-    const entry = {
-      task: cloneTask(task),
-      enqueuedAt: Date.now()
-    };
-
-    entry.task.priority = normalizePriority(entry.task.priority);
-    entry.task.preferredNpcTypes = this.getPreferredNpcTypes(entry.task);
-
-    const priorityValue = PRIORITY_WEIGHT[task.priority] ?? PRIORITY_WEIGHT.normal;
-    let insertIndex = this.taskQueue.findIndex(existing => {
-      const existingValue = PRIORITY_WEIGHT[existing.task.priority] ?? PRIORITY_WEIGHT.normal;
-      return priorityValue > existingValue;
-    });
-
-    if (insertIndex === -1) {
-      this.taskQueue.push(entry);
-      insertIndex = this.taskQueue.length - 1;
-    } else {
-      this.taskQueue.splice(insertIndex, 0, entry);
+    const preferredTypes = getPreferredNpcTypes(task);
+    if (preferredTypes.length === 0) {
+      return idleNPCs[0];
     }
 
-    this.emit("task_queued", {
-      task: cloneTask(task),
-      position: insertIndex + 1
-    });
-
-    return insertIndex + 1;
+    const preferredMatch = idleNPCs.find(npc => preferredTypes.includes(npc.type));
+    return preferredMatch || null;
   }
 
   getIdleNPCs() {
     return [...this.npcs.values()].filter(n => n.state === "idle");
-  }
-
-  assignTask(npc, task) {
-    const normalizedTask = cloneTask(task);
-    normalizedTask.priority = normalizePriority(normalizedTask.priority);
-    normalizedTask.preferredNpcTypes = this.getPreferredNpcTypes(normalizedTask);
-    npc.task = normalizedTask;
-    npc.state = "working";
-    npc.progress = 0;
-    npc.lastUpdate = Date.now();
-    npc.awaitingFeedback = Boolean(
-      this.requireFeedback &&
-        this.bridge &&
-        this.bridge.options?.enableUpdateServer !== false
-    );
-    const preferenceNote =
-      normalizedTask.preferredNpcTypes && normalizedTask.preferredNpcTypes.length > 0
-        ? ` [preferred: ${normalizedTask.preferredNpcTypes.join(", ")}]`
-        : "";
-    console.log(
-      `🪓 NPC ${npc.id} executing task: ${normalizedTask.action} (${normalizedTask.details})${preferenceNote}`
-    );
-    this.emit("task_assigned", { npcId: npc.id, task: cloneTask(normalizedTask) });
-
-    if (this.taskTimeouts.has(npc.id)) {
-      clearTimeout(this.taskTimeouts.get(npc.id));
-    }
-
-    const safetyTimeout = setTimeout(() => {
-      console.warn(`⚠️  Task timeout for NPC ${npc.id}, forcing idle state`);
-      this.completeTask(npc.id, false);
-    }, TASK_TIMEOUT);
-
-    this.taskTimeouts.set(npc.id, safetyTimeout);
-
-    this.dispatchTask(npc, normalizedTask);
-
-    return npc;
-  }
-
-  dispatchTask(npc, task) {
-    const plan = planTask(task, { npc });
-
-    if (!this.bridge) {
-      this.emit("task_dispatched", {
-        npcId: npc.id,
-        task: cloneTask(task),
-        transport: "simulation",
-        plan
-      });
-
-      if (plan) {
-        this.emit("task_plan_generated", { npcId: npc.id, task: cloneTask(task), plan });
-        this.simulateTaskExecution(npc, task, plan);
-      } else {
-        setTimeout(() => {
-          this.completeTask(npc.id, true);
-        }, SIMULATED_TASK_DURATION);
-      }
-      return;
-    }
-
-    if (plan) {
-      this.emit("task_plan_generated", { npcId: npc.id, task: cloneTask(task), plan });
-    }
-
-    this.bridge
-      .dispatchTask({ ...task, npcId: npc.id })
-      .then(response => {
-        if (response) {
-          console.log(`🧭 Bridge response for ${npc.id}:`, response);
-        }
-        this.emit("task_dispatched", {
-          npcId: npc.id,
-          task: cloneTask(task),
-          transport: "bridge",
-          response,
-          plan
-        });
-        if (npc.awaitingFeedback) {
-          return;
-        }
-        this.completeTask(npc.id, true);
-      })
-      .catch(err => {
-        console.error(`❌ Bridge dispatch failed for ${npc.id}:`, err.message);
-        this.emit("task_dispatch_failed", {
-          npcId: npc.id,
-          task: cloneTask(task),
-          error: err
-        });
-        this.completeTask(npc.id, false);
-      });
-  }
-
-  simulateTaskExecution(npc, task, plan = null) {
-    const executionPlan = plan || planTask(task, { npc });
-
-    if (!executionPlan || executionPlan.steps.length === 0) {
-      setTimeout(() => {
-        this.completeTask(npc.id, true);
-      }, SIMULATED_TASK_DURATION);
-      return;
-    }
-
-    const totalSteps = executionPlan.steps.length;
-    const totalDuration = Math.max(
-      executionPlan.estimatedDuration || SIMULATED_TASK_DURATION,
-      totalSteps * 750
-    );
-    const stepDuration = Math.max(500, Math.round(totalDuration / totalSteps));
-
-    executionPlan.steps.forEach((step, index) => {
-      setTimeout(() => {
-        npc.progress = Math.min(100, Math.round(((index + 1) / totalSteps) * 100));
-        npc.lastUpdate = Date.now();
-
-        this.emit("task_progress", {
-          npcId: npc.id,
-          task: cloneTask(task),
-          stepIndex: index,
-          step,
-          progress: npc.progress
-        });
-
-        if (index === totalSteps - 1) {
-          this.completeTask(npc.id, true, { plan: executionPlan });
-        }
-      }, stepDuration * (index + 1));
-    });
-  }
-
-  completeTask(npcId, success = true, metadata = null) {
-    const npc = this.npcs.get(npcId);
-    if (!npc) return;
-
-    if (!npc.task) {
-      // Nothing to complete; ignore duplicate completions
-      return;
-    }
-
-    if (this.taskTimeouts.has(npcId)) {
-      clearTimeout(this.taskTimeouts.get(npcId));
-      this.taskTimeouts.delete(npcId);
-    }
-
-    const completedTask = npc.task;
-    npc.state = "idle";
-    npc.task = null;
-    npc.progress = 0;
-    npc.lastUpdate = Date.now();
-    npc.awaitingFeedback = false;
-
-    if (success) {
-      console.log(`✅ NPC ${npcId} completed task: ${completedTask?.action}`);
-    } else {
-      console.log(`❌ NPC ${npcId} failed task: ${completedTask?.action}`);
-    }
-
-    if (metadata) {
-      console.log(`ℹ️  Completion metadata for ${npcId}:`, metadata);
-    }
-
-    this.emit("task_completed", {
-      npcId,
-      success,
-      task: cloneTask(completedTask),
-      metadata
-    });
-
-    this.processQueue();
-  }
-
-  processQueue() {
-    if (this.taskQueue.length === 0) return;
-
-    const available = this.findIdleNPC();
-    if (!available) return;
-
-    const idleNPCs = this.getIdleNPCs();
-    if (idleNPCs.length === 0) return;
-
-    for (const npc of idleNPCs) {
-      const queueIndex = this.findQueueIndexForNpc(npc);
-      if (queueIndex === -1) {
-        continue;
-      }
-      const [nextEntry] = this.taskQueue.splice(queueIndex, 1);
-      const nextTask = nextEntry.task;
-      console.log(
-        `📋 Processing queued task (${this.taskQueue.length} remaining, priority: ${nextTask.priority})`
-      );
-      this.emit("task_dequeued", {
-        task: cloneTask(nextTask),
-        remaining: this.taskQueue.length
-      });
-      this.assignTask(npc, nextTask);
-      if (this.taskQueue.length === 0) {
-        break;
-      }
-    }
   }
 
   getStatus() {
@@ -682,139 +250,18 @@ export class NPCEngine extends EventEmitter {
     return status;
   }
 
-  attachBridgeListeners(bridge) {
-    bridge.on("npc_update", this.bridgeHandlers.npc_update);
-    bridge.on("task_feedback", this.bridgeHandlers.task_feedback);
-    bridge.on("npc_spawned", this.bridgeHandlers.npc_spawned);
-  }
-
-  detachBridgeListeners(bridge) {
-    bridge.off("npc_update", this.bridgeHandlers.npc_update);
-    bridge.off("task_feedback", this.bridgeHandlers.task_feedback);
-    bridge.off("npc_spawned", this.bridgeHandlers.npc_spawned);
-  }
-
-  getPreferredNpcTypes(task) {
-    if (!task || typeof task !== "object") {
-      return [];
-    }
-
-    const explicitPreference = [];
-
-    if (Array.isArray(task.preferredNpcTypes)) {
-      explicitPreference.push(...task.preferredNpcTypes);
-    }
-
-    const metadataPreference = task.metadata?.preferredNpcType;
-    if (typeof metadataPreference === "string" && metadataPreference.trim().length > 0) {
-      explicitPreference.push(metadataPreference.trim());
-    }
-
-    const actionPreferences = ACTION_ROLE_PREFERENCES[task.action] || [];
-
-    const merged = [...explicitPreference, ...actionPreferences];
-    return [...new Set(merged.filter(Boolean))];
-  }
-
-  findQueueIndexForNpc(npc) {
-    if (this.taskQueue.length === 0) return -1;
-
-    let fallbackIndex = -1;
-    let sawPreferredEntry = false;
-
-    for (let index = 0; index < this.taskQueue.length; index += 1) {
-      const entry = this.taskQueue[index];
-      if (fallbackIndex === -1) {
-        fallbackIndex = index;
-      }
-
-      const preferredTypes = this.getPreferredNpcTypes(entry.task);
-      if (preferredTypes.length === 0) {
-        return index;
-      }
-
-      sawPreferredEntry = true;
-
-      if (preferredTypes.includes(npc.type)) {
-        return index;
-      }
-    }
-
-    return sawPreferredEntry ? -1 : fallbackIndex;
-  }
-
-  handleBridgeSpawn(payload) {
-    console.log(`🌱 Spawned NPC ${payload.npcId} using command: ${payload.command}`);
-    this.emit("npc_spawned", payload);
-  }
-
-  handleBridgeFeedback(feedback) {
-    if (!feedback || typeof feedback !== "object") return;
-    const { npcId, success, progress, message } = feedback;
-    if (!npcId || !this.npcs.has(npcId)) return;
-    const npc = this.npcs.get(npcId);
-
-    if (typeof progress === "number") {
-      npc.progress = Math.max(0, Math.min(100, progress));
-      npc.lastUpdate = Date.now();
-    }
-
-    if (typeof success === "boolean") {
-      npc.awaitingFeedback = false;
-      this.completeTask(npcId, success, feedback);
-      return;
-    }
-
-    if (message) {
-      console.log(`📨 Update from ${npcId}: ${message}`);
-    }
-
-    this.emit("bridge_feedback", feedback);
-  }
-
-  handleBridgeUpdate(update) {
-    if (!update || typeof update !== "object") return;
-    const { npcId, status, progress, success } = update;
-    if (!npcId || !this.npcs.has(npcId)) return;
-
-    const npc = this.npcs.get(npcId);
-    if (typeof progress === "number") {
-      npc.progress = Math.max(0, Math.min(100, progress));
-      npc.lastUpdate = Date.now();
-    }
-
-    if (status) {
-      console.log(`📡 ${npcId} status: ${status}`);
-    }
-
-    if (typeof success === "boolean") {
-      npc.awaitingFeedback = false;
-      this.completeTask(npcId, success, update);
-    }
-
-    this.emit("npc_status", update);
-  }
-
-  async spawnNPC(id) {
-    if (!this.bridge) {
-      console.warn(`⚠️  Cannot spawn NPC ${id} without an active bridge connection.`);
-      return null;
-    }
-
-    const npc = this.npcs.get(id);
-    if (!npc) {
-      console.warn(`⚠️  Attempted to spawn unknown NPC ${id}`);
-      return null;
-    }
-
-    const position = npc.position || this.defaultSpawnPosition;
-    return this.bridge.spawnEntity({ npcId: id, npcType: npc.type, position });
-  }
+  // ============================================================================
+  // Configuration
+  // ============================================================================
 
   setModelControlRatio(ratio) {
     this.modelControlRatio = normalizeControlRatio(ratio);
   }
 }
+
+// ============================================================================
+// CLI Example
+// ============================================================================
 
 if (process.argv[1].includes("npc_engine.js")) {
   const engine = new NPCEngine();

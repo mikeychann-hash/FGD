@@ -1,0 +1,33 @@
+{
+  "// NOTE": "This is an example RCON configuration file",
+  "// The MinecraftBridge class in minecraft_bridge.js accepts these options": "",
+
+  "minecraft": {
+    "host": "127.0.0.1",
+    "port": 25575,
+    "password": "your_rcon_password_here"
+  },
+
+  "// For local network": "If Xbox is connecting from same network, keep host as 127.0.0.1",
+  "// The RCON connection is between FGD (Node.js) and Minecraft server": "",
+  "// Both should be running on the same PC": "",
+
+  "// Network Ports Summary": "",
+  "ports": {
+    "25565": "Minecraft Java Edition (TCP)",
+    "19132": "Minecraft Bedrock Edition via Geyser (UDP)",
+    "25575": "RCON for FGD control (TCP)",
+    "3000": "FGD Web Dashboard (TCP)",
+    "8800": "FGD Node WebSocket Server (TCP)"
+  },
+
+  "// Xbox Connection Flow": "",
+  "flow": [
+    "1. Xbox connects to Geyser on port 19132 (UDP)",
+    "2. Geyser translates Bedrock -> Java protocol",
+    "3. Geyser forwards to Paper server on port 25565",
+    "4. FGD connects to Paper via RCON on port 25575",
+    "5. FGD sends commands to control NPCs",
+    "6. Xbox player sees NPCs in-game"
+  ]
+}

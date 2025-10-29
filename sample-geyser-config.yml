@@ -1,0 +1,75 @@
+# Geyser Configuration File
+# Sample configuration for local Xbox connectivity
+# This file will be auto-generated in plugins/Geyser-Spigot/config.yml after first server start
+# You can use this as reference for the key settings needed
+
+bedrock:
+  # The IP address that will listen for connections.
+  # Use 0.0.0.0 to listen on all network interfaces (required for Xbox to connect)
+  address: 0.0.0.0
+
+  # The port that will listen for connections.
+  # Default is 19132 - DO NOT change unless you have a conflict
+  port: 19132
+
+  # Clone the remote address and port
+  clone-remote-port: false
+
+  # The MOTD that will be displayed to Bedrock players
+  motd1: "FGD AI Server"
+  motd2: "Bedrock + Java Edition"
+
+remote:
+  # The IP address of your Java server
+  # Use 127.0.0.1 since Geyser runs on the same machine as Paper
+  address: 127.0.0.1
+
+  # The port of your Java server
+  port: 25565
+
+  # Authentication type. Can be online, offline, or floodgate
+  # online: Requires Xbox account linked to Java account
+  # floodgate: Allows Xbox players without Java account (Floodgate required)
+  auth-type: online
+
+# Bedrock clients can see and ping this server
+passthrough-motd: true
+passthrough-protocol-name: true
+passthrough-player-counts: true
+
+# Max players visible to Bedrock clients
+max-players: 20
+
+# Enable commands in console
+enable-proxy-connections: true
+
+# Xbox Live authentication
+xbox-auth: true
+
+# Performance settings
+config-version: 4
+compression-level: 6
+connect-timeout: 30
+
+# Command suggestions
+command-suggestions: true
+
+# Show cooldown in action bar
+show-cooldown: true
+
+# Allow custom skulls
+allow-custom-skulls: true
+
+# Metrics
+metrics:
+  enabled: true
+  uuid: auto-generated-on-first-start
+
+# Advanced settings (usually don't need to change these)
+cache-images: 0
+allow-third-party-ears: false
+show-coordinates: true
+emote-offhand-workaround: "disabled"
+
+# Floodgate settings (if using Floodgate plugin)
+floodgate-key-file: key.pem

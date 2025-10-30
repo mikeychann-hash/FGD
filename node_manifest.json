@@ -1,15 +1,9 @@
 {
-  "version": "1.0.0",
+  "$schema": "./node_manifest.schema.json",
   "nodeName": "Node_A",
   "nodeId": "node-a-001",
   "role": "general",
   "specialization": ["mine", "build", "analyze"],
-  "capacity": {
-    "maxConcurrentTasks": 10,
-    "maxQueueSize": 50,
-    "cpuWeight": 1.0,
-    "memoryWeight": 1.0
-  },
   "peers": [
     {
       "name": "Node_B",
@@ -34,16 +28,5 @@
     "retryAttempts": 3,
     "retryDelay": 1000,
     "taskTimeout": 30000
-  },
-  "healthCheck": {
-    "enabled": true,
-    "interval": 15000,
-    "timeout": 5000,
-    "failureThreshold": 3
-  },
-  "loadBalancing": {
-    "algorithm": "least-connections",
-    "considerCapacity": true,
-    "considerSpecialization": true
   }
 }

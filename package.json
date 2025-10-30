@@ -1,43 +1,20 @@
 {
-  "name": "fgd-server",
-  "version": "1.0.0",
-  "description": "FGD game server management interface with RCON support and real-time WebSocket communication",
+  "name": "aicraft-cluster-dashboard",
+  "version": "2.0.0",
   "type": "module",
   "main": "server.js",
   "private": true,
   "license": "GPL-3.0",
-  "author": "mikeychann-hash",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/mikeychann-hash/FGD.git"
-  },
-  "homepage": "https://github.com/mikeychann-hash/FGD#readme",
-  "bugs": {
-    "url": "https://github.com/mikeychann-hash/FGD/issues"
-  },
-  "keywords": [
-    "game-server",
-    "rcon",
-    "websocket",
-    "server-management",
-    "dashboard"
-  ],
-  "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=9.0.0"
-  },
+  "description": "AICraft Cluster Dashboard with real-time monitoring",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "node --watch server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.0",
-    "express-rate-limit": "^7.1.5",
-    "helmet": "^7.1.0",
-    "morgan": "^1.10.0",
-    "rcon-client": "^4.2.5",
+    "socket.io": "^4.6.1",
+    "rcon-client": "^5.0.5",
     "ws": "^8.17.0"
   }
 }

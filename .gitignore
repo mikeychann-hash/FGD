@@ -1,3 +1,9 @@
+node_modules/
+*.log
+.DS_Store
+.env
+dist/
+build/
 # Dependencies
 node_modules/
 npm-debug.log*

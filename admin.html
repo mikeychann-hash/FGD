@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Administrative control panel for AICraft cluster management">
+  <title>AICraft Admin Panel</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header>
+    <div class="title-row">
+      <h1><span aria-hidden="true">⚡</span> Admin Control Panel</h1>
+      <nav class="nav-bar">
+        <a href="dashboard.html" class="nav-link">
+          <span aria-hidden="true">🧭</span> Dashboard
+        </a>
+        <a href="fusion.html" class="nav-link">
+          <span aria-hidden="true">🧠</span> Fusion Memory
+        </a>
+        <a href="admin.html" class="nav-link active">
+          <span aria-hidden="true">⚡</span> Admin Panel
+        </a>
+        <button id="theme-toggle" aria-label="Toggle theme">
+          <span aria-hidden="true">☀️</span> Light Mode
+        </button>
+      </nav>
+    </div>
+    <p>System administration, configuration management, and cluster control. Monitor system health, manage nodes, and configure advanced settings.</p>
+  </header>
+
+  <div class="admin-grid">
+    <!-- System Overview -->
+    <section class="card">
+      <h2><span aria-hidden="true">📊</span> System Overview</h2>
+      <p class="section-subtitle">Real-time system health and performance metrics</p>
+
+      <div class="stats-row">
+        <div class="stat-box">
+          <span class="stat-value" id="uptime">0d 0h</span>
+          <span class="stat-label">Uptime</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="total-nodes">0</span>
+          <span class="stat-label">Total Nodes</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="active-tasks">0</span>
+          <span class="stat-label">Active Tasks</span>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-box">
+          <span class="stat-value" id="avg-cpu">0%</span>
+          <span class="stat-label">Avg CPU</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="avg-memory">0%</span>
+          <span class="stat-label">Avg Memory</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="data-processed">0 GB</span>
+          <span class="stat-label">Data Processed</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Node Management -->
+    <section class="card">
+      <h2><span aria-hidden="true">🖥️</span> Node Management</h2>
+      <p class="section-subtitle">Add, remove, or configure cluster nodes</p>
+
+      <div class="admin-actions">
+        <button class="admin-button" id="add-node">
+          <span aria-hidden="true">➕</span> Add New Node
+        </button>
+        <button class="admin-button" id="restart-nodes">
+          <span aria-hidden="true">🔄</span> Restart All Nodes
+        </button>
+        <button class="admin-button" id="sync-nodes">
+          <span aria-hidden="true">🔗</span> Force Sync
+        </button>
+        <button class="admin-button danger" id="shutdown-cluster">
+          <span aria-hidden="true">🛑</span> Emergency Shutdown
+        </button>
+      </div>
+
+      <div id="node-list" style="margin-top: 20px; font-size: 14px; color: var(--text-secondary);">
+        <div class="loading"></div> Loading nodes...
+      </div>
+    </section>
+
+    <!-- Configuration -->
+    <section class="card">
+      <h2><span aria-hidden="true">⚙️</span> System Configuration</h2>
+      <p class="section-subtitle">Adjust global system parameters</p>
+
+      <div style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
+        <div>
+          <label for="max-workers" style="display: block; margin-bottom: 6px; font-size: 14px;">
+            Max Workers: <strong id="max-workers-value">8</strong>
+          </label>
+          <input type="range" id="max-workers" min="1" max="32" value="8" style="width: 100%;">
+        </div>
+
+        <div>
+          <label for="log-level" style="display: block; margin-bottom: 6px; font-size: 14px;">
+            Log Level
+          </label>
+          <select id="log-level" style="width: 100%; padding: 8px; background: rgba(15, 23, 42, 0.8); color: var(--text-primary); border: 1px solid rgba(96, 165, 250, 0.3); border-radius: 8px; cursor: pointer;">
+            <option value="debug">Debug</option>
+            <option value="info" selected>Info</option>
+            <option value="warn">Warning</option>
+            <option value="error">Error</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
+            <input type="checkbox" id="auto-scaling" checked style="width: 18px; height: 18px; cursor: pointer;">
+            Enable Auto-Scaling
+          </label>
+        </div>
+
+        <div>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
+            <input type="checkbox" id="telemetry" checked style="width: 18px; height: 18px; cursor: pointer;">
+            Enable Telemetry
+          </label>
+        </div>
+
+        <button id="save-config" style="margin-top: 8px;">
+          <span aria-hidden="true">💾</span> Save Configuration
+        </button>
+      </div>
+    </section>
+
+    <!-- User Management -->
+    <section class="card">
+      <h2><span aria-hidden="true">👥</span> User Management</h2>
+      <p class="section-subtitle">Manage system users and permissions</p>
+
+      <div class="admin-actions">
+        <button class="admin-button" id="create-user">
+          <span aria-hidden="true">➕</span> Create User
+        </button>
+        <button class="admin-button" id="manage-roles">
+          <span aria-hidden="true">🔐</span> Manage Roles
+        </button>
+        <button class="admin-button" id="view-sessions">
+          <span aria-hidden="true">👁️</span> Active Sessions
+        </button>
+        <button class="admin-button" id="audit-log">
+          <span aria-hidden="true">📋</span> Audit Log
+        </button>
+      </div>
+
+      <div style="margin-top: 20px;">
+        <div class="stats-row">
+          <div class="stat-box">
+            <span class="stat-value" id="total-users">12</span>
+            <span class="stat-label">Total Users</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-value" id="active-users">5</span>
+            <span class="stat-label">Active Now</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Data Export/Import -->
+    <section class="card">
+      <h2><span aria-hidden="true">📦</span> Data Management</h2>
+      <p class="section-subtitle">Export, import, and backup system data</p>
+
+      <div class="admin-actions">
+        <button class="admin-button" id="export-data">
+          <span aria-hidden="true">📤</span> Export All Data
+        </button>
+        <button class="admin-button" id="import-data">
+          <span aria-hidden="true">📥</span> Import Data
+        </button>
+        <button class="admin-button" id="create-backup">
+          <span aria-hidden="true">💾</span> Create Backup
+        </button>
+        <button class="admin-button" id="restore-backup">
+          <span aria-hidden="true">♻️</span> Restore Backup
+        </button>
+      </div>
+
+      <div style="margin-top: 20px; font-size: 13px; color: var(--text-secondary);">
+        <p>Last backup: <strong id="last-backup">2025-10-28 14:30:00</strong></p>
+        <p>Backup size: <strong id="backup-size">2.4 GB</strong></p>
+      </div>
+    </section>
+
+    <!-- Monitoring & Alerts -->
+    <section class="card">
+      <h2><span aria-hidden="true">🔔</span> Alerts & Monitoring</h2>
+      <p class="section-subtitle">Configure alerts and notification rules</p>
+
+      <div class="admin-actions">
+        <button class="admin-button" id="configure-alerts">
+          <span aria-hidden="true">⚙️</span> Configure Alerts
+        </button>
+        <button class="admin-button" id="view-incidents">
+          <span aria-hidden="true">⚠️</span> View Incidents
+        </button>
+        <button class="admin-button" id="test-alerts">
+          <span aria-hidden="true">🧪</span> Test Alert System
+        </button>
+      </div>
+
+      <div style="margin-top: 20px;">
+        <div class="stats-row">
+          <div class="stat-box">
+            <span class="stat-value" id="active-alerts">2</span>
+            <span class="stat-label">Active Alerts</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-value" id="incidents-today">0</span>
+            <span class="stat-label">Incidents Today</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- System Logs Section -->
+  <section class="card" style="margin-top: 24px;">
+    <h2><span aria-hidden="true">📜</span> System Logs</h2>
+    <p class="section-subtitle">Real-time system event logs with filtering</p>
+
+    <div style="display: flex; gap: 12px; margin: 16px 0; flex-wrap: wrap;">
+      <button class="admin-button" id="filter-all" style="padding: 6px 12px;">All</button>
+      <button class="admin-button" id="filter-info" style="padding: 6px 12px;">Info</button>
+      <button class="admin-button" id="filter-warn" style="padding: 6px 12px;">Warnings</button>
+      <button class="admin-button" id="filter-error" style="padding: 6px 12px;">Errors</button>
+      <button class="admin-button" id="clear-logs" style="padding: 6px 12px; margin-left: auto;">Clear Logs</button>
+    </div>
+
+    <div class="log-viewer" id="log-viewer" role="log" aria-live="polite" aria-label="System logs">
+      <!-- Logs will be populated by JavaScript -->
+    </div>
+  </section>
+
+  <footer>
+    &copy; <span id="year"></span> AICraft Cluster Intelligence Network
+  </footer>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="theme.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

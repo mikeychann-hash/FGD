@@ -1,0 +1,46 @@
+{
+  "nodes": [
+    {
+      "name": "Node Alpha-01",
+      "status": "healthy",
+      "cpu": 45,
+      "memory": 62,
+      "tasks": 12
+    },
+    {
+      "name": "Node Beta-02",
+      "status": "healthy",
+      "cpu": 38,
+      "memory": 55,
+      "tasks": 8
+    },
+    {
+      "name": "Node Gamma-03",
+      "status": "healthy",
+      "cpu": 72,
+      "memory": 81,
+      "tasks": 15
+    },
+    {
+      "name": "Node Delta-04",
+      "status": "offline",
+      "cpu": 0,
+      "memory": 0,
+      "tasks": 0
+    },
+    {
+      "name": "Node Epsilon-05",
+      "status": "healthy",
+      "cpu": 51,
+      "memory": 68,
+      "tasks": 10
+    },
+    {
+      "name": "Node Zeta-06",
+      "status": "healthy",
+      "cpu": 29,
+      "memory": 42,
+      "tasks": 6
+    }
+  ]
+}

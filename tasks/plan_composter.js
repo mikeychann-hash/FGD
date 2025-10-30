@@ -530,8 +530,8 @@ function planAutoComposter(goal = {}, context = {}) {
  * EXPORTS
  * ===================================================== */
 
-export default planComposterTask;
 export {
+  planComposterTask,
   COMPOSTABLE_ITEMS,
   COMPOSTER_CONFIG,
   getCompostableInfo,
@@ -542,3 +542,5 @@ export {
   designAutoComposter,
   planAutoComposter
 };
+
+export default planComposterTask;

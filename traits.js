@@ -8,20 +8,58 @@ const THRESHOLDS = {
   VERY_LOW: 0.2
 };
 
+const GENERATION_DEFAULTS = {
+  MOTIVATION_MIN: 0.5,
+  MOTIVATION_MAX: 1.0,
+  AGGRESSION_MIN: 0.0,
+  AGGRESSION_MAX: 1.0 // Changed from 0.3 to allow full range
+};
+
+const REQUIRED_TRAITS = ['curiosity', 'patience', 'motivation', 'empathy', 'aggression', 'creativity', 'loyalty'];
+
 export class Traits {
+  /**
+   * Generates a random personality trait set for an NPC
+   * @returns {Object} Personality object with traits as values between 0 and 1
+   */
   generate() {
     return {
       curiosity: Math.random(),
       patience: Math.random(),
-      motivation: 0.5 + Math.random() * 0.5, // Start between 0.5 and 1.0
+      motivation: GENERATION_DEFAULTS.MOTIVATION_MIN + Math.random() * (GENERATION_DEFAULTS.MOTIVATION_MAX - GENERATION_DEFAULTS.MOTIVATION_MIN),
       empathy: Math.random(),
-      aggression: Math.random() * 0.3, // Cap aggression at 0.3
+      aggression: GENERATION_DEFAULTS.AGGRESSION_MIN + Math.random() * (GENERATION_DEFAULTS.AGGRESSION_MAX - GENERATION_DEFAULTS.AGGRESSION_MIN),
       creativity: Math.random(),
       loyalty: Math.random()
     };
   }
 
+  /**
+   * Validates that a personality object has all required traits with valid values
+   * @param {Object} personality - The personality object to validate
+   * @returns {boolean} True if valid, false otherwise
+   */
+  isValidPersonality(personality) {
+    if (!personality || typeof personality !== 'object') {
+      return false;
+    }
+    return REQUIRED_TRAITS.every(trait =>
+      typeof personality[trait] === 'number' &&
+      personality[trait] >= 0 &&
+      personality[trait] <= 1
+    );
+  }
+
+  /**
+   * Generates a brief text description of a personality
+   * @param {Object} personality - The personality object to describe
+   * @returns {string} A brief description like "highly inquisitive and motivated"
+   */
   describe(personality) {
+    if (!this.isValidPersonality(personality)) {
+      return "neutral";
+    }
+
     const { curiosity, patience, motivation, empathy, aggression, creativity } = personality;
     const traits = [];
 
@@ -58,7 +96,19 @@ export class Traits {
     return traits.length > 0 ? traits.join(" and ") : "neutral";
   }
 
+  /**
+   * Generates a detailed description object with summary and trait list
+   * @param {Object} personality - The personality object to describe
+   * @returns {Object} Object with summary string and traits array
+   */
   getDetailedDescription(personality) {
+    if (!this.isValidPersonality(personality)) {
+      return {
+        summary: "neutral",
+        traits: []
+      };
+    }
+
     const desc = {
       summary: this.describe(personality),
       traits: []
@@ -99,27 +149,51 @@ export class Traits {
     return desc;
   }
 
-  // Adjust a specific trait value, keeping it within bounds
+  /**
+   * Adjusts a specific trait value, keeping it within bounds (0-1)
+   * Returns a new personality object without mutating the original
+   * @param {Object} personality - The personality object to adjust
+   * @param {string} traitName - The name of the trait to adjust
+   * @param {number} delta - The amount to add to the trait (can be negative)
+   * @returns {Object} A new personality object with the adjusted trait
+   */
   adjustTrait(personality, traitName, delta) {
-    if (personality.hasOwnProperty(traitName)) {
-      personality[traitName] = Math.max(0, Math.min(1, personality[traitName] + delta));
+    if (!this.isValidPersonality(personality)) {
+      throw new Error('Invalid personality object');
     }
-    return personality;
+    if (typeof traitName !== 'string' || !REQUIRED_TRAITS.includes(traitName)) {
+      throw new Error(`Invalid trait name: ${traitName}`);
+    }
+    if (typeof delta !== 'number' || !isFinite(delta)) {
+      throw new Error('Delta must be a finite number');
+    }
+
+    return {
+      ...personality,
+      [traitName]: Math.max(0, Math.min(1, personality[traitName] + delta))
+    };
   }
 
-  // Compare two personalities and return compatibility score (0-1)
+  /**
+   * Compares two personalities and returns a compatibility score
+   * Higher scores indicate more similar personalities
+   * @param {Object} personality1 - First personality object
+   * @param {Object} personality2 - Second personality object
+   * @returns {number} Compatibility score between 0 (incompatible) and 1 (very compatible)
+   */
   compatibility(personality1, personality2) {
-    const traits = Object.keys(personality1);
+    if (!this.isValidPersonality(personality1) || !this.isValidPersonality(personality2)) {
+      throw new Error('Both personality objects must be valid');
+    }
+
     let totalDiff = 0;
 
-    for (const trait of traits) {
-      if (personality2.hasOwnProperty(trait)) {
-        totalDiff += Math.abs(personality1[trait] - personality2[trait]);
-      }
+    for (const trait of REQUIRED_TRAITS) {
+      totalDiff += Math.abs(personality1[trait] - personality2[trait]);
     }
 
     // Convert difference to similarity score
-    const avgDiff = totalDiff / traits.length;
+    const avgDiff = totalDiff / REQUIRED_TRAITS.length;
     return 1 - avgDiff;
   }
 }

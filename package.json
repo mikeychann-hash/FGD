@@ -1,11 +1,35 @@
 {
-  "name": "web",
+  "name": "fgd-server",
   "version": "1.0.0",
+  "description": "FGD game server management interface with RCON support and real-time WebSocket communication",
   "type": "module",
   "main": "server.js",
+  "private": true,
   "license": "GPL-3.0",
+  "author": "mikeychann-hash",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mikeychann-hash/FGD.git"
+  },
+  "homepage": "https://github.com/mikeychann-hash/FGD#readme",
+  "bugs": {
+    "url": "https://github.com/mikeychann-hash/FGD/issues"
+  },
+  "keywords": [
+    "game-server",
+    "rcon",
+    "websocket",
+    "server-management",
+    "dashboard"
+  ],
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
     "cors": "^2.8.5",

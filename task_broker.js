@@ -7,7 +7,10 @@ import { planTask } from "./tasks/index.js";
 import fs from "fs/promises";
 import EventEmitter from "events";
 
-// Configuration constants
+/**
+ * Default manifest configuration used when node_manifest.json is missing or invalid.
+ * Provides safe fallback values for standalone operation.
+ */
 const DEFAULT_MANIFEST = {
   nodeName: "Node_A",
   nodeId: "node-a-001",
@@ -88,15 +91,82 @@ export class TaskBroker extends EventEmitter {
     }
 
     try {
-      await this.loadManifest();
-      await this.initializePeers();
-      this.isInitialized = true;
-      console.log(`✅ TaskBroker initialized for ${this.manifest.nodeName}`);
+      if (fsSync.existsSync(this.configPath)) {
+        const data = fsSync.readFileSync(this.configPath, "utf-8");
+        const parsed = JSON.parse(data);
+
+        // Validate required fields
+        const validation = this.validateManifest(parsed);
+        if (!validation.valid) {
+          console.error("❌ Invalid manifest:", validation.errors.join(", "));
+          console.log("ℹ️  Using default manifest");
+          return;
+        }
+
+        this.manifest = { ...DEFAULT_MANIFEST, ...parsed };
+        console.log(`📋 Loaded manifest for ${this.manifest.nodeName}`);
+      }
     } catch (err) {
-      console.error("❌ Failed to initialize TaskBroker:", err.message);
-      this.emit("initialization_error", { error: err });
-      throw err;
+      console.error("❌ Error loading manifest:", err.message);
+      console.log("ℹ️  Using default manifest");
     }
+  }
+
+  validateManifest(manifest) {
+    const errors = [];
+
+    // Required fields
+    if (!manifest.nodeName || typeof manifest.nodeName !== "string") {
+      errors.push("nodeName must be a non-empty string");
+    }
+    if (!manifest.nodeId || typeof manifest.nodeId !== "string") {
+      errors.push("nodeId must be a non-empty string");
+    }
+    if (!manifest.role || typeof manifest.role !== "string") {
+      errors.push("role must be a non-empty string");
+    }
+    if (!Array.isArray(manifest.specialization)) {
+      errors.push("specialization must be an array");
+    }
+
+    // Validate taskRouting
+    if (manifest.taskRouting) {
+      const tr = manifest.taskRouting;
+      const validStrategies = ["best-fit", "least-connections", "priority", "weighted"];
+      if (tr.strategy && !validStrategies.includes(tr.strategy)) {
+        errors.push(`taskRouting.strategy must be one of: ${validStrategies.join(", ")}`);
+      }
+      if (tr.retryAttempts !== undefined && (typeof tr.retryAttempts !== "number" || tr.retryAttempts < 0)) {
+        errors.push("taskRouting.retryAttempts must be a non-negative number");
+      }
+      if (tr.retryDelay !== undefined && (typeof tr.retryDelay !== "number" || tr.retryDelay < 100)) {
+        errors.push("taskRouting.retryDelay must be a number >= 100");
+      }
+      if (tr.taskTimeout !== undefined && (typeof tr.taskTimeout !== "number" || tr.taskTimeout < 1000)) {
+        errors.push("taskRouting.taskTimeout must be a number >= 1000");
+      }
+    }
+
+    // Validate peers
+    if (manifest.peers && Array.isArray(manifest.peers)) {
+      manifest.peers.forEach((peer, idx) => {
+        if (!peer.name) errors.push(`peers[${idx}].name is required`);
+        if (!peer.url || !peer.url.match(/^wss?:\/\/.+/)) {
+          errors.push(`peers[${idx}].url must be a valid WebSocket URL`);
+        }
+        if (!Array.isArray(peer.specialization)) {
+          errors.push(`peers[${idx}].specialization must be an array`);
+        }
+        if (peer.enabled === undefined) {
+          errors.push(`peers[${idx}].enabled is required`);
+        }
+      });
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
   }
 
   /**

@@ -584,8 +584,8 @@ function planCrossbowLoad(goal = {}, context = {}) {
  * EXPORTS
  * ===================================================== */
 
-export default planRangedTask;
 export {
+  planRangedTask,
   RANGED_WEAPONS,
   ARROW_TYPES,
   RANGED_CONFIG,
@@ -597,3 +597,5 @@ export {
   checkAmmoRequirements,
   planCrossbowLoad
 };
+
+export default planRangedTask;

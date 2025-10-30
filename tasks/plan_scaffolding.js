@@ -479,11 +479,13 @@ function planScaffoldingTask(goal = {}, context = {}) {
  * EXPORTS
  * ===================================================== */
 
-export default planScaffoldingTask;
 export {
+  planScaffoldingTask,
   SCAFFOLDING_CONFIG,
   SCAFFOLDING_PATTERNS,
   calculateScaffoldingNeeds,
   validateScaffoldingPlacement,
   designScaffoldingStructure
 };
+
+export default planScaffoldingTask;

@@ -1,24 +1,28 @@
 import express from "express";
-import cors from "cors";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import cors from "cors";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { watch } from "fs";
-import { NPCEngine } from "./npc_engine.js";
-import { MinecraftBridge } from "./minecraft_bridge.js";
-import { handleLogin, getCurrentUser, authenticateSocket } from "./middleware/auth.js";
-import { initBotRoutes } from "./routes/bot.js";
-import { initLLMRoutes } from "./routes/llm.js";
+import { logger } from "./logger.js";
+import { NPCRegistry } from "./npc_registry.js";
+import { NPCSpawner } from "./npc_spawner.js";
+import { NPCFinalizer } from "./npc_finalizer.js";
+import { LearningEngine } from "./learning_engine.js";
+import { validator } from "./validator.js";
 
 // Constants
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_PATH = path.join(__dirname, "data", "fused_knowledge.json");
 const DEFAULT_PORT = 3000;
-const REQUEST_SIZE_LIMIT = "10mb";
-const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const RATE_LIMIT_MAX_REQUESTS = 100;
+
+// NPC System instances (initialized later)
+let npcRegistry = null;
+let npcSpawner = null;
+let npcFinalizer = null;
+let learningEngine = null;
 
 /**
  * Default fusion data structure returned when no data file exists
@@ -165,6 +169,46 @@ async function initializeNPCEngine() {
 }
 
 /**
+ * Initialize NPC system components
+ */
+async function initializeNPCSystem() {
+  try {
+    logger.info('Initializing NPC system');
+
+    // Initialize learning engine
+    learningEngine = new LearningEngine(path.join(__dirname, 'data', 'npc_profiles.json'));
+    await learningEngine.initialize();
+
+    // Initialize NPC registry
+    npcRegistry = new NPCRegistry({
+      registryPath: path.join(__dirname, 'data', 'npc_registry.json')
+    });
+    await npcRegistry.load();
+
+    // Initialize spawner
+    npcSpawner = new NPCSpawner({
+      registry: npcRegistry,
+      learningEngine: learningEngine,
+      autoSpawn: false // Don't auto-spawn via spawner
+    });
+    await npcSpawner.initialize();
+
+    // Initialize finalizer
+    npcFinalizer = new NPCFinalizer({
+      archivePath: path.join(__dirname, 'data', 'npc_archive.json'),
+      registry: npcRegistry,
+      learningEngine: learningEngine
+    });
+    await npcFinalizer.load();
+
+    logger.info('NPC system initialized successfully');
+  } catch (err) {
+    logger.error('Failed to initialize NPC system', { error: err.message });
+    throw err;
+  }
+}
+
+/**
  * Initialize system with sample data
  */
 async function initializeSystem() {
@@ -181,9 +225,9 @@ async function initializeSystem() {
     systemState.systemStats = JSON.parse(statsData);
     systemState.logs = JSON.parse(logsData).logs;
 
-    console.log('✅ System initialized with sample data');
+    logger.info('System initialized with sample data');
   } catch (err) {
-    console.warn('⚠️ Failed to load some data:', err.message);
+    logger.warn('Failed to load some data', { error: err.message });
   }
 }
 
@@ -367,253 +411,268 @@ app.get("/data/fused_knowledge.json", async (req, res) => {
 });
 
 // ============================================================================
-// Bot & LLM Routers will be mounted here after NPC engine initialization
+// Health Check & Metrics Endpoints
 // ============================================================================
-  if (!npcEngine) {
-    return res.status(503).json({ error: "NPC engine not initialized" });
-  }
 
-  try {
-    const npcs = npcEngine.registry.listActive();
-    res.json({
-      success: true,
-      count: npcs.length,
-      npcs: npcs.map(npc => ({
-        id: npc.id,
-        role: npc.role,
-        type: npc.npcType,
-        status: npc.status,
-        description: npc.description,
-        personalitySummary: npc.personalitySummary,
-        personalityTraits: npc.personalityTraits,
-        spawnCount: npc.spawnCount,
-        lastSpawnedAt: npc.lastSpawnedAt,
-        position: npc.lastKnownPosition || npc.spawnPosition
-      }))
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+/**
+ * Health check endpoint
+ */
+app.get("/api/health", (req, res) => {
+  const health = {
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    components: {
+      npcRegistry: npcRegistry ? "healthy" : "not_initialized",
+      npcSpawner: npcSpawner ? "healthy" : "not_initialized",
+      npcFinalizer: npcFinalizer ? "healthy" : "not_initialized",
+      learningEngine: learningEngine ? "healthy" : "not_initialized"
+    },
+    memory: {
+      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+      unit: "MB"
+    }
+  };
+
+  const allHealthy = Object.values(health.components).every(status => status === "healthy");
+  res.status(allHealthy ? 200 : 503).json(health);
 });
 
 /**
- * GET /api/npcs/:id - Get detailed info about a specific NPC
+ * System metrics endpoint
  */
-app.get("/api/npcs/:id", (req, res) => {
-  if (!npcEngine) {
-    return res.status(503).json({ error: "NPC engine not initialized" });
-  }
-
+app.get("/api/metrics/system", async (req, res) => {
   try {
-    const npc = npcEngine.registry.get(req.params.id);
-    if (!npc) {
-      return res.status(404).json({ error: "NPC not found" });
+    const metrics = {
+      timestamp: new Date().toISOString(),
+      npc: {
+        total: npcRegistry ? npcRegistry.getAll().length : 0,
+        active: npcRegistry ? npcRegistry.listActive().length : 0,
+        archived: npcFinalizer ? (await npcFinalizer.getArchive()).length : 0,
+        deadLetterQueue: npcSpawner ? npcSpawner.getDeadLetterQueue().length : 0
+      },
+      learning: {
+        profiles: learningEngine ? Object.keys(learningEngine.profiles).length : 0
+      },
+      system: systemState.metrics
+    };
+
+    res.json(metrics);
+  } catch (err) {
+    logger.error('Failed to get system metrics', { error: err.message });
+    res.status(500).json({ error: 'Failed to retrieve metrics' });
+  }
+});
+
+// ============================================================================
+// NPC CRUD API Endpoints
+// ============================================================================
+
+/**
+ * List all NPCs
+ */
+app.get("/api/npcs", async (req, res) => {
+  try {
+    if (!npcRegistry) {
+      return res.status(503).json({ error: 'NPC system not initialized' });
     }
 
+    const { status, limit = 100, offset = 0 } = req.query;
+    let npcs = npcRegistry.getAll();
+
+    // Filter by status if provided
+    if (status) {
+      npcs = npcs.filter(npc => npc.status === status);
+    }
+
+    // Pagination
+    const total = npcs.length;
+    npcs = npcs.slice(Number(offset), Number(offset) + Number(limit));
+
     res.json({
-      success: true,
-      npc: {
-        ...npc,
-        learning: npc.metadata?.learning
-      }
+      npcs,
+      total,
+      limit: Number(limit),
+      offset: Number(offset)
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.error('Failed to list NPCs', { error: err.message });
+    res.status(500).json({ error: 'Failed to retrieve NPCs' });
   }
 });
 
 /**
- * POST /api/npcs - Create a new NPC
- * Body: { role, name?, personality?, description?, position? }
+ * Get single NPC by ID
+ */
+app.get("/api/npcs/:id", async (req, res) => {
+  try {
+    if (!npcRegistry) {
+      return res.status(503).json({ error: 'NPC system not initialized' });
+    }
+
+    const npc = npcRegistry.get(req.params.id);
+    if (!npc) {
+      return res.status(404).json({ error: 'NPC not found' });
+    }
+
+    // Enrich with learning data if available
+    let enriched = { ...npc };
+    if (learningEngine) {
+      const learningProfile = learningEngine.getProfile(req.params.id);
+      if (learningProfile) {
+        enriched.learning = learningProfile;
+      }
+    }
+
+    res.json(enriched);
+  } catch (err) {
+    logger.error('Failed to get NPC', { npcId: req.params.id, error: err.message });
+    res.status(500).json({ error: 'Failed to retrieve NPC' });
+  }
+});
+
+/**
+ * Create new NPC
  */
 app.post("/api/npcs", async (req, res) => {
-  if (!npcEngine) {
-    return res.status(503).json({ error: "NPC engine not initialized" });
-  }
-
   try {
-    const { role, name, personality, description, position, appearance } = req.body;
-
-    if (!role) {
-      return res.status(400).json({ error: "Role is required" });
+    if (!npcSpawner) {
+      return res.status(503).json({ error: 'NPC system not initialized' });
     }
 
-    const npc = await npcEngine.createNPC({
-      baseName: name || role,
-      role: role,
-      npcType: role,
-      personality: personality || undefined,
-      description: description || undefined,
-      position: position || undefined,
-      appearance: appearance || undefined,
-      autoSpawn: false
-    });
+    const { id, role, npcType, appearance, personality, position, autoSpawn = false } = req.body;
 
-    res.json({
-      success: true,
-      message: `Created NPC ${npc.id}`,
-      npc: {
-        id: npc.id,
-        role: npc.role,
-        type: npc.npcType,
-        personalitySummary: npc.personalitySummary,
-        personalityTraits: npc.personalityTraits,
-        description: npc.description
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * POST /api/npcs/:id/spawn - Spawn an NPC in Minecraft
- */
-app.post("/api/npcs/:id/spawn", async (req, res) => {
-  if (!npcEngine) {
-    return res.status(503).json({ error: "NPC engine not initialized" });
-  }
-
-  if (!npcEngine.bridge) {
-    return res.status(400).json({
-      error: "Minecraft bridge not configured",
-      message: "RCON connection required to spawn NPCs"
-    });
-  }
-
-  try {
-    const npcId = req.params.id;
-    const npc = npcEngine.registry.get(npcId);
-
-    if (!npc) {
-      return res.status(404).json({ error: "NPC not found" });
+    // Basic validation
+    if (!role && !npcType) {
+      return res.status(400).json({ error: 'Either role or npcType is required' });
     }
 
-    await npcEngine.spawnNPC(npcId);
-
-    res.json({
-      success: true,
-      message: `Spawned ${npcId} in Minecraft`,
-      npc: { id: npc.id, role: npc.role }
+    const result = await npcSpawner.spawn({
+      id,
+      role,
+      npcType,
+      appearance,
+      personality,
+      position,
+      autoSpawn
     });
+
+    logger.info('NPC created via API', { npcId: result.id });
+    res.status(201).json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.error('Failed to create NPC', { error: err.message });
+    res.status(500).json({ error: 'Failed to create NPC', message: err.message });
   }
 });
 
 /**
- * POST /api/npcs/spawn-all - Spawn all NPCs
+ * Update NPC
  */
-app.post("/api/npcs/spawn-all", async (req, res) => {
-  if (!npcEngine) {
-    return res.status(503).json({ error: "NPC engine not initialized" });
-  }
-
-  if (!npcEngine.bridge) {
-    return res.status(400).json({
-      error: "Minecraft bridge not configured",
-      message: "RCON connection required to spawn NPCs"
-    });
-  }
-
+app.put("/api/npcs/:id", async (req, res) => {
   try {
-    const results = await npcEngine.spawnAllKnownNPCs();
+    if (!npcRegistry) {
+      return res.status(503).json({ error: 'NPC system not initialized' });
+    }
 
-    res.json({
-      success: true,
-      message: `Spawned ${results.length} NPCs`,
-      count: results.length,
-      npcs: results.map(r => ({ id: r.id, role: r.role }))
+    const existing = npcRegistry.get(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ error: 'NPC not found' });
+    }
+
+    const { role, appearance, personality, metadata, description } = req.body;
+
+    const updated = await npcRegistry.upsert({
+      id: req.params.id,
+      role,
+      appearance,
+      personality,
+      metadata,
+      description
     });
+
+    logger.info('NPC updated via API', { npcId: req.params.id });
+    res.json(updated);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.error('Failed to update NPC', { npcId: req.params.id, error: err.message });
+    res.status(500).json({ error: 'Failed to update NPC', message: err.message });
   }
 });
 
 /**
- * DELETE /api/npcs/:id - Remove an NPC
+ * Delete/Finalize NPC
  */
 app.delete("/api/npcs/:id", async (req, res) => {
-  if (!npcEngine) {
-    return res.status(503).json({ error: "NPC engine not initialized" });
-  }
-
   try {
-    const npcId = req.params.id;
-    const npc = npcEngine.registry.get(npcId);
-
-    if (!npc) {
-      return res.status(404).json({ error: "NPC not found" });
+    if (!npcFinalizer) {
+      return res.status(503).json({ error: 'NPC system not initialized' });
     }
 
-    await npcEngine.registry.markInactive(npcId);
+    const { preserve = false, removeFromWorld = true } = req.query;
 
-    res.json({
-      success: true,
-      message: `Marked ${npcId} as inactive`
+    const result = await npcFinalizer.finalizeNPC(req.params.id, {
+      reason: 'api_request',
+      preserveInRegistry: preserve === 'true',
+      removeFromWorld: removeFromWorld !== 'false'
     });
+
+    logger.info('NPC finalized via API', { npcId: req.params.id });
+    res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.error('Failed to finalize NPC', { npcId: req.params.id, error: err.message });
+    res.status(500).json({ error: 'Failed to finalize NPC', message: err.message });
   }
 });
 
 /**
- * GET /api/npcs/status - Get NPC engine status
+ * Get NPC archive
  */
-app.get("/api/npcs/status", (req, res) => {
-  if (!npcEngine) {
-    return res.status(503).json({ error: "NPC engine not initialized" });
-  }
-
+app.get("/api/npcs/archive/all", async (req, res) => {
   try {
-    const status = npcEngine.getStatus();
-    res.json({
-      success: true,
-      status: {
-        total: status.total,
-        idle: status.idle,
-        working: status.working,
-        queueLength: status.queueLength,
-        maxQueueSize: status.maxQueueSize,
-        bridgeConnected: status.bridgeConnected,
-        npcs: status.npcs
-      }
-    });
+    if (!npcFinalizer) {
+      return res.status(503).json({ error: 'NPC system not initialized' });
+    }
+
+    const archive = await npcFinalizer.getArchive();
+    res.json({ archive, total: archive.length });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.error('Failed to get archive', { error: err.message });
+    res.status(500).json({ error: 'Failed to retrieve archive' });
   }
 });
 
 /**
- * GET /api/npcs/learning - Get learning profiles
+ * Get dead letter queue
  */
-app.get("/api/npcs/learning", (req, res) => {
-  if (!npcEngine) {
-    return res.status(503).json({ error: "NPC engine not initialized" });
-  }
-
-  if (!npcEngine.learningEngine) {
-    return res.status(503).json({ error: "Learning engine not available" });
-  }
-
+app.get("/api/npcs/deadletter/queue", (req, res) => {
   try {
-    const profiles = npcEngine.learningEngine.getAllProfiles();
-    res.json({
-      success: true,
-      count: profiles.length,
-      profiles: profiles.map(p => ({
-        id: p.id,
-        xp: p.xp,
-        level: Math.floor(p.xp / 10),
-        tasksCompleted: p.tasksCompleted,
-        tasksFailed: p.tasksFailed,
-        successRate: p.tasksCompleted / (p.tasksCompleted + p.tasksFailed) * 100,
-        skills: p.skills,
-        personality: p.personality
-      }))
-    });
+    if (!npcSpawner) {
+      return res.status(503).json({ error: 'NPC system not initialized' });
+    }
+
+    const queue = npcSpawner.getDeadLetterQueue();
+    res.json({ queue, total: queue.length });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.error('Failed to get dead letter queue', { error: err.message });
+    res.status(500).json({ error: 'Failed to retrieve dead letter queue' });
+  }
+});
+
+/**
+ * Retry dead letter queue
+ */
+app.post("/api/npcs/deadletter/retry", async (req, res) => {
+  try {
+    if (!npcSpawner) {
+      return res.status(503).json({ error: 'NPC system not initialized' });
+    }
+
+    const results = await npcSpawner.retryDeadLetterQueue();
+    logger.info('Dead letter queue retry completed', results);
+    res.json(results);
+  } catch (err) {
+    logger.error('Failed to retry dead letter queue', { error: err.message });
+    res.status(500).json({ error: 'Failed to retry dead letter queue' });
   }
 });
 
@@ -648,50 +707,39 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Server instance
-let server;
-
-/**
- * Starts the Express server
- * @returns {Promise<void>}
- */
-async function startServer() {
-  try {
-    // Ensure data directory exists
-    await ensureDataDirectory();
-
-    // Set up file watcher
-    setupFileWatcher();
-
-    // Start listening
-    const PORT = process.env.PORT || DEFAULT_PORT;
-    server = app.listen(PORT, () => {
-      console.log(`✅ AICraft control panel active at http://localhost:${PORT}`);
-      console.log(`📊 Health check available at http://localhost:${PORT}/health`);
-      console.log(`🔒 Security headers enabled`);
-      console.log(`⚡ Rate limiting: ${RATE_LIMIT_MAX_REQUESTS} requests per ${RATE_LIMIT_WINDOW_MS / 60000} minutes`);
-    });
-  } catch (err) {
-    console.error("❌ Failed to start server:", err);
-    process.exit(1);
-  }
-}
 
 /**
  * Gracefully shuts down the server
  * @param {string} signal - The signal that triggered shutdown
  */
-function gracefulShutdown(signal) {
+async function gracefulShutdown(signal) {
+  logger.warn('Shutdown signal received', { signal });
   console.log(`\n⚠️  ${signal} received, shutting down gracefully...`);
 
-  if (server) {
-    server.close(() => {
+  try {
+    // Save any pending NPC data
+    if (npcRegistry) {
+      await npcRegistry.save();
+      logger.info('NPC registry saved');
+    }
+    if (learningEngine) {
+      await learningEngine.forceSave();
+      logger.info('Learning engine saved');
+    }
+  } catch (err) {
+    logger.error('Error saving data during shutdown', { error: err.message });
+  }
+
+  if (httpServer) {
+    httpServer.close(() => {
+      logger.info('Server closed gracefully');
       console.log("✅ Server closed gracefully");
       process.exit(0);
     });
 
     // Force shutdown after 10 seconds
     setTimeout(() => {
+      logger.error('Forced shutdown after timeout');
       console.error("❌ Forced shutdown after timeout");
       process.exit(1);
     }, 10000);
@@ -727,20 +775,42 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || DEFAULT_PORT;
 
 async function startServer() {
-  await initializeSystem();
-  await initializeNPCEngine();
-  startDataSimulation();
+  try {
+    // Ensure data directory exists
+    await ensureDataDirectory();
 
-  httpServer.listen(PORT, () => {
-    console.log('╔══════════════════════════════════════════╗');
-    console.log('║   AICraft Cluster Control Panel         ║');
-    console.log('╚══════════════════════════════════════════╝');
-    console.log(`🚀 Server: http://localhost:${PORT}`);
-    console.log(`🔌 WebSocket: Real-time updates enabled`);
-  });
+    // Initialize system data
+    await initializeSystem();
+
+    // Initialize NPC system
+    await initializeNPCSystem();
+
+    // Set up file watcher
+    setupFileWatcher();
+
+    // Start data simulation
+    startDataSimulation();
+
+    // Start HTTP server
+    httpServer.listen(PORT, () => {
+      logger.info('AICraft Cluster Control Panel started');
+      console.log('╔══════════════════════════════════════════╗');
+      console.log('║   AICraft Cluster Control Panel         ║');
+      console.log('╚══════════════════════════════════════════╝');
+      console.log(`🚀 Server: http://localhost:${PORT}`);
+      console.log(`🔌 WebSocket: Real-time updates enabled`);
+      console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+      console.log(`📈 Metrics: http://localhost:${PORT}/api/metrics/system`);
+      console.log(`🤖 NPC API: http://localhost:${PORT}/api/npcs`);
+    });
+  } catch (err) {
+    logger.error('Failed to start server', { error: err.message });
+    console.error('❌ Failed to start server:', err);
+    process.exit(1);
+  }
 }
 
 startServer();

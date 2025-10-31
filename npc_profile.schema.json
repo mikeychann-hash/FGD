@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/npc_profile.schema.json",
+  "title": "NPC Profile Registry",
+  "type": "object",
+  "additionalProperties": {
+    "type": "object",
+    "properties": {
+      "skills": {
+        "type": "object",
+        "properties": {
+          "mining": { "type": "number", "minimum": 0 },
+          "building": { "type": "number", "minimum": 0 },
+          "gathering": { "type": "number", "minimum": 0 },
+          "exploring": { "type": "number", "minimum": 0 },
+          "guard": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false,
+        "required": ["mining", "building", "gathering", "exploring", "guard"]
+      },
+      "personality": {
+        "type": "object",
+        "properties": {
+          "curiosity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "patience": { "type": "number", "minimum": 0, "maximum": 1 },
+          "motivation": { "type": "number", "minimum": 0, "maximum": 1 },
+          "empathy": { "type": "number", "minimum": 0, "maximum": 1 },
+          "aggression": { "type": "number", "minimum": 0, "maximum": 1 },
+          "creativity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "loyalty": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "required": ["curiosity", "patience", "motivation", "empathy", "aggression", "creativity", "loyalty"],
+        "additionalProperties": false
+      },
+      "xp": { "type": "number", "minimum": 0 },
+      "tasksCompleted": { "type": "number", "minimum": 0 },
+      "tasksFailed": { "type": "number", "minimum": 0 },
+      "role": {
+        "type": "string",
+        "enum": ["miner", "builder", "scout", "guard"]
+      },
+      "lastActivity": { "type": ["string", "null"], "format": "date-time" },
+      "createdAt": { "type": "string", "format": "date-time" }
+    },
+    "required": [
+      "skills",
+      "personality",
+      "xp",
+      "tasksCompleted",
+      "tasksFailed",
+      "role",
+      "createdAt"
+    ],
+    "additionalProperties": true
+  }
+}

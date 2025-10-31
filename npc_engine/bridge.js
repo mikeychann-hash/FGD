@@ -117,19 +117,39 @@ export class BridgeManager {
    * @param {string} id - NPC ID
    * @returns {Promise<any>} Bridge response
    */
-  async spawnNPC(id) {
+  async spawnNPC(id, options = {}) {
     if (!this.engine.bridge) {
       console.warn(`⚠️  Cannot spawn NPC ${id} without an active bridge connection.`);
       return null;
     }
 
+    if (
+      typeof this.engine.bridge.isConnected === "function" &&
+      !this.engine.bridge.isConnected()
+    ) {
+      console.warn(`⚠️  Bridge not connected, skipping spawn for ${id}`);
+      return null;
+    }
+
     const npc = this.engine.npcs.get(id);
-    if (!npc) {
+    if (!npc && !options.npcType) {
       console.warn(`⚠️  Attempted to spawn unknown NPC ${id}`);
       return null;
     }
 
-    const position = npc.position || this.engine.defaultSpawnPosition;
-    return this.engine.bridge.spawnEntity({ npcId: id, npcType: npc.type, position });
+    const npcType = options.npcType || npc?.type || "builder";
+    const position = options.position || npc?.position || this.engine.defaultSpawnPosition;
+    const appearance = options.appearance || npc?.appearance || npc?.profile?.appearance || {};
+    const metadata = options.metadata || npc?.metadata || npc?.profile?.metadata || {};
+    const profile = options.profile || npc?.profile || null;
+
+    return this.engine.bridge.spawnEntity({
+      npcId: id,
+      npcType,
+      position,
+      appearance,
+      metadata,
+      profile
+    });
   }
 }

@@ -22,6 +22,7 @@ export class MinecraftBridge extends EventEmitter {
   static MIN_CLEANUP_INTERVAL_MS = 1000;
   static MIN_PERSISTENCE_INTERVAL_MS = 5000;
   static MAX_RECONNECT_ATTEMPTS = 10;
+  static MAX_COMMAND_QUEUE_SIZE = 100;
   static WEBSOCKET_READY_STATE_OPEN = 1;
 
   // Combat event parsing patterns
@@ -137,6 +138,26 @@ export class MinecraftBridge extends EventEmitter {
     }
   ];
 
+const EQUIPMENT_SLOT_ALIASES = Object.freeze({
+  head: "armor.head",
+  helmet: "armor.head",
+  hat: "armor.head",
+  chest: "armor.chest",
+  chestplate: "armor.chest",
+  torso: "armor.chest",
+  legs: "armor.legs",
+  leggings: "armor.legs",
+  pants: "armor.legs",
+  feet: "armor.feet",
+  boots: "armor.feet",
+  shoes: "armor.feet",
+  mainhand: "weapon.mainhand",
+  hand: "weapon.mainhand",
+  weapon: "weapon.mainhand",
+  offhand: "weapon.offhand",
+  shield: "weapon.offhand"
+});
+
   /**
    * Creates a new MinecraftBridge instance
    * @param {Object} options - Configuration options
@@ -173,6 +194,8 @@ export class MinecraftBridge extends EventEmitter {
    * @param {Object} [options.commandTemplates={}] - Command template functions
    * @param {Object} [options.spawnEntityMapping={}] - Entity type to Minecraft ID mapping
    * @param {Function} [options.spawnCommandFormatter=null] - Custom spawn command formatter
+   * @param {Function} [options.appearanceFormatter=null] - Custom appearance command formatter
+   * @param {number} [options.appearanceCommandDelay=200] - Delay (ms) before applying appearance commands
    * @param {Array<string>} [options.friendlyIds=[]] - List of friendly entity IDs
    * @param {Function} [options.isFriendly=null] - Custom friendly check function
    */
@@ -231,7 +254,11 @@ export class MinecraftBridge extends EventEmitter {
         fighter: "minecraft:iron_golem",
         ...options.spawnEntityMapping
       },
-      spawnCommandFormatter: options.spawnCommandFormatter || null
+      spawnCommandFormatter: options.spawnCommandFormatter || null,
+      appearanceFormatter: options.appearanceFormatter || null,
+      appearanceCommandDelay: typeof options.appearanceCommandDelay === "number" && options.appearanceCommandDelay >= 0
+        ? options.appearanceCommandDelay
+        : 200
     };
   }
 
@@ -286,6 +313,7 @@ export class MinecraftBridge extends EventEmitter {
       commandsFailed: 0,
       commandsTimedOut: 0,
       queueMax: 0,
+      queueDropped: 0,
       reconnectAttempts: 0,
       lastReconnectDelay: 0,
       lastReconnectAt: null
@@ -518,6 +546,14 @@ export class MinecraftBridge extends EventEmitter {
    */
   enqueueCommand(command) {
     return new Promise((resolve, reject) => {
+      if (this.commandQueue.length >= MinecraftBridge.MAX_COMMAND_QUEUE_SIZE) {
+        console.warn("[RCON] Queue overflow, dropping oldest command");
+        const dropped = this.commandQueue.shift();
+        if (dropped?.reject) {
+          dropped.reject(new Error("Command queue overflow"));
+        }
+        this.metrics.queueDropped += 1;
+      }
       this.commandQueue.push({ command, resolve, reject });
       this.metrics.queueMax = Math.max(this.metrics.queueMax, this.commandQueue.length);
       this.processCommandQueue();
@@ -910,9 +946,12 @@ export class MinecraftBridge extends EventEmitter {
    * @param {string} params.npcId - NPC identifier
    * @param {string} params.npcType - NPC type
    * @param {Object} params.position - Position {x, y, z}
+   * @param {Object} [params.appearance] - Appearance configuration to apply post-spawn
+   * @param {Object} [params.metadata] - Additional metadata about the NPC
+   * @param {Object} [params.profile] - Profile context for the NPC
    * @returns {Promise<string>} Server response
    */
-  async spawnEntity({ npcId, npcType, position }) {
+  async spawnEntity({ npcId, npcType, position, appearance, metadata, profile }) {
     await this.ensureConnected();
 
     const entityId = this.options.spawnEntityMapping?.[npcType] ||
@@ -931,8 +970,253 @@ export class MinecraftBridge extends EventEmitter {
     }
 
     const response = await this.sendRawCommand(command);
-    this.emit("npc_spawned", { npcId, npcType, command, response });
+
+    let appearanceResponses = null;
+    if (appearance && typeof appearance === "object" && Object.keys(appearance).length > 0) {
+      appearanceResponses = await this.applyNpcAppearance({
+        npcId,
+        npcType,
+        appearance,
+        metadata,
+        profile
+      });
+    }
+
+    this.emit("npc_spawned", {
+      npcId,
+      npcType,
+      position,
+      command,
+      response,
+      appearance,
+      metadata,
+      profile,
+      appearanceResponses
+    });
+
     return response;
+  }
+
+  /**
+   * Applies post-spawn appearance customizations for an NPC
+   * @param {Object} params - Appearance parameters
+   * @param {string} params.npcId - NPC identifier
+   * @param {string} params.npcType - NPC type
+   * @param {Object} params.appearance - Appearance definition
+   * @param {Object} [params.metadata] - Additional NPC metadata
+   * @param {Object} [params.profile] - Registry profile for additional context
+   * @returns {Promise<Array<string>|null>} Responses from executed commands, if any
+   */
+  async applyNpcAppearance({ npcId, npcType, appearance, metadata, profile }) {
+    if (!npcId || !appearance || typeof appearance !== "object") {
+      return null;
+    }
+
+    const commands = [];
+
+    if (typeof this.options.appearanceFormatter === "function") {
+      try {
+        const formatted = await this.options.appearanceFormatter({
+          npcId,
+          npcType,
+          appearance,
+          metadata,
+          profile,
+          bridge: this
+        });
+
+        if (Array.isArray(formatted)) {
+          for (const command of formatted) {
+            if (typeof command === "string" && command.trim().length > 0) {
+              commands.push(command.trim());
+            }
+          }
+        } else if (typeof formatted === "string" && formatted.trim().length > 0) {
+          commands.push(formatted.trim());
+        } else if (formatted && typeof formatted === "object" && Array.isArray(formatted.commands)) {
+          for (const command of formatted.commands) {
+            if (typeof command === "string" && command.trim().length > 0) {
+              commands.push(command.trim());
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`❌ appearanceFormatter failed for ${npcId}:`, error.message);
+      }
+    }
+
+    const fallbackCommands = this._buildAppearanceCommands({ npcId, appearance, metadata, profile });
+    if (fallbackCommands.length > 0) {
+      commands.push(...fallbackCommands);
+    }
+
+    if (commands.length === 0) {
+      return null;
+    }
+
+    if (this.options.appearanceCommandDelay > 0) {
+      await this._delay(this.options.appearanceCommandDelay);
+    }
+
+    const responses = [];
+    for (const command of commands) {
+      try {
+        const response = await this.sendCommand(command);
+        responses.push(response);
+      } catch (error) {
+        console.error(`❌ Failed to apply appearance command for ${npcId}:`, error.message);
+      }
+    }
+
+    return responses;
+  }
+
+  _buildAppearanceCommands({ npcId, appearance }) {
+    if (!appearance || typeof appearance !== "object") {
+      return [];
+    }
+
+    const commandList = [];
+
+    const manualCommands = Array.isArray(appearance.commands)
+      ? appearance.commands
+      : typeof appearance.command === "string"
+        ? [appearance.command]
+        : [];
+
+    for (const command of manualCommands) {
+      if (typeof command === "string" && command.trim().length > 0) {
+        commandList.push(command.trim());
+      }
+    }
+
+    if (appearance.equipment) {
+      const equipment = appearance.equipment;
+
+      if (Array.isArray(equipment)) {
+        for (const entry of equipment) {
+          if (Array.isArray(entry) && entry.length >= 2) {
+            const [slotKey, itemDef] = entry;
+            const command = this._formatEquipmentCommand(npcId, slotKey, itemDef);
+            if (command) {
+              commandList.push(command);
+            }
+            continue;
+          }
+
+          if (entry && typeof entry === "object") {
+            const slotKey = entry.slot || entry.position || entry.type;
+            const command = this._formatEquipmentCommand(npcId, slotKey, entry.item ?? entry.id ?? entry.name ?? entry);
+            if (command) {
+              commandList.push(command);
+            }
+          }
+        }
+      } else if (typeof equipment === "object") {
+        for (const [slotKey, itemDef] of Object.entries(equipment)) {
+          const command = this._formatEquipmentCommand(npcId, slotKey, itemDef);
+          if (command) {
+            commandList.push(command);
+          }
+        }
+      }
+    }
+
+    if (Array.isArray(appearance.effects)) {
+      for (const effect of appearance.effects) {
+        if (!effect || typeof effect !== "object") {
+          continue;
+        }
+        const effectId = effect.id || effect.effect || effect.type;
+        if (!effectId) {
+          continue;
+        }
+
+        const duration = Number.isFinite(effect.duration)
+          ? Math.max(1, Math.floor(effect.duration))
+          : 120;
+        const amplifier = Number.isFinite(effect.amplifier)
+          ? Math.max(0, Math.floor(effect.amplifier))
+          : 0;
+        const hideParticles = effect.showParticles === false;
+
+        let command = `effect give ${npcId} ${this._normalizeNamespacedId(effectId, "minecraft")}`;
+        command += ` ${duration}`;
+        command += ` ${amplifier}`;
+        if (hideParticles) {
+          command += " true";
+        }
+        commandList.push(command);
+      }
+    }
+
+    return commandList;
+  }
+
+  _formatEquipmentCommand(npcId, slotKey, itemDef) {
+    if (!slotKey) {
+      return null;
+    }
+
+    const normalizedSlotKey = typeof slotKey === "string" ? slotKey.toLowerCase() : "";
+    const slot = EQUIPMENT_SLOT_ALIASES[normalizedSlotKey] || slotKey;
+    if (typeof slot !== "string" || slot.length === 0) {
+      return null;
+    }
+
+    let itemId = null;
+    let count = 1;
+    let nbt = null;
+
+    if (typeof itemDef === "string") {
+      itemId = itemDef;
+    } else if (itemDef && typeof itemDef === "object") {
+      itemId = itemDef.id || itemDef.item || itemDef.name || null;
+      if (Number.isFinite(itemDef.count)) {
+        count = Math.max(1, Math.min(64, Math.floor(itemDef.count)));
+      }
+      if (typeof itemDef.nbt === "string" && itemDef.nbt.trim().length > 0) {
+        nbt = itemDef.nbt.trim();
+      }
+    } else {
+      return null;
+    }
+
+    const namespacedId = this._normalizeNamespacedId(itemId, "minecraft");
+    if (!namespacedId) {
+      return null;
+    }
+
+    let command = `item replace entity ${npcId} ${slot} with ${namespacedId}`;
+    if (Number.isFinite(count) && count > 1) {
+      command += ` ${count}`;
+    }
+    if (nbt) {
+      const formattedNbt = nbt.startsWith("{") ? nbt : `{${nbt}}`;
+      command += ` ${formattedNbt}`;
+    }
+    return command;
+  }
+
+  _normalizeNamespacedId(id, namespace = "minecraft") {
+    if (!id || typeof id !== "string") {
+      return null;
+    }
+    const trimmed = id.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+    if (trimmed.includes(":")) {
+      return trimmed;
+    }
+    return `${namespace}:${trimmed}`;
+  }
+
+  async _delay(ms) {
+    if (!Number.isFinite(ms) || ms <= 0) {
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**

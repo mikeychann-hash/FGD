@@ -17,6 +17,16 @@ import { AutonomyManager } from "./npc_engine/autonomy.js";
 import { QueueManager } from "./npc_engine/queue.js";
 import { DispatchManager } from "./npc_engine/dispatch.js";
 import { BridgeManager } from "./npc_engine/bridge.js";
+import { NPCRegistry } from "./npc_registry.js";
+import { NPCSpawner } from "./npc_spawner.js";
+import { LearningEngine } from "./learning_engine.js";
+import {
+  applyPersonalityMetadata,
+  buildPersonalityBundle,
+  cloneValue,
+  deriveLearningEnrichment,
+  ensureTraitsHelper
+} from "./npc_identity.js";
 
 export class NPCEngine extends EventEmitter {
   constructor(options = {}) {
@@ -31,6 +41,32 @@ export class NPCEngine extends EventEmitter {
     this.modelControlRatio = normalizeControlRatio(options.modelControlRatio);
     this.interpreterOptions = { ...(options.interpreterOptions || {}) };
     this.maxQueueSize = options.maxQueueSize ?? 100;
+    this.registry = options.registry instanceof NPCRegistry ? options.registry : (options.registry === false ? null : new NPCRegistry(options.registryOptions || {}));
+    this.learningEngine = options.learningEngine instanceof LearningEngine
+      ? options.learningEngine
+      : options.learningEngine === false
+        ? null
+        : new LearningEngine(options.learningEnginePath || "./data/npc_profiles.json");
+    this.traitsHelper = ensureTraitsHelper(this.registry?.traits);
+    this.autoRegisterFromRegistry = options.autoRegisterFromRegistry ?? true;
+    this.spawner = options.spawner instanceof NPCSpawner
+      ? options.spawner
+      : new NPCSpawner({
+          engine: this,
+          registry: this.registry,
+          learningEngine: this.learningEngine,
+          autoSpawn: this.autoSpawn
+        });
+    this.registryReady = this.registry ? this.registry.load().catch(err => {
+      console.error("❌ Failed to load NPC registry:", err.message);
+      return [];
+    }) : Promise.resolve([]);
+    this.learningReady = this.learningEngine
+      ? this.learningEngine.initialize().catch(err => {
+          console.error("❌ Failed to initialize learning engine:", err.message);
+          return null;
+        })
+      : Promise.resolve(null);
 
     // Initialize manager modules
     this.autonomyManager = new AutonomyManager(this);
@@ -40,6 +76,34 @@ export class NPCEngine extends EventEmitter {
 
     if (this.bridge) {
       this.bridgeManager.attachBridgeListeners(this.bridge);
+    }
+
+    if (this.registry && this.autoRegisterFromRegistry) {
+      Promise.all([this.registryReady, this.learningReady])
+        .then(() => {
+          const entries = this.registry.getAll().filter(entry => entry.status !== "inactive");
+          for (const entry of entries) {
+            this.registerNPC(entry.id, entry.npcType, {
+              position: entry.spawnPosition || this.defaultSpawnPosition,
+              role: entry.role,
+              personality: entry.personality,
+              appearance: entry.appearance,
+              metadata: {
+                ...entry.metadata,
+                description: entry.description,
+                personalitySummary: entry.personalitySummary,
+                personalityTraits: entry.personalityTraits
+              },
+              profile: entry,
+              personalitySummary: entry.personalitySummary,
+              personalityTraits: entry.personalityTraits,
+              persist: false
+            });
+          }
+        })
+        .catch(err => {
+          console.error("❌ Failed to initialize NPC registry entries:", err.message);
+        });
     }
   }
 
@@ -51,8 +115,22 @@ export class NPCEngine extends EventEmitter {
     this.bridgeManager.setBridge(bridge);
   }
 
-  async spawnNPC(id) {
-    return this.bridgeManager.spawnNPC(id);
+  async spawnNPC(id, options = {}) {
+    return this.bridgeManager.spawnNPC(id, options);
+  }
+
+  async createNPC(options = {}) {
+    if (!this.spawner) {
+      throw new Error("NPC spawner is not configured for this engine instance");
+    }
+    return this.spawner.spawn(options);
+  }
+
+  async spawnAllKnownNPCs(options = {}) {
+    if (!this.spawner) {
+      throw new Error("NPC spawner is not configured for this engine instance");
+    }
+    return this.spawner.spawnAllKnown(options);
   }
 
   // ============================================================================
@@ -60,22 +138,153 @@ export class NPCEngine extends EventEmitter {
   // ============================================================================
 
   registerNPC(id, type = "builder", options = {}) {
-    const spawnPosition = options.position || this.defaultSpawnPosition;
+    if (!id || typeof id !== "string") {
+      throw new Error("NPC id must be a non-empty string");
+    }
+
+    const existing = this.npcs.get(id);
+    const spawnPosition = options.position || existing?.position || this.defaultSpawnPosition;
+    const role = options.role || existing?.role || type;
+    const appearance = cloneValue(options.appearance) || cloneValue(existing?.appearance) || {};
+    const metadata = cloneValue(options.metadata) || cloneValue(existing?.metadata) || {};
+    const profile = options.profile || existing?.profile || null;
+    const bundle = buildPersonalityBundle(
+      options.personality || profile?.personality || existing?.personality,
+      this.traitsHelper
+    );
+    let personality = bundle.personality;
+    let personalitySummary = options.personalitySummary
+      ?? bundle.summary
+      ?? profile?.personalitySummary
+      ?? existing?.personalitySummary
+      ?? metadata.personalitySummary
+      ?? null;
+    let personalityTraits = Array.isArray(options.personalityTraits)
+      ? [...options.personalityTraits]
+      : Array.isArray(bundle.traits) && bundle.traits.length > 0
+        ? [...bundle.traits]
+        : Array.isArray(profile?.personalityTraits)
+          ? [...profile.personalityTraits]
+          : Array.isArray(existing?.profile?.personalityTraits)
+            ? [...existing.profile.personalityTraits]
+            : Array.isArray(existing?.personalityTraits)
+              ? [...existing.personalityTraits]
+              : undefined;
+
+    const learningProfile = this._getLearningProfileSync(id);
+    if (learningProfile) {
+      const enriched = deriveLearningEnrichment(learningProfile, this.traitsHelper);
+      if (enriched.personality) {
+        personality = enriched.personality;
+      }
+      if (enriched.personalitySummary) {
+        personalitySummary = enriched.personalitySummary;
+      }
+      if (enriched.personalityTraits) {
+        personalityTraits = Array.isArray(enriched.personalityTraits)
+          ? [...enriched.personalityTraits]
+          : enriched.personalityTraits;
+      }
+      if (enriched.learningMetadata) {
+        metadata.learning = enriched.learningMetadata;
+      }
+    } else if (this.learningReady) {
+      this.learningReady
+        .then(() => {
+          const profileAfterInit = this._getLearningProfileSync(id);
+          if (profileAfterInit) {
+            this._applyLearningProfile(id, profileAfterInit);
+          }
+        })
+        .catch(err => {
+          console.error(`⚠️  Failed to hydrate learning profile for ${id}:`, err.message);
+        });
+    }
+
+    if (profile?.description && !metadata.description) {
+      metadata.description = profile.description;
+    }
+
+    const metadataWithPersonality = applyPersonalityMetadata(metadata, {
+      summary: personalitySummary,
+      traits: personalityTraits
+    });
+
+    const normalizedProfile = profile
+      ? {
+          ...profile,
+          personality,
+          personalitySummary,
+          personalityTraits: personalityTraits ?? profile.personalityTraits,
+          metadata: {
+            ...metadataWithPersonality,
+            learning:
+              metadataWithPersonality.learning != null
+                ? metadataWithPersonality.learning
+                : profile.metadata?.learning
+          }
+        }
+      : null;
+
     this.npcs.set(id, {
       id,
       type,
-      task: null,
-      state: "idle",
+      role,
+      task: existing?.task || null,
+      state: existing?.state || "idle",
       position: { ...spawnPosition },
-      progress: 0,
-      lastUpdate: null,
-      awaitingFeedback: false
+      progress: existing?.progress || 0,
+      lastUpdate: existing?.lastUpdate || null,
+      awaitingFeedback: existing?.awaitingFeedback || false,
+      personality,
+      appearance,
+      metadata: metadataWithPersonality,
+      profile: normalizedProfile,
+      personalitySummary,
+      personalityTraits
     });
-    console.log(`🤖 Registered NPC ${id} (${type})`);
-    this.emit("npc_registered", { id, type, position: { ...spawnPosition } });
+    console.log(`🤖 Registered NPC ${id} (${type}${role && role !== type ? `/${role}` : ""})`);
+    this.emit("npc_registered", {
+      id,
+      type,
+      role,
+      position: { ...spawnPosition },
+      profile
+    });
 
-    if (this.autoSpawn && this.bridge) {
-      this.spawnNPC(id).catch(err => {
+    if (this.registry && options.persist !== false) {
+      this.registry
+        .upsert({
+          id,
+          npcType: type,
+          role,
+          appearance,
+          spawnPosition,
+          personality,
+          metadata: metadataWithPersonality,
+          description: metadataWithPersonality?.description,
+          status: "active",
+          personalitySummary,
+          personalityTraits,
+          spawnCount: normalizedProfile?.spawnCount,
+          lastSpawnedAt: normalizedProfile?.lastSpawnedAt,
+          lastDespawnedAt: normalizedProfile?.lastDespawnedAt,
+          lastKnownPosition: normalizedProfile?.lastKnownPosition
+        })
+        .catch(err => {
+          console.error(`❌ Failed to persist NPC ${id}:`, err.message);
+        });
+    }
+
+    if (this.autoSpawn && this.bridge && options.autoSpawn !== false) {
+      this.spawnNPC(id, {
+        npcType: type,
+        position: spawnPosition,
+        appearance,
+        metadata: metadataWithPersonality,
+        profile,
+        personalitySummary
+      }).catch(err => {
         console.error(`❌ Failed to spawn NPC ${id}:`, err.message);
       });
     }
@@ -107,6 +316,12 @@ export class NPCEngine extends EventEmitter {
     this.npcs.delete(id);
     console.log(`👋 Unregistered NPC ${id}`);
     this.emit("npc_unregistered", { id });
+
+    if (this.registry) {
+      this.registry.recordDespawn(id, { position: npc?.position }).catch(err => {
+        console.error(`❌ Failed to mark NPC ${id} inactive:`, err.message);
+      });
+    }
 
     this.queueManager.processQueue();
   }
@@ -232,11 +447,24 @@ export class NPCEngine extends EventEmitter {
       status.npcs.push({
         id: npc.id,
         type: npc.type,
+        role: npc.role,
         state: npc.state,
         task: npc.task?.action || null,
         preferredNpcTypes: npc.task?.preferredNpcTypes || [],
         progress: npc.progress,
-        lastUpdate: npc.lastUpdate
+        lastUpdate: npc.lastUpdate,
+        personality: npc.personality || null,
+        personalitySummary: npc.personalitySummary || null,
+        metadata: npc.metadata || {},
+        description: npc.metadata?.description || npc.profile?.description || null,
+        personalityTraits: Array.isArray(npc.personalityTraits)
+          ? [...npc.personalityTraits]
+          : Array.isArray(npc.profile?.personalityTraits)
+            ? [...npc.profile.personalityTraits]
+            : undefined,
+        spawnCount: typeof npc.profile?.spawnCount === "number" ? npc.profile.spawnCount : null,
+        lastSpawnedAt: npc.profile?.lastSpawnedAt || null,
+        lastKnownPosition: npc.profile?.lastKnownPosition || npc.position || null
       });
     }
 
@@ -257,13 +485,97 @@ export class NPCEngine extends EventEmitter {
   setModelControlRatio(ratio) {
     this.modelControlRatio = normalizeControlRatio(ratio);
   }
+
+  _getLearningProfileSync(id) {
+    if (!this.learningEngine || !id) {
+      return null;
+    }
+    if (!this.learningEngine.initialized) {
+      return null;
+    }
+    try {
+      return this.learningEngine.getProfile(id);
+    } catch (error) {
+      console.error(`⚠️  Failed to read learning profile for ${id}:`, error.message);
+      return null;
+    }
+  }
+
+  _applyLearningProfile(id, learningProfile) {
+    const npc = this.npcs.get(id);
+    if (!npc || !learningProfile) {
+      return;
+    }
+
+    const enrichment = deriveLearningEnrichment(learningProfile, this.traitsHelper);
+
+    if (enrichment.personality) {
+      npc.personality = enrichment.personality;
+    }
+    if (enrichment.personalitySummary) {
+      npc.personalitySummary = enrichment.personalitySummary;
+    } else if (!npc.personalitySummary && npc.profile?.personalitySummary) {
+      npc.personalitySummary = npc.profile.personalitySummary;
+    }
+    if (enrichment.personalityTraits) {
+      npc.personalityTraits = Array.isArray(enrichment.personalityTraits)
+        ? [...enrichment.personalityTraits]
+        : enrichment.personalityTraits;
+    } else if (!npc.personalityTraits && npc.profile?.personalityTraits) {
+      npc.personalityTraits = Array.isArray(npc.profile.personalityTraits)
+        ? [...npc.profile.personalityTraits]
+        : npc.profile.personalityTraits;
+    }
+
+    const npcMetadataBase = {
+      ...(npc.metadata || {}),
+      learning: enrichment.learningMetadata || npc.metadata?.learning
+    };
+    npc.metadata = applyPersonalityMetadata(npcMetadataBase, {
+      summary: npc.personalitySummary,
+      traits: npc.personalityTraits
+    });
+
+    if (enrichment.learningMetadata) {
+      npc.metadata.learning = enrichment.learningMetadata;
+    }
+
+    if (npc.profile) {
+      const profileMetadataBase = {
+        ...(npc.profile.metadata || {}),
+        learning: enrichment.learningMetadata || npc.profile.metadata?.learning
+      };
+      npc.profile = {
+        ...npc.profile,
+        personality: npc.personality,
+        personalitySummary: npc.personalitySummary,
+        personalityTraits: npc.personalityTraits,
+        metadata: applyPersonalityMetadata(profileMetadataBase, {
+          summary: npc.personalitySummary,
+          traits: npc.personalityTraits
+        })
+      };
+    }
+
+    if (this.registry && npc.profile?.id) {
+      this.registry.upsert({
+        id: npc.profile.id,
+        personality: npc.profile.personality,
+        personalitySummary: npc.profile.personalitySummary,
+        personalityTraits: npc.profile.personalityTraits,
+        metadata: npc.profile.metadata
+      }).catch(err => {
+        console.error(`⚠️  Failed to sync registry after learning enrichment for ${id}:`, err.message);
+      });
+    }
+  }
 }
 
 // ============================================================================
 // CLI Example
 // ============================================================================
 
-if (process.argv[1].includes("npc_engine.js")) {
+if (process.argv[1] && process.argv[1].includes("npc_engine.js")) {
   const engine = new NPCEngine();
   engine.registerNPC("npc_1", "miner");
   engine.registerNPC("npc_2", "builder");

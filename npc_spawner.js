@@ -6,6 +6,7 @@ import {
   cloneValue,
   mergeLearningIntoProfile
 } from "./npc_identity.js";
+import { logger } from "./logger.js";
 
 /**
  * Coordinates NPC profile creation, engine registration and in-world spawning.
@@ -30,18 +31,26 @@ export class NPCSpawner {
         ? this.engine.learningEngine
         : null;
     this.learningReady = this.engine?.learningReady || null;
+
+    // Error recovery configuration
+    this.maxRetries = options.maxRetries ?? 3;
+    this.retryDelay = options.retryDelay ?? 1000; // ms
+    this.deadLetterQueue = [];
+    this.failureCount = new Map(); // Track failures per NPC
+
+    this.log = logger.child({ component: 'NPCSpawner' });
   }
 
   async initialize() {
     if (!this.registryReady && this.registry) {
       this.registryReady = this.registry.load().catch(err => {
-        console.error("❌ Failed to load NPC registry:", err.message);
+        this.log.error("Failed to load NPC registry", { error: err.message });
         throw err;
       });
     }
     if (!this.learningReady && this.learningEngine) {
       this.learningReady = this.learningEngine.initialize().catch(err => {
-        console.error("❌ Failed to initialize learning engine:", err.message);
+        this.log.error("Failed to initialize learning engine", { error: err.message });
         throw err;
       });
     }
@@ -77,7 +86,7 @@ export class NPCSpawner {
           }
         }
       } catch (error) {
-        console.error(`⚠️  Failed to merge learning profile for NPC ${profile.id}:`, error.message);
+        this.log.warn("Failed to merge learning profile", { npcId: profile.id, error: error.message });
       }
     }
 
@@ -89,8 +98,31 @@ export class NPCSpawner {
     let spawnResponse = null;
 
     if (shouldSpawn) {
+      spawnResponse = await this._spawnWithRetry(profile, position, options);
+    }
+
+    return this._finalizeSpawn(profile, position, {
+      spawnResponse,
+      shouldSpawn
+    });
+  }
+
+  /**
+   * Spawn NPC with retry logic
+   */
+  async _spawnWithRetry(profile, position, options) {
+    const retries = options.maxRetries ?? this.maxRetries;
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        spawnResponse = await (this.engine?.spawnNPC?.(profile.id, {
+        if (attempt > 0) {
+          const delay = this.retryDelay * Math.pow(2, attempt - 1); // Exponential backoff
+          this.log.info("Retrying NPC spawn", { npcId: profile.id, attempt, delay });
+          await this._sleep(delay);
+        }
+
+        const response = await (this.engine?.spawnNPC?.(profile.id, {
           npcType: profile.npcType,
           position,
           appearance: profile.appearance,
@@ -104,15 +136,116 @@ export class NPCSpawner {
           metadata: profile.metadata,
           profile
         }));
+
+        // Success - clear failure count
+        if (this.failureCount.has(profile.id)) {
+          this.failureCount.delete(profile.id);
+        }
+
+        this.log.info("NPC spawned successfully", { npcId: profile.id, attempt });
+        return response;
+
       } catch (error) {
-        console.error(`❌ Failed to spawn NPC ${profile.id}:`, error.message);
+        lastError = error;
+        this.log.warn("Spawn attempt failed", {
+          npcId: profile.id,
+          attempt: attempt + 1,
+          maxRetries: retries + 1,
+          error: error.message
+        });
       }
     }
 
-    return this._finalizeSpawn(profile, position, {
-      spawnResponse,
-      shouldSpawn
+    // All retries exhausted - add to dead letter queue
+    this._addToDeadLetterQueue(profile, position, lastError);
+    this.log.error("Failed to spawn NPC after all retries", {
+      npcId: profile.id,
+      retries: retries + 1,
+      error: lastError.message
     });
+
+    return null;
+  }
+
+  /**
+   * Add failed spawn to dead letter queue
+   */
+  _addToDeadLetterQueue(profile, position, error) {
+    const failCount = (this.failureCount.get(profile.id) || 0) + 1;
+    this.failureCount.set(profile.id, failCount);
+
+    this.deadLetterQueue.push({
+      profile,
+      position,
+      error: error.message,
+      failCount,
+      timestamp: new Date().toISOString()
+    });
+
+    this.log.warn("NPC added to dead letter queue", {
+      npcId: profile.id,
+      failCount,
+      queueSize: this.deadLetterQueue.length
+    });
+  }
+
+  /**
+   * Retry spawns from dead letter queue
+   */
+  async retryDeadLetterQueue(options = {}) {
+    const { maxRetries = 1 } = options;
+    const results = { successes: [], failures: [] };
+
+    this.log.info("Retrying dead letter queue", { queueSize: this.deadLetterQueue.length });
+
+    const queue = [...this.deadLetterQueue];
+    this.deadLetterQueue = [];
+
+    for (const entry of queue) {
+      try {
+        const response = await this._spawnWithRetry(entry.profile, entry.position, { maxRetries });
+        if (response) {
+          results.successes.push({ npcId: entry.profile.id, response });
+        } else {
+          results.failures.push({ npcId: entry.profile.id, error: 'Spawn returned null' });
+        }
+      } catch (error) {
+        results.failures.push({ npcId: entry.profile.id, error: error.message });
+      }
+    }
+
+    this.log.info("Dead letter queue retry complete", {
+      successes: results.successes.length,
+      failures: results.failures.length,
+      remainingQueue: this.deadLetterQueue.length
+    });
+
+    return results;
+  }
+
+  /**
+   * Get dead letter queue entries
+   */
+  getDeadLetterQueue() {
+    return [...this.deadLetterQueue];
+  }
+
+  /**
+   * Clear dead letter queue
+   */
+  clearDeadLetterQueue() {
+    const count = this.deadLetterQueue.length;
+    this.deadLetterQueue = [];
+    this.failureCount.clear();
+    this.log.info("Dead letter queue cleared", { count });
+    return count;
+  }
+
+  /**
+   * Sleep utility for retry delays
+   */
+  _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   async spawnAllKnown(options = {}) {
@@ -233,7 +366,7 @@ export class NPCSpawner {
         lastSpawnResponse: context.spawnResponse
       };
     } catch (error) {
-      console.error(`❌ Failed to update registry for NPC ${profile.id}:`, error.message);
+      this.log.error("Failed to update registry", { npcId: profile.id, error: error.message });
     }
 
     return {

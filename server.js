@@ -1,14 +1,16 @@
 import express from "express";
 import cors from "cors";
-import helmet from "helmet";
-import morgan from "morgan";
-import rateLimit from "express-rate-limit";
+import { createServer } from "http";
+import { Server } from "socket.io";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { watch } from "fs";
 import { NPCEngine } from "./npc_engine.js";
 import { MinecraftBridge } from "./minecraft_bridge.js";
+import { handleLogin, getCurrentUser, authenticateSocket } from "./middleware/auth.js";
+import { initBotRoutes } from "./routes/bot.js";
+import { initLLMRoutes } from "./routes/llm.js";
 
 // Constants
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -243,9 +245,35 @@ function startDataSimulation() {
   }, 10000);
 }
 
-// Routes
+// ============================================================================
+// Authentication Routes
+// ============================================================================
+
+app.post("/api/auth/login", handleLogin);
+app.get("/api/auth/me", getCurrentUser);
+
+// ============================================================================
+// Bot Management Routes (integrated from routes/bot.js)
+// ============================================================================
+
+// Will be initialized after npcEngine is ready
+
+// ============================================================================
+// LLM Command Routes (integrated from routes/llm.js)
+// ============================================================================
+
+// Will be initialized after npcEngine is ready
+
+// ============================================================================
+// Dashboard Routes
+// ============================================================================
+
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "dashboard.html"));
+});
+
+app.get("/admin", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "admin.html"));
 });
 
 app.get("/api/cluster", (req, res) => {
@@ -339,13 +367,8 @@ app.get("/data/fused_knowledge.json", async (req, res) => {
 });
 
 // ============================================================================
-// NPC Management API Routes
+// Bot & LLM Routers will be mounted here after NPC engine initialization
 // ============================================================================
-
-/**
- * GET /api/npcs - List all active NPCs
- */
-app.get("/api/npcs", (req, res) => {
   if (!npcEngine) {
     return res.status(503).json({ error: "NPC engine not initialized" });
   }

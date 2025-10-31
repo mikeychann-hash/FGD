@@ -123,6 +123,14 @@ export class BridgeManager {
       return null;
     }
 
+    if (
+      typeof this.engine.bridge.isConnected === "function" &&
+      !this.engine.bridge.isConnected()
+    ) {
+      console.warn(`⚠️  Bridge not connected, skipping spawn for ${id}`);
+      return null;
+    }
+
     const npc = this.engine.npcs.get(id);
     if (!npc && !options.npcType) {
       console.warn(`⚠️  Attempted to spawn unknown NPC ${id}`);

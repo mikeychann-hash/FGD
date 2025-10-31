@@ -83,13 +83,37 @@ export class DispatchManager {
       return;
     }
 
+    if (
+      typeof this.engine.bridge.isConnected === "function" &&
+      !this.engine.bridge.isConnected()
+    ) {
+      console.warn(
+        `[ENGINE WARN] Bridge not connected for ${npc.id}, requeuing task ${task.action}`
+      );
+      if (this.engine.taskTimeouts.has(npc.id)) {
+        clearTimeout(this.engine.taskTimeouts.get(npc.id));
+        this.engine.taskTimeouts.delete(npc.id);
+      }
+      npc.state = "idle";
+      npc.awaitingFeedback = false;
+      const requeueTask = cloneTask(task);
+      npc.task = null;
+      this.engine.queueManager.enqueueTask(requeueTask);
+      this.engine.emit("task_requeued", {
+        task: cloneTask(requeueTask),
+        npcId: npc.id,
+        reason: "bridge_disconnected"
+      });
+      return;
+    }
+
     if (plan) {
       this.engine.emit("task_plan_generated", { npcId: npc.id, task: cloneTask(task), plan });
     }
 
-    this.engine.bridge
-      .dispatchTask({ ...task, npcId: npc.id })
-      .then(response => {
+    (async () => {
+      try {
+        const response = await this.engine.bridge.dispatchTask({ ...task, npcId: npc.id });
         if (response) {
           console.log(`🧭 Bridge response for ${npc.id}:`, response);
         }
@@ -104,16 +128,16 @@ export class DispatchManager {
           return;
         }
         this.completeTask(npc.id, true);
-      })
-      .catch(err => {
-        console.error(`❌ Bridge dispatch failed for ${npc.id}:`, err.message);
+      } catch (err) {
+        console.warn(`⚠️  Command failed for ${npc.id}: ${err.message}`);
         this.engine.emit("task_dispatch_failed", {
           npcId: npc.id,
           task: cloneTask(task),
           error: err
         });
         this.completeTask(npc.id, false);
-      });
+      }
+    })();
   }
 
   /**

@@ -1,5 +1,29 @@
 import { Traits } from "./traits.js";
 
+function deepClone(value) {
+  if (value == null || typeof value !== "object") {
+    return value ?? null;
+  }
+
+  if (typeof structuredClone === "function") {
+    try {
+      return structuredClone(value);
+    } catch (error) {
+      // Fallback below
+    }
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(deepClone);
+  }
+
+  const clone = {};
+  for (const [key, nested] of Object.entries(value)) {
+    clone[key] = deepClone(nested);
+  }
+  return clone;
+}
+
 export function ensureTraitsHelper(traitsHelper) {
   if (
     traitsHelper &&
@@ -21,6 +45,20 @@ export function cloneValue(value) {
   return { ...value };
 }
 
+export function sanitizePersonality(personality) {
+  if (!personality || typeof personality !== "object") {
+    return null;
+  }
+
+  const clone = deepClone(personality);
+  for (const key of Object.keys(clone)) {
+    if (!Number.isFinite(clone[key])) {
+      clone[key] = 0.5;
+    }
+  }
+  return clone;
+}
+
 export function buildPersonalityBundle(personality, traitsHelper) {
   const helper = ensureTraitsHelper(traitsHelper);
   let finalPersonality = null;
@@ -30,12 +68,12 @@ export function buildPersonalityBundle(personality, traitsHelper) {
       ? helper.isValidPersonality(personality)
       : true;
     if (isValid) {
-      finalPersonality = { ...personality };
+      finalPersonality = sanitizePersonality(personality);
     }
   }
 
   if (!finalPersonality) {
-    finalPersonality = helper.generate();
+    finalPersonality = sanitizePersonality(helper.generate());
   }
 
   const details = helper.getDetailedDescription(finalPersonality);
@@ -83,7 +121,7 @@ export function deriveLearningEnrichment(learningProfile, traitsHelper) {
 
   if (learningProfile.personality) {
     const bundle = buildPersonalityBundle(
-      learningProfile.personality,
+      sanitizePersonality(learningProfile.personality),
       traitsHelper
     );
     enrichment.personality = bundle.personality;

@@ -22,6 +22,7 @@ export class MinecraftBridge extends EventEmitter {
   static MIN_CLEANUP_INTERVAL_MS = 1000;
   static MIN_PERSISTENCE_INTERVAL_MS = 5000;
   static MAX_RECONNECT_ATTEMPTS = 10;
+  static MAX_COMMAND_QUEUE_SIZE = 100;
   static WEBSOCKET_READY_STATE_OPEN = 1;
 
   // Combat event parsing patterns
@@ -312,6 +313,7 @@ const EQUIPMENT_SLOT_ALIASES = Object.freeze({
       commandsFailed: 0,
       commandsTimedOut: 0,
       queueMax: 0,
+      queueDropped: 0,
       reconnectAttempts: 0,
       lastReconnectDelay: 0,
       lastReconnectAt: null
@@ -544,6 +546,14 @@ const EQUIPMENT_SLOT_ALIASES = Object.freeze({
    */
   enqueueCommand(command) {
     return new Promise((resolve, reject) => {
+      if (this.commandQueue.length >= MinecraftBridge.MAX_COMMAND_QUEUE_SIZE) {
+        console.warn("[RCON] Queue overflow, dropping oldest command");
+        const dropped = this.commandQueue.shift();
+        if (dropped?.reject) {
+          dropped.reject(new Error("Command queue overflow"));
+        }
+        this.metrics.queueDropped += 1;
+      }
       this.commandQueue.push({ command, resolve, reject });
       this.metrics.queueMax = Math.max(this.metrics.queueMax, this.commandQueue.length);
       this.processCommandQueue();

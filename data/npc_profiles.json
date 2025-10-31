@@ -1,5 +1,6 @@
 {
   "miner_01": {
+    "role": "miner",
     "skills": {
       "mining": 5,
       "building": 2,

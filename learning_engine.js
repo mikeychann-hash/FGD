@@ -13,6 +13,7 @@ const MAX_SKILL_LEVEL = 100;
 const SAVE_DEBOUNCE_MS = 500;
 
 const VALID_SKILLS = ["mining", "building", "gathering", "exploring", "guard"];
+const ALLOWED_ROLES = ["miner", "builder", "scout", "guard"];
 
 const SKILL_MAP = {
   build: "building",
@@ -72,6 +73,12 @@ export class LearningEngine {
 
       try {
         this.profiles = JSON.parse(data);
+        Object.entries(this.profiles).forEach(([npcId, profile]) => {
+          if (!profile || typeof profile !== "object") {
+            return;
+          }
+          profile.role = this.normalizeRole(profile.role, npcId);
+        });
         console.log(`📚 Loaded ${Object.keys(this.profiles).length} NPC profiles`);
       } catch (parseErr) {
         console.error("❌ Error parsing profiles JSON, backing up corrupt file");
@@ -188,6 +195,7 @@ export class LearningEngine {
 
     if (!this.profiles[npcName]) {
       this.profiles[npcName] = {
+        role: this.normalizeRole("builder", npcName),
         skills: {
           mining: 1,
           building: 1,
@@ -314,6 +322,23 @@ export class LearningEngine {
     }));
 
     return npcs.sort((a, b) => b.xp - a.xp);
+  }
+
+  normalizeRole(role, npcId = "") {
+    if (!role || typeof role !== "string" || role.trim().length === 0) {
+      throw new Error(
+        `Invalid role${npcId ? ` for ${npcId}` : ""}: role must be one of ${ALLOWED_ROLES.join(", ")}`
+      );
+    }
+
+    const normalized = role.trim().toLowerCase();
+    if (!ALLOWED_ROLES.includes(normalized)) {
+      throw new Error(
+        `Invalid role${npcId ? ` for ${npcId}` : ""}: ${role}. Valid roles: ${ALLOWED_ROLES.join(", ")}`
+      );
+    }
+
+    return normalized;
   }
 
   /**

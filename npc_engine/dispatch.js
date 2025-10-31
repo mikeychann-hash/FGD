@@ -3,6 +3,7 @@
 
 import { planTask } from "../tasks/index.js";
 import { TASK_TIMEOUT, SIMULATED_TASK_DURATION, normalizePriority, cloneTask, getPreferredNpcTypes } from "./utils.js";
+import { logger } from "../logger.js";
 
 /**
  * Manages task dispatch, execution, and completion
@@ -10,6 +11,12 @@ import { TASK_TIMEOUT, SIMULATED_TASK_DURATION, normalizePriority, cloneTask, ge
 export class DispatchManager {
   constructor(engine) {
     this.engine = engine;
+    this.log = logger.child({ component: 'DispatchManager' });
+
+    // Task retry tracking
+    this.taskRetries = new Map(); // npcId -> { task, retryCount, lastError }
+    this.maxRetries = engine.maxTaskRetries ?? 2;
+    this.retryDelay = engine.taskRetryDelay ?? 2000; // ms
   }
 
   /**
@@ -35,9 +42,14 @@ export class DispatchManager {
       normalizedTask.preferredNpcTypes && normalizedTask.preferredNpcTypes.length > 0
         ? ` [preferred: ${normalizedTask.preferredNpcTypes.join(", ")}]`
         : "";
-    console.log(
-      `🪓 NPC ${npc.id} executing task: ${normalizedTask.action} (${normalizedTask.details})${preferenceNote}`
-    );
+
+    this.log.info('NPC executing task', {
+      npcId: npc.id,
+      action: normalizedTask.action,
+      details: normalizedTask.details,
+      preferredTypes: normalizedTask.preferredNpcTypes
+    });
+
     this.engine.emit("task_assigned", { npcId: npc.id, task: cloneTask(normalizedTask) });
 
     if (this.engine.taskTimeouts.has(npc.id)) {
@@ -45,8 +57,8 @@ export class DispatchManager {
     }
 
     const safetyTimeout = setTimeout(() => {
-      console.warn(`⚠️  Task timeout for NPC ${npc.id}, forcing idle state`);
-      this.completeTask(npc.id, false);
+      this.log.warn('Task timeout, attempting recovery', { npcId: npc.id, task: normalizedTask.action });
+      this._handleTaskTimeout(npc.id, normalizedTask);
     }, TASK_TIMEOUT);
 
     this.engine.taskTimeouts.set(npc.id, safetyTimeout);
@@ -87,9 +99,7 @@ export class DispatchManager {
       typeof this.engine.bridge.isConnected === "function" &&
       !this.engine.bridge.isConnected()
     ) {
-      console.warn(
-        `[ENGINE WARN] Bridge not connected for ${npc.id}, requeuing task ${task.action}`
-      );
+      this.log.warn('Bridge not connected, requeuing task', { npcId: npc.id, task: task.action });
       if (this.engine.taskTimeouts.has(npc.id)) {
         clearTimeout(this.engine.taskTimeouts.get(npc.id));
         this.engine.taskTimeouts.delete(npc.id);
@@ -115,7 +125,7 @@ export class DispatchManager {
       try {
         const response = await this.engine.bridge.dispatchTask({ ...task, npcId: npc.id });
         if (response) {
-          console.log(`🧭 Bridge response for ${npc.id}:`, response);
+          this.log.debug('Bridge response received', { npcId: npc.id, response });
         }
         this.engine.emit("task_dispatched", {
           npcId: npc.id,
@@ -124,18 +134,26 @@ export class DispatchManager {
           response,
           plan
         });
+
+        // Clear retry tracking on success
+        if (this.taskRetries.has(npc.id)) {
+          this.taskRetries.delete(npc.id);
+        }
+
         if (npc.awaitingFeedback) {
           return;
         }
         this.completeTask(npc.id, true);
       } catch (err) {
-        console.warn(`⚠️  Command failed for ${npc.id}: ${err.message}`);
+        this.log.warn('Task dispatch failed', { npcId: npc.id, error: err.message });
         this.engine.emit("task_dispatch_failed", {
           npcId: npc.id,
           task: cloneTask(task),
           error: err
         });
-        this.completeTask(npc.id, false);
+
+        // Attempt retry
+        await this._handleTaskFailure(npc.id, task, err);
       }
     })();
   }
@@ -211,13 +229,17 @@ export class DispatchManager {
     npc.awaitingFeedback = false;
 
     if (success) {
-      console.log(`✅ NPC ${npcId} completed task: ${completedTask?.action}`);
+      this.log.info('NPC completed task', { npcId, action: completedTask?.action });
+      // Clear retry tracking on success
+      if (this.taskRetries.has(npcId)) {
+        this.taskRetries.delete(npcId);
+      }
     } else {
-      console.log(`❌ NPC ${npcId} failed task: ${completedTask?.action}`);
+      this.log.warn('NPC failed task', { npcId, action: completedTask?.action });
     }
 
     if (metadata) {
-      console.log(`ℹ️  Completion metadata for ${npcId}:`, metadata);
+      this.log.debug('Task completion metadata', { npcId, metadata });
     }
 
     this.engine.emit("task_completed", {
@@ -228,5 +250,107 @@ export class DispatchManager {
     });
 
     this.engine.queueManager.processQueue();
+  }
+
+  /**
+   * Handle task timeout with recovery attempt
+   */
+  async _handleTaskTimeout(npcId, task) {
+    const npc = this.engine.npcs.get(npcId);
+    if (!npc) return;
+
+    const retryInfo = this.taskRetries.get(npcId) || { task, retryCount: 0 };
+
+    if (retryInfo.retryCount < this.maxRetries) {
+      this.log.info('Retrying timed-out task', {
+        npcId,
+        action: task.action,
+        retryCount: retryInfo.retryCount + 1,
+        maxRetries: this.maxRetries
+      });
+
+      // Update retry tracking
+      this.taskRetries.set(npcId, {
+        task: cloneTask(task),
+        retryCount: retryInfo.retryCount + 1,
+        lastError: 'timeout'
+      });
+
+      // Reset NPC state and retry
+      npc.state = "idle";
+      npc.task = null;
+      npc.progress = 0;
+      npc.awaitingFeedback = false;
+
+      // Wait before retry
+      await this._sleep(this.retryDelay);
+
+      // Reassign the task
+      this.assignTask(npc, task);
+    } else {
+      this.log.error('Task timeout after max retries', {
+        npcId,
+        action: task.action,
+        retries: retryInfo.retryCount
+      });
+
+      // Give up and complete as failed
+      this.completeTask(npcId, false);
+    }
+  }
+
+  /**
+   * Handle task failure with retry logic
+   */
+  async _handleTaskFailure(npcId, task, error) {
+    const npc = this.engine.npcs.get(npcId);
+    if (!npc) {
+      return;
+    }
+
+    const retryInfo = this.taskRetries.get(npcId) || { task, retryCount: 0 };
+
+    if (retryInfo.retryCount < this.maxRetries) {
+      this.log.info('Retrying failed task', {
+        npcId,
+        action: task.action,
+        retryCount: retryInfo.retryCount + 1,
+        maxRetries: this.maxRetries,
+        error: error.message
+      });
+
+      // Update retry tracking
+      this.taskRetries.set(npcId, {
+        task: cloneTask(task),
+        retryCount: retryInfo.retryCount + 1,
+        lastError: error.message
+      });
+
+      // Wait before retry
+      await this._sleep(this.retryDelay * (retryInfo.retryCount + 1)); // Exponential backoff
+
+      // Reassign the task
+      this.assignTask(npc, task);
+    } else {
+      this.log.error('Task failed after max retries', {
+        npcId,
+        action: task.action,
+        retries: retryInfo.retryCount,
+        error: error.message
+      });
+
+      // Clear retry tracking
+      this.taskRetries.delete(npcId);
+
+      // Complete as failed
+      this.completeTask(npcId, false);
+    }
+  }
+
+  /**
+   * Sleep utility for retry delays
+   */
+  _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

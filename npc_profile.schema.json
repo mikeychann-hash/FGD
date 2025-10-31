@@ -35,10 +35,6 @@
       "xp": { "type": "number", "minimum": 0 },
       "tasksCompleted": { "type": "number", "minimum": 0 },
       "tasksFailed": { "type": "number", "minimum": 0 },
-      "role": {
-        "type": "string",
-        "enum": ["miner", "builder", "scout", "guard"]
-      },
       "lastActivity": { "type": ["string", "null"], "format": "date-time" },
       "createdAt": { "type": "string", "format": "date-time" }
     },
@@ -48,7 +44,6 @@
       "xp",
       "tasksCompleted",
       "tasksFailed",
-      "role",
       "createdAt"
     ],
     "additionalProperties": true

@@ -140,17 +140,12 @@ export function mergeLearningIntoProfile(profile, learningProfile, traitsHelper)
   const enrichment = deriveLearningEnrichment(learningProfile, traitsHelper);
   const metadata = profile.metadata ? { ...profile.metadata } : {};
 
-  const sanitizedProfile = {
-    ...profile,
-    personality: sanitizePersonality(profile.personality) || profile.personality,
-  };
-
   if (enrichment.learningMetadata) {
     metadata.learning = enrichment.learningMetadata;
   }
 
   const merged = {
-    ...sanitizedProfile,
+    ...profile,
     metadata,
   };
 

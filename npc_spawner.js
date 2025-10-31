@@ -87,7 +87,6 @@ export class NPCSpawner {
 
     const shouldSpawn = (options.autoSpawn ?? this.autoSpawn) && (this.engine?.bridge || this.bridge);
     let spawnResponse = null;
-    let spawnSuccess = false;
 
     if (shouldSpawn) {
       try {
@@ -105,20 +104,14 @@ export class NPCSpawner {
           metadata: profile.metadata,
           profile
         }));
-        spawnSuccess = this._wasSpawnSuccessful(spawnResponse);
-        if (!spawnSuccess) {
-          console.error(`[SPAWN FAIL] ${profile.id}:`, spawnResponse);
-        }
       } catch (error) {
         console.error(`❌ Failed to spawn NPC ${profile.id}:`, error.message);
-        spawnSuccess = false;
       }
     }
 
     return this._finalizeSpawn(profile, position, {
       spawnResponse,
-      shouldSpawn,
-      spawnSuccess
+      shouldSpawn
     });
   }
 
@@ -211,17 +204,9 @@ export class NPCSpawner {
       };
     }
 
-    if (context.shouldSpawn && !context.spawnSuccess) {
-      return {
-        ...profile,
-        lastSpawnResponse: context.spawnResponse,
-        spawnFailed: true
-      };
-    }
-
     try {
       const updatedProfile = await this.registry.recordSpawn(profile.id, position, {
-        increment: context.spawnSuccess,
+        increment: context.shouldSpawn,
         status: "active"
       });
 
@@ -255,39 +240,5 @@ export class NPCSpawner {
       ...profile,
       lastSpawnResponse: context.spawnResponse
     };
-  }
-
-  _wasSpawnSuccessful(response) {
-    if (response == null) {
-      return false;
-    }
-
-    const flattened = this._stringifySpawnResponse(response).toLowerCase();
-    return flattened.includes("summoned") || flattened.includes("created");
-  }
-
-  _stringifySpawnResponse(response) {
-    if (typeof response === "string") {
-      return response;
-    }
-
-    if (Array.isArray(response)) {
-      return response.map(entry => this._stringifySpawnResponse(entry)).join(" ");
-    }
-
-    if (typeof response === "object") {
-      if (typeof response.response === "string") {
-        return response.response;
-      }
-      if (typeof response.message === "string") {
-        return response.message;
-      }
-      if (typeof response.result === "string") {
-        return response.result;
-      }
-      return JSON.stringify(response);
-    }
-
-    return String(response ?? "");
   }
 }

@@ -13,8 +13,6 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_REGISTRY_PATH = path.join(__dirname, "data", "npc_registry.json");
-const SAVE_DEBOUNCE_MS = 300;
-const ALLOWED_ROLES = ["miner", "builder", "scout", "guard"];
 
 /**
  * Persistent registry for NPC identities, roles and traits.
@@ -25,8 +23,7 @@ export class NPCRegistry {
     this.traits = ensureTraitsHelper(options.traitsGenerator);
     this.npcs = new Map();
     this.loaded = false;
-    this.saveScheduled = null;
-    this.pendingSavePromise = null;
+    this.saveQueue = Promise.resolve();
   }
 
   async load() {
@@ -60,33 +57,7 @@ export class NPCRegistry {
     if (!this.loaded) {
       this.loaded = true;
     }
-    if (this.pendingSavePromise) {
-      return this.pendingSavePromise;
-    }
-
-    this.pendingSavePromise = new Promise((resolve, reject) => {
-      if (this.saveScheduled) {
-        clearTimeout(this.saveScheduled);
-      }
-
-      this.saveScheduled = setTimeout(async () => {
-        this.saveScheduled = null;
-        try {
-          const payload = this._serialize();
-          await fs.mkdir(path.dirname(this.registryPath), { recursive: true });
-          const serialized = JSON.stringify(payload, null, 2);
-          await fs.writeFile(this.registryPath, serialized, "utf8");
-          resolve(payload);
-        } catch (error) {
-          console.error(`❌ Registry save error: ${error.message}`);
-          reject(error);
-        } finally {
-          this.pendingSavePromise = null;
-        }
-      }, SAVE_DEBOUNCE_MS);
-    });
-
-    return this.pendingSavePromise;
+    return this._enqueueSave();
   }
 
   getAll() {
@@ -241,7 +212,7 @@ export class NPCRegistry {
 
     const id = profile.id || this._generateId(profile.baseName || profile.role || profile.npcType);
     const npcType = profile.npcType || profile.type || "builder";
-    const role = this._normalizeRole(profile.role, npcType, profile.id);
+    const role = profile.role || npcType;
 
     const bundle = buildPersonalityBundle(profile.personality, this.traits);
     const existingMetadata = this.npcs.get(id)?.metadata;
@@ -294,7 +265,7 @@ export class NPCRegistry {
       ...this._buildProfile({
         id,
         npcType: updates.npcType || existing.npcType,
-        role: this._normalizeRole(updates.role || existing.role, existing.role, id),
+        role: updates.role || existing.role,
         appearance: updates.appearance || existing.appearance,
         spawnPosition: updates.spawnPosition || existing.spawnPosition,
         personality: updates.personality || existing.personality,
@@ -320,7 +291,7 @@ export class NPCRegistry {
     return {
       id: entry.id,
       npcType: entry.npcType || entry.type || "builder",
-      role: this._normalizeRole(entry.role, entry.npcType || entry.type || "builder", entry.id),
+      role: entry.role || entry.npcType || entry.type || "builder",
       appearance: cloneValue(entry.appearance) || {},
       spawnPosition: cloneValue(entry.spawnPosition) || null,
       lastKnownPosition:
@@ -354,36 +325,26 @@ export class NPCRegistry {
     };
   }
 
+  async _enqueueSave() {
+    this.loaded = true;
+    const run = async () => {
+      const payload = this._serialize();
+      await fs.mkdir(path.dirname(this.registryPath), { recursive: true });
+      const serialized = JSON.stringify(payload, null, 2);
+      await fs.writeFile(this.registryPath, serialized, "utf8");
+      return payload;
+    };
+
+    const scheduled = this.saveQueue.then(run);
+    this.saveQueue = scheduled.catch(() => {});
+    return scheduled;
+  }
+
   _serialize() {
     return {
       version: 1,
       updatedAt: new Date().toISOString(),
       npcs: [...this.npcs.values()].map(serializeRegistryEntry)
     };
-  }
-
-  _normalizeRole(roleCandidate, fallbackCandidate, contextId = "") {
-    const candidates = [];
-
-    if (typeof roleCandidate === "string" && roleCandidate.trim().length > 0) {
-      candidates.push(roleCandidate.trim().toLowerCase());
-    }
-
-    if (typeof fallbackCandidate === "string" && fallbackCandidate.trim().length > 0) {
-      candidates.push(fallbackCandidate.trim().toLowerCase());
-    }
-
-    if (candidates.length === 0) {
-      candidates.push("builder");
-    }
-
-    for (const candidate of candidates) {
-      if (ALLOWED_ROLES.includes(candidate)) {
-        return candidate;
-      }
-    }
-
-    const identifier = contextId ? ` for NPC ${contextId}` : "";
-    throw new Error(`Invalid role${identifier}: ${roleCandidate || fallbackCandidate}`);
   }
 }

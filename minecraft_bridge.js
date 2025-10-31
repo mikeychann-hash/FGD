@@ -138,25 +138,25 @@ export class MinecraftBridge extends EventEmitter {
     }
   ];
 
-const EQUIPMENT_SLOT_ALIASES = Object.freeze({
-  head: "armor.head",
-  helmet: "armor.head",
-  hat: "armor.head",
-  chest: "armor.chest",
-  chestplate: "armor.chest",
-  torso: "armor.chest",
-  legs: "armor.legs",
-  leggings: "armor.legs",
-  pants: "armor.legs",
-  feet: "armor.feet",
-  boots: "armor.feet",
-  shoes: "armor.feet",
-  mainhand: "weapon.mainhand",
-  hand: "weapon.mainhand",
-  weapon: "weapon.mainhand",
-  offhand: "weapon.offhand",
-  shield: "weapon.offhand"
-});
+  static EQUIPMENT_SLOT_ALIASES = Object.freeze({
+    head: "armor.head",
+    helmet: "armor.head",
+    hat: "armor.head",
+    chest: "armor.chest",
+    chestplate: "armor.chest",
+    torso: "armor.chest",
+    legs: "armor.legs",
+    leggings: "armor.legs",
+    pants: "armor.legs",
+    feet: "armor.feet",
+    boots: "armor.feet",
+    shoes: "armor.feet",
+    mainhand: "weapon.mainhand",
+    hand: "weapon.mainhand",
+    weapon: "weapon.mainhand",
+    offhand: "weapon.offhand",
+    shield: "weapon.offhand"
+  });
 
   /**
    * Creates a new MinecraftBridge instance
@@ -1159,7 +1159,7 @@ const EQUIPMENT_SLOT_ALIASES = Object.freeze({
     }
 
     const normalizedSlotKey = typeof slotKey === "string" ? slotKey.toLowerCase() : "";
-    const slot = EQUIPMENT_SLOT_ALIASES[normalizedSlotKey] || slotKey;
+    const slot = MinecraftBridge.EQUIPMENT_SLOT_ALIASES[normalizedSlotKey] || slotKey;
     if (typeof slot !== "string" || slot.length === 0) {
       return null;
     }

@@ -7,6 +7,8 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { watch } from "fs";
+import { NPCEngine } from "./npc_engine.js";
+import { MinecraftBridge } from "./minecraft_bridge.js";
 
 // Constants
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -131,6 +133,34 @@ let systemState = {
     cooldown: 10000
   }
 };
+
+// NPC Engine instance
+let npcEngine = null;
+
+/**
+ * Initialize the NPC engine
+ */
+async function initializeNPCEngine() {
+  try {
+    npcEngine = new NPCEngine({
+      autoSpawn: false,
+      defaultSpawnPosition: { x: 0, y: 64, z: 0 },
+      autoRegisterFromRegistry: true
+    });
+
+    await npcEngine.registryReady;
+    await npcEngine.learningReady;
+
+    console.log('✅ NPC Engine initialized');
+    console.log(`   Registry: ${npcEngine.registry?.registryPath}`);
+    console.log(`   Learning: ${npcEngine.learningEngine?.path}`);
+
+    const activeNPCs = npcEngine.registry?.listActive() || [];
+    console.log(`   Active NPCs: ${activeNPCs.length}`);
+  } catch (err) {
+    console.error('❌ Failed to initialize NPC engine:', err.message);
+  }
+}
 
 /**
  * Initialize system with sample data
@@ -308,6 +338,262 @@ app.get("/data/fused_knowledge.json", async (req, res) => {
   }
 });
 
+// ============================================================================
+// NPC Management API Routes
+// ============================================================================
+
+/**
+ * GET /api/npcs - List all active NPCs
+ */
+app.get("/api/npcs", (req, res) => {
+  if (!npcEngine) {
+    return res.status(503).json({ error: "NPC engine not initialized" });
+  }
+
+  try {
+    const npcs = npcEngine.registry.listActive();
+    res.json({
+      success: true,
+      count: npcs.length,
+      npcs: npcs.map(npc => ({
+        id: npc.id,
+        role: npc.role,
+        type: npc.npcType,
+        status: npc.status,
+        description: npc.description,
+        personalitySummary: npc.personalitySummary,
+        personalityTraits: npc.personalityTraits,
+        spawnCount: npc.spawnCount,
+        lastSpawnedAt: npc.lastSpawnedAt,
+        position: npc.lastKnownPosition || npc.spawnPosition
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/npcs/:id - Get detailed info about a specific NPC
+ */
+app.get("/api/npcs/:id", (req, res) => {
+  if (!npcEngine) {
+    return res.status(503).json({ error: "NPC engine not initialized" });
+  }
+
+  try {
+    const npc = npcEngine.registry.get(req.params.id);
+    if (!npc) {
+      return res.status(404).json({ error: "NPC not found" });
+    }
+
+    res.json({
+      success: true,
+      npc: {
+        ...npc,
+        learning: npc.metadata?.learning
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/npcs - Create a new NPC
+ * Body: { role, name?, personality?, description?, position? }
+ */
+app.post("/api/npcs", async (req, res) => {
+  if (!npcEngine) {
+    return res.status(503).json({ error: "NPC engine not initialized" });
+  }
+
+  try {
+    const { role, name, personality, description, position, appearance } = req.body;
+
+    if (!role) {
+      return res.status(400).json({ error: "Role is required" });
+    }
+
+    const npc = await npcEngine.createNPC({
+      baseName: name || role,
+      role: role,
+      npcType: role,
+      personality: personality || undefined,
+      description: description || undefined,
+      position: position || undefined,
+      appearance: appearance || undefined,
+      autoSpawn: false
+    });
+
+    res.json({
+      success: true,
+      message: `Created NPC ${npc.id}`,
+      npc: {
+        id: npc.id,
+        role: npc.role,
+        type: npc.npcType,
+        personalitySummary: npc.personalitySummary,
+        personalityTraits: npc.personalityTraits,
+        description: npc.description
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/npcs/:id/spawn - Spawn an NPC in Minecraft
+ */
+app.post("/api/npcs/:id/spawn", async (req, res) => {
+  if (!npcEngine) {
+    return res.status(503).json({ error: "NPC engine not initialized" });
+  }
+
+  if (!npcEngine.bridge) {
+    return res.status(400).json({
+      error: "Minecraft bridge not configured",
+      message: "RCON connection required to spawn NPCs"
+    });
+  }
+
+  try {
+    const npcId = req.params.id;
+    const npc = npcEngine.registry.get(npcId);
+
+    if (!npc) {
+      return res.status(404).json({ error: "NPC not found" });
+    }
+
+    await npcEngine.spawnNPC(npcId);
+
+    res.json({
+      success: true,
+      message: `Spawned ${npcId} in Minecraft`,
+      npc: { id: npc.id, role: npc.role }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/npcs/spawn-all - Spawn all NPCs
+ */
+app.post("/api/npcs/spawn-all", async (req, res) => {
+  if (!npcEngine) {
+    return res.status(503).json({ error: "NPC engine not initialized" });
+  }
+
+  if (!npcEngine.bridge) {
+    return res.status(400).json({
+      error: "Minecraft bridge not configured",
+      message: "RCON connection required to spawn NPCs"
+    });
+  }
+
+  try {
+    const results = await npcEngine.spawnAllKnownNPCs();
+
+    res.json({
+      success: true,
+      message: `Spawned ${results.length} NPCs`,
+      count: results.length,
+      npcs: results.map(r => ({ id: r.id, role: r.role }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/npcs/:id - Remove an NPC
+ */
+app.delete("/api/npcs/:id", async (req, res) => {
+  if (!npcEngine) {
+    return res.status(503).json({ error: "NPC engine not initialized" });
+  }
+
+  try {
+    const npcId = req.params.id;
+    const npc = npcEngine.registry.get(npcId);
+
+    if (!npc) {
+      return res.status(404).json({ error: "NPC not found" });
+    }
+
+    await npcEngine.registry.markInactive(npcId);
+
+    res.json({
+      success: true,
+      message: `Marked ${npcId} as inactive`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/npcs/status - Get NPC engine status
+ */
+app.get("/api/npcs/status", (req, res) => {
+  if (!npcEngine) {
+    return res.status(503).json({ error: "NPC engine not initialized" });
+  }
+
+  try {
+    const status = npcEngine.getStatus();
+    res.json({
+      success: true,
+      status: {
+        total: status.total,
+        idle: status.idle,
+        working: status.working,
+        queueLength: status.queueLength,
+        maxQueueSize: status.maxQueueSize,
+        bridgeConnected: status.bridgeConnected,
+        npcs: status.npcs
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/npcs/learning - Get learning profiles
+ */
+app.get("/api/npcs/learning", (req, res) => {
+  if (!npcEngine) {
+    return res.status(503).json({ error: "NPC engine not initialized" });
+  }
+
+  if (!npcEngine.learningEngine) {
+    return res.status(503).json({ error: "Learning engine not available" });
+  }
+
+  try {
+    const profiles = npcEngine.learningEngine.getAllProfiles();
+    res.json({
+      success: true,
+      count: profiles.length,
+      profiles: profiles.map(p => ({
+        id: p.id,
+        xp: p.xp,
+        level: Math.floor(p.xp / 10),
+        tasksCompleted: p.tasksCompleted,
+        tasksFailed: p.tasksFailed,
+        successRate: p.tasksCompleted / (p.tasksCompleted + p.tasksFailed) * 100,
+        skills: p.skills,
+        personality: p.personality
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /**
  * 404 handler for API routes
  */
@@ -422,6 +708,7 @@ const PORT = process.env.PORT || 3000;
 
 async function startServer() {
   await initializeSystem();
+  await initializeNPCEngine();
   startDataSimulation();
 
   httpServer.listen(PORT, () => {

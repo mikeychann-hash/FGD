@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "node_manifest.schema.json",
+  "title": "Cognitive Task Network Node Manifest",
+  "description": "Configuration schema for CTN nodes defining their identity, specialization, peers, and task routing behavior",
+  "type": "object",
+  "required": ["nodeName", "nodeId", "role", "specialization", "taskRouting"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference"
+    },
+    "nodeName": {
+      "type": "string",
+      "description": "Human-readable name for this node",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "nodeId": {
+      "type": "string",
+      "description": "Unique identifier for this node in the network",
+      "minLength": 1,
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "role": {
+      "type": "string",
+      "description": "Primary role of this node in the cognitive network",
+      "enum": ["general", "specialized", "coordinator", "worker"]
+    },
+    "specialization": {
+      "type": "array",
+      "description": "List of task types this node can handle (e.g., 'mine', 'build', 'analyze')",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "peers": {
+      "type": "array",
+      "description": "List of peer nodes this node can delegate tasks to",
+      "items": {
+        "type": "object",
+        "required": ["name", "url", "specialization", "enabled"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the peer node",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "description": "WebSocket URL for connecting to the peer (ws:// for local, wss:// for production)",
+            "pattern": "^wss?://.+"
+          },
+          "specialization": {
+            "type": "array",
+            "description": "Task types this peer specializes in",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "priority": {
+            "type": "number",
+            "description": "Priority level (lower = higher priority) - used when strategy is 'priority'",
+            "minimum": 0
+          },
+          "weight": {
+            "type": "number",
+            "description": "Weight for weighted random selection - used when strategy is 'weighted'",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether this peer connection is active"
+          }
+        }
+      }
+    },
+    "taskRouting": {
+      "type": "object",
+      "description": "Configuration for task routing and delegation behavior",
+      "required": ["strategy", "fallbackToLocal", "retryAttempts", "retryDelay", "taskTimeout"],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "description": "Algorithm for selecting which peer to delegate to",
+          "enum": ["best-fit", "least-connections", "priority", "weighted"],
+          "default": "best-fit"
+        },
+        "fallbackToLocal": {
+          "type": "boolean",
+          "description": "Whether to execute tasks locally if all peers fail",
+          "default": true
+        },
+        "retryAttempts": {
+          "type": "integer",
+          "description": "Number of times to retry a failed delegation",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3
+        },
+        "retryDelay": {
+          "type": "integer",
+          "description": "Base delay in milliseconds between retry attempts (increases exponentially)",
+          "minimum": 100,
+          "maximum": 10000,
+          "default": 1000
+        },
+        "taskTimeout": {
+          "type": "integer",
+          "description": "Maximum time in milliseconds to wait for a task to complete",
+          "minimum": 1000,
+          "maximum": 300000,
+          "default": 30000
+        }
+      }
+    }
+  }
+}

@@ -221,11 +221,25 @@
     }
   }
 
+  /**
+   * Initializes the fusion page
+   */
+  function initialize() {
+    // Update copyright year
+    const yearEl = document.getElementById('year');
+    if (yearEl) {
+      yearEl.textContent = new Date().getFullYear();
+    }
+
+    // Load fusion data
+    loadFusionData();
+  }
+
   // Initialize when DOM is ready
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', loadFusionData);
+    document.addEventListener('DOMContentLoaded', initialize);
   } else {
-    loadFusionData();
+    initialize();
   }
 
 })();

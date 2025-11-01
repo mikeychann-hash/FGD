@@ -22,16 +22,24 @@ npm start
 
 Visit: `http://localhost:3000`
 
+> **Windows Users:** See [WINDOWS.md](WINDOWS.md) for Windows-specific instructions and troubleshooting.
+
 ## Server Startup Options
 
-The project includes comprehensive startup scripts with pre-flight checks and error handling.
+The project includes comprehensive startup scripts with pre-flight checks and error handling for both Linux/macOS and Windows.
 
 ### Simple Quick Start
 
 For the fastest way to start the server:
 
+**Linux/macOS:**
 ```bash
 ./quick-start.sh
+```
+
+**Windows:**
+```cmd
+quick-start.bat
 ```
 
 This automatically handles dependency installation and starts the server on port 3000.
@@ -40,8 +48,14 @@ This automatically handles dependency installation and starts the server on port
 
 For more control over the server startup:
 
+**Linux/macOS:**
 ```bash
 ./start-server.sh [mode] [options]
+```
+
+**Windows:**
+```cmd
+start-server.bat [mode] [options]
 ```
 
 **Available Modes:**
@@ -57,6 +71,7 @@ For more control over the server startup:
 
 **Examples:**
 
+**Linux/macOS:**
 ```bash
 # Start in development mode
 ./start-server.sh dev
@@ -69,6 +84,21 @@ For more control over the server startup:
 
 # Start without checking dependencies (faster)
 ./start-server.sh prod --no-install
+```
+
+**Windows:**
+```cmd
+REM Start in development mode
+start-server.bat dev
+
+REM Start on custom port with debug logging
+start-server.bat prod --port 8080 --log-level DEBUG
+
+REM Run tests
+start-server.bat test
+
+REM Start without checking dependencies (faster)
+start-server.bat prod --no-install
 ```
 
 ### What the Startup Script Does

@@ -11,6 +11,7 @@
 import EventEmitter from "events";
 
 import { interpretCommand } from "./interpreter.js";
+import { generateModelTasks, DEFAULT_AUTONOMY_PROMPT } from "./model_director.js";
 import { validateTask } from "./task_schema.js";
 import { normalizeControlRatio, normalizePriority, cloneTask, getPreferredNpcTypes } from "./npc_engine/utils.js";
 import { AutonomyManager } from "./npc_engine/autonomy.js";
@@ -119,6 +120,49 @@ export class NPCEngine extends EventEmitter {
     return this.bridgeManager.spawnNPC(id, options);
   }
 
+  enableModelAutonomy(options = {}) {
+    this.disableModelAutonomy();
+
+    const {
+      instructions = DEFAULT_AUTONOMY_PROMPT,
+      intervalMs = 10000,
+      maxTasks = 3,
+      allowWhenBusy = false,
+      mockResponse = null,
+      temperature = 0.3,
+      sender = "model_autonomy"
+    } = options;
+
+    this.autonomyConfig = {
+      instructions,
+      intervalMs: Math.max(1000, intervalMs),
+      maxTasks,
+      allowWhenBusy,
+      mockResponse,
+      temperature,
+      sender
+    };
+
+    this.autonomyTimer = setInterval(() => {
+      this.runAutonomyCycle().catch(err => {
+        console.error("❌ Autonomy cycle failed:", err.message);
+      });
+    }, this.autonomyConfig.intervalMs);
+
+    // Kick off an immediate cycle so it feels responsive
+    this.runAutonomyCycle({ force: true }).catch(err => {
+      console.error("❌ Initial autonomy cycle failed:", err.message);
+    });
+
+    console.log(
+      `🧠 Model autonomy enabled (interval ${this.autonomyConfig.intervalMs}ms, max ${this.autonomyConfig.maxTasks} tasks).`
+    );
+  }
+
+  disableModelAutonomy() {
+    if (this.autonomyTimer) {
+      clearInterval(this.autonomyTimer);
+      this.autonomyTimer = null;
   async createNPC(options = {}) {
     if (!this.spawner) {
       throw new Error("NPC spawner is not configured for this engine instance");

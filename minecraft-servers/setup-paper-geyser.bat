@@ -110,7 +110,7 @@ if not exist "server.properties" (
         echo server-ip=
         echo max-players=20
         echo motd=FGD AICraft Server - Paper + Geyser
-        echo online-mode=true
+        echo online-mode=false
         echo allow-flight=true
         echo difficulty=normal
         echo gamemode=survival

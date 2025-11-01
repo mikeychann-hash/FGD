@@ -1,0 +1,70 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2025-10-29T10:00:00.000Z",
+  "npcs": [
+    {
+      "id": "miner_a1b2c3d4",
+      "name": "Digger_01",
+      "role": "miner",
+      "personality": {
+        "curiosity": 0.75,
+        "motivation": 0.85,
+        "patience": 0.65,
+        "aggression": 0.3
+      },
+      "appearance": {
+        "skin": "default",
+        "model": "minecraft:villager"
+      },
+      "spawned": true,
+      "spawnedAt": "2025-10-29T10:00:00.000Z",
+      "position": {
+        "x": 100,
+        "y": 65,
+        "z": 200
+      },
+      "metadata": {
+        "createdAt": "2025-10-29T10:00:00.000Z",
+        "spawnedBy": "npc_spawner",
+        "spawnedVia": "minecraft"
+      },
+      "stats": {
+        "tasksCompleted": 0,
+        "tasksFailed": 0,
+        "xp": 0
+      }
+    },
+    {
+      "id": "builder_e5f6g7h8",
+      "name": "Architect_01",
+      "role": "builder",
+      "personality": {
+        "curiosity": 0.60,
+        "motivation": 0.90,
+        "patience": 0.80,
+        "aggression": 0.2
+      },
+      "appearance": {
+        "skin": "default",
+        "model": "minecraft:villager"
+      },
+      "spawned": false,
+      "spawnedAt": null,
+      "position": {
+        "x": 102,
+        "y": 65,
+        "z": 200
+      },
+      "metadata": {
+        "createdAt": "2025-10-29T10:01:00.000Z",
+        "spawnedBy": "npc_spawner",
+        "spawnedVia": "minecraft"
+      },
+      "stats": {
+        "tasksCompleted": 5,
+        "tasksFailed": 1,
+        "xp": 5
+      }
+    }
+  ]
+}

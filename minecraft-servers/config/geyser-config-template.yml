@@ -1,0 +1,117 @@
+# Geyser Configuration Template for FGD Integration
+# After first Paper server start, the actual config will be in:
+# minecraft-servers/paper-server/plugins/Geyser-Spigot/config.yml
+#
+# Copy the settings below into that file and adjust as needed.
+
+# ===================================
+# Bedrock Server Settings
+# ===================================
+bedrock:
+  # The IP address that will listen for connections.
+  # Use 0.0.0.0 to listen on all interfaces
+  address: 0.0.0.0
+
+  # The port that will listen for connections
+  # Default Bedrock port is 19132 (UDP)
+  port: 19132
+
+  # The MOTD that will be displayed in the Bedrock server list
+  motd1: "FGD AICraft Server"
+  motd2: "Java + Bedrock Crossplay"
+
+# ===================================
+# Remote (Java) Server Settings
+# ===================================
+remote:
+  # The IP address of the Java server
+  # Use 'auto' to connect to the same server (localhost/127.0.0.1)
+  address: auto
+
+  # The port of the Java server
+  # This should match your Paper server port (default: 25565)
+  port: 25565
+
+  # Authentication type
+  # online: requires Xbox Live authentication (recommended for security)
+  # offline: allows offline/cracked Bedrock clients (not recommended for public servers)
+  auth-type: online
+
+# ===================================
+# FGD-Specific Settings
+# ===================================
+
+# Player limit
+# Set to -1 to use the Java server's player limit
+max-players: -1
+
+# Show player coordinates in Bedrock debug screen
+show-coordinates: true
+
+# Allow custom skulls (heads) to be shown as player heads
+allow-custom-skulls: true
+
+# ===================================
+# Advanced Settings
+# ===================================
+
+# Xbox/Bedrock account linking
+# Floodgate integration (if you want to allow Bedrock players without Java accounts)
+# Requires Floodgate plugin - download from: https://geysermc.org/download#floodgate
+# enable-floodgate: false
+
+# Performance settings
+cache-chunks: true
+cache-images: 0  # Minutes to cache images (0 = disabled)
+
+# Debugging
+debug-mode: false
+general-thread-pool: 32
+
+# ===================================
+# Setup Instructions
+# ===================================
+#
+# 1. Start Paper server once to generate Geyser config:
+#    cd minecraft-servers/paper-server && ./start.sh
+#
+# 2. Stop the server (type "stop" in console)
+#
+# 3. Edit the generated config:
+#    nano minecraft-servers/paper-server/plugins/Geyser-Spigot/config.yml
+#
+# 4. Update these settings:
+#    - bedrock.address: 0.0.0.0 (or your server IP)
+#    - bedrock.port: 19132
+#    - remote.address: auto (or 127.0.0.1 for local)
+#    - remote.port: 25565
+#
+# 5. Port Forwarding (if hosting publicly):
+#    - Java Edition: TCP 25565
+#    - Bedrock Edition: UDP 19132
+#    - RCON: TCP 25575 (only for FGD, don't expose publicly!)
+#
+# 6. Firewall Rules (Linux):
+#    sudo ufw allow 25565/tcp  # Java Edition
+#    sudo ufw allow 19132/udp  # Bedrock Edition
+#    sudo ufw allow 25575/tcp  # RCON (restrict to localhost if possible)
+#
+# 7. Restart Paper server and verify Geyser loads successfully
+#
+# ===================================
+# Connecting to Server
+# ===================================
+#
+# Java Edition Players:
+#   Server Address: your-server-ip:25565
+#
+# Bedrock Edition Players:
+#   Server Address: your-server-ip
+#   Port: 19132
+#
+# FGD Dashboard Connection:
+#   The minecraft_bridge.js will connect via RCON:
+#   Host: localhost (or your-server-ip)
+#   Port: 25575
+#   Password: (set in server.properties)
+#

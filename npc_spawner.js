@@ -2,12 +2,22 @@
 // High-level NPC spawning system that creates bots with personalities
 
 import EventEmitter from "events";
+import { NPCRegistry } from "./npc_registry.js";
+import { LearningEngine } from "./learning_engine.js";
+import {
+  applyPersonalityMetadata,
+  buildPersonalityBundle,
+  cloneValue,
+  mergeLearningIntoProfile
+} from "./npc_identity.js";
+import { logger } from "./logger.js";
 
 /**
  * NPC Spawner - Creates and spawns NPCs with integrated personalities
  * Coordinates between NPCRegistry, LearningEngine, NPCEngine, and MinecraftBridge
+ * NOTE: This is an older implementation - currently disabled
  */
-export class NPCSpawner extends EventEmitter {
+class NPCSpawnerOld extends EventEmitter {
   /**
    * Creates a new NPCSpawner instance
    * @param {Object} options - Configuration options
@@ -323,15 +333,8 @@ export class NPCSpawner extends EventEmitter {
     }
     this.defaultSpawnPosition = position;
     console.log(`📍 Default spawn position set to (${position.x}, ${position.y}, ${position.z})`);
-import { NPCRegistry } from "./npc_registry.js";
-import { LearningEngine } from "./learning_engine.js";
-import {
-  applyPersonalityMetadata,
-  buildPersonalityBundle,
-  cloneValue,
-  mergeLearningIntoProfile
-} from "./npc_identity.js";
-import { logger } from "./logger.js";
+  }
+}
 
 /**
  * Coordinates NPC profile creation, engine registration and in-world spawning.

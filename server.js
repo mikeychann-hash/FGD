@@ -183,7 +183,7 @@ async function initializeNPCSystem() {
     npcRegistry = new NPCRegistry({
       registryPath: path.join(__dirname, 'data', 'npc_registry.json')
     });
-    await npcRegistry.load();
+    await npcRegistry.initialize();
 
     // Initialize spawner
     npcSpawner = new NPCSpawner({
@@ -191,7 +191,6 @@ async function initializeNPCSystem() {
       learningEngine: learningEngine,
       autoSpawn: false // Don't auto-spawn via spawner
     });
-    await npcSpawner.initialize();
 
     // Initialize finalizer
     npcFinalizer = new NPCFinalizer({
@@ -293,8 +292,9 @@ function startDataSimulation() {
 // Authentication Routes
 // ============================================================================
 
-app.post("/api/auth/login", handleLogin);
-app.get("/api/auth/me", getCurrentUser);
+// TODO: Implement authentication handlers
+// app.post("/api/auth/login", handleLogin);
+// app.get("/api/auth/me", getCurrentUser);
 
 // ============================================================================
 // Bot Management Routes (integrated from routes/bot.js)
@@ -719,7 +719,7 @@ async function gracefulShutdown(signal) {
   try {
     // Save any pending NPC data
     if (npcRegistry) {
-      await npcRegistry.save();
+      await npcRegistry.saveRegistry();
       logger.info('NPC registry saved');
     }
     if (learningEngine) {

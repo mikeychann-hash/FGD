@@ -1,0 +1,26 @@
+{
+  "miner_01": {
+    "role": "miner",
+    "skills": {
+      "mining": 5,
+      "building": 2,
+      "gathering": 3,
+      "exploring": 2,
+      "guard": 1
+    },
+    "personality": {
+      "curiosity": 0.72,
+      "patience": 0.58,
+      "motivation": 0.81,
+      "empathy": 0.41,
+      "aggression": 0.23,
+      "creativity": 0.36,
+      "loyalty": 0.77
+    },
+    "xp": 12,
+    "tasksCompleted": 12,
+    "tasksFailed": 1,
+    "lastActivity": "2024-01-05T12:00:00.000Z",
+    "createdAt": "2024-01-01T00:00:00.000Z"
+  }
+}

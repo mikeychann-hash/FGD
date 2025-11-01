@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Explore the aggregated knowledge distilled from NPC learning">
   <title>AICraft Fusion Memory View</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -9,8 +11,18 @@
 <body>
   <header>
     <div class="title-row">
-      <h1>🧠 Fusion Memory Overview</h1>
-      <a class="fusion-breadcrumb" href="dashboard.html">&lsaquo; Cluster Dashboard</a>
+      <h1><span aria-hidden="true">🧠</span> Fusion Memory Overview</h1>
+      <nav class="nav-bar">
+        <a href="dashboard.html" class="nav-link">
+          <span aria-hidden="true">🧭</span> Dashboard
+        </a>
+        <a href="fusion.html" class="nav-link active">
+          <span aria-hidden="true">🧠</span> Fusion Memory
+        </a>
+        <a href="admin.html" class="nav-link">
+          <span aria-hidden="true">⚡</span> Admin Panel
+        </a>
+      </nav>
     </div>
     <p>Explore the aggregated knowledge distilled from NPC learning. Inspect proportions of skills, dialogues, and mission outcomes.</p>
   </header>
@@ -19,7 +31,7 @@
     <h2>Knowledge Composition</h2>
     <p class="section-subtitle">Distribution of memory artifacts synchronized across the collective.</p>
     <div id="fusion-details">
-      <canvas id="fusionPie"></canvas>
+      <canvas id="fusionPie" role="img" aria-label="Knowledge composition pie chart showing distribution of skills, dialogues, and outcomes"></canvas>
       <div class="fusion-stats">
         <div class="stat">
           <small>NPC Skills</small>
@@ -44,16 +56,15 @@
   <section class="card">
     <h2>Raw Fusion Payload</h2>
     <p class="section-subtitle">Full JSON payload for debugging and deep dives.</p>
-    <pre id="fusionData">Loading fusion data...</pre>
+    <pre id="fusionData" role="region" aria-live="polite" aria-label="Raw fusion data">Loading fusion data...</pre>
   </section>
 
   <footer>
     &copy; <span id="year"></span> AICraft Cluster Intelligence Network
   </footer>
 
-  <script>
-    document.getElementById('year').textContent = new Date().getFullYear();
-  </script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="theme.js"></script>
   <script src="fusion.js"></script>
 </body>
 </html>

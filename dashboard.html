@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Monitor the health, performance, and coordination of the AICraft collective cluster">
   <title>AICraft Cluster Dashboard</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -9,8 +11,21 @@
 <body>
   <header>
     <div class="title-row">
-      <h1>🧭 AICraft Cluster Dashboard</h1>
-      <a class="fusion-breadcrumb" href="fusion.html">Fusion Memory &rsaquo;</a>
+      <h1><span aria-hidden="true">🧭</span> AICraft Cluster Dashboard</h1>
+      <nav class="nav-bar">
+        <a href="dashboard.html" class="nav-link active">
+          <span aria-hidden="true">🧭</span> Dashboard
+        </a>
+        <a href="fusion.html" class="nav-link">
+          <span aria-hidden="true">🧠</span> Fusion Memory
+        </a>
+        <a href="admin.html" class="nav-link">
+          <span aria-hidden="true">⚡</span> Admin Panel
+        </a>
+        <button id="theme-toggle" aria-label="Toggle theme">
+          <span aria-hidden="true">☀️</span> Light Mode
+        </button>
+      </nav>
     </div>
     <p>Monitor the health, performance, and coordination of the AICraft collective. Tune policies, inspect fusion knowledge, and spot anomalies across the cluster at a glance.</p>
   </header>
@@ -18,39 +33,39 @@
   <div class="dashboard-layout">
     <main class="main-content">
       <section class="card">
-        <h2>🌐 Cluster Nodes</h2>
+        <h2><span aria-hidden="true">🌐</span> Cluster Nodes</h2>
         <p class="section-subtitle">Live topology of connected cognitive nodes, updated in real time.</p>
-        <div id="cluster-grid"></div>
+        <div id="cluster-grid" role="region" aria-live="polite" aria-label="Cluster nodes status"></div>
       </section>
 
       <section id="charts" class="card">
         <div>
-          <h2>📈 CPU Utilization</h2>
+          <h2><span aria-hidden="true">📈</span> CPU Utilization</h2>
           <p class="section-subtitle">Rolling 15 minute window of aggregate CPU consumption.</p>
-          <canvas id="cpuChart"></canvas>
+          <canvas id="cpuChart" role="img" aria-label="CPU utilization chart showing rolling 15 minute window"></canvas>
         </div>
         <div>
-          <h2>💾 Memory Allocation</h2>
+          <h2><span aria-hidden="true">💾</span> Memory Allocation</h2>
           <p class="section-subtitle">Active memory footprint per cluster node.</p>
-          <canvas id="memChart"></canvas>
+          <canvas id="memChart" role="img" aria-label="Memory allocation chart showing active memory footprint"></canvas>
         </div>
       </section>
 
       <section id="policy-panel" class="card">
-        <h2>⚙️ Policy Control Panel</h2>
+        <h2><span aria-hidden="true">⚙️</span> Policy Control Panel</h2>
         <p class="section-subtitle">Adjust learning heuristics to steer delegation, training cadence, and adaptation.</p>
-        <label>Learning Rate <span id="lr-value">1.0</span></label>
-        <input type="range" id="learningRate" min="0.1" max="2" step="0.1" value="1.0">
-        <label>Delegation Bias <span id="db-value">0.4</span></label>
-        <input type="range" id="delegationBias" min="0" max="1" step="0.05" value="0.4">
-        <label>Cooldown (ms) <span id="cd-value">10000</span></label>
-        <input type="range" id="cooldown" min="1000" max="30000" step="1000" value="10000">
+        <label for="learningRate">Learning Rate <span id="lr-value">1.0</span></label>
+        <input type="range" id="learningRate" name="learningRate" min="0.1" max="2" step="0.1" value="1.0" aria-describedby="lr-value">
+        <label for="delegationBias">Delegation Bias <span id="db-value">0.4</span></label>
+        <input type="range" id="delegationBias" name="delegationBias" min="0" max="1" step="0.05" value="0.4" aria-describedby="db-value">
+        <label for="cooldown">Cooldown (ms) <span id="cd-value">10000</span></label>
+        <input type="range" id="cooldown" name="cooldown" min="1000" max="30000" step="1000" value="10000" aria-describedby="cd-value">
         <button id="apply-policy">Apply Policy</button>
       </section>
     </main>
 
     <aside id="fusion-sidebar">
-      <h2>🧠 Fusion Knowledge Summary</h2>
+      <h2><span aria-hidden="true">🧠</span> Fusion Knowledge Summary</h2>
       <div class="fusion-stats">
         <div class="stat">
           <small>NPC Skills</small>
@@ -69,8 +84,8 @@
           <span id="fusion-last" class="badge-warning">N/A</span>
         </div>
       </div>
-      <canvas id="fusionBar" width="200" height="120"></canvas>
-      <a href="fusion.html" id="view-fusion">🔍 View Memory Details</a>
+      <canvas id="fusionBar" width="200" height="120" role="img" aria-label="Fusion knowledge summary bar chart"></canvas>
+      <a href="fusion.html" id="view-fusion"><span aria-hidden="true">🔍</span> View Memory Details</a>
     </aside>
   </div>
 
@@ -78,9 +93,8 @@
     &copy; <span id="year"></span> AICraft Cluster Intelligence Network
   </footer>
 
-  <script>
-    document.getElementById('year').textContent = new Date().getFullYear();
-  </script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="theme.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>

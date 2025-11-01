@@ -1,0 +1,104 @@
+{
+  "skills": {
+    "combat_melee": {
+      "level": 5,
+      "xp": 2450,
+      "description": "Close quarters combat proficiency"
+    },
+    "combat_ranged": {
+      "level": 7,
+      "xp": 4820,
+      "description": "Ranged weapon mastery"
+    },
+    "stealth": {
+      "level": 4,
+      "xp": 1560,
+      "description": "Silent movement and concealment"
+    },
+    "diplomacy": {
+      "level": 6,
+      "xp": 3200,
+      "description": "Negotiation and persuasion"
+    },
+    "crafting": {
+      "level": 3,
+      "xp": 890,
+      "description": "Item creation and repair"
+    },
+    "magic_elemental": {
+      "level": 8,
+      "xp": 6100,
+      "description": "Elemental spell casting"
+    },
+    "magic_healing": {
+      "level": 5,
+      "xp": 2750,
+      "description": "Restorative magic"
+    },
+    "exploration": {
+      "level": 6,
+      "xp": 3450,
+      "description": "Area discovery and mapping"
+    }
+  },
+  "dialogues": {
+    "merchant_greeting": {
+      "text": "Welcome, traveler! Looking for supplies?",
+      "sentiment": "friendly",
+      "triggers": ["shop_enter", "merchant_nearby"]
+    },
+    "guard_warning": {
+      "text": "Halt! State your business.",
+      "sentiment": "authoritative",
+      "triggers": ["restricted_area", "suspicious_behavior"]
+    },
+    "quest_offer": {
+      "text": "I have a proposition for someone brave...",
+      "sentiment": "mysterious",
+      "triggers": ["player_level_5", "area_tavern"]
+    },
+    "companion_banter": {
+      "text": "This reminds me of that time in the mountains...",
+      "sentiment": "casual",
+      "triggers": ["travel_mode", "companion_present"]
+    },
+    "enemy_taunt": {
+      "text": "You'll regret crossing our path!",
+      "sentiment": "hostile",
+      "triggers": ["combat_start", "player_spotted"]
+    }
+  },
+  "outcomes": [
+    {
+      "id": "quest_village_rescue_success",
+      "type": "quest_completion",
+      "reward_xp": 500,
+      "reward_gold": 150,
+      "reputation_change": 25,
+      "timestamp": "2025-10-28T14:32:10Z"
+    },
+    {
+      "id": "combat_bandit_camp_victory",
+      "type": "combat_win",
+      "reward_xp": 300,
+      "reward_gold": 80,
+      "items_looted": ["iron_sword", "health_potion"],
+      "timestamp": "2025-10-28T16:45:22Z"
+    },
+    {
+      "id": "trade_merchant_deal",
+      "type": "trade",
+      "gold_exchanged": -200,
+      "items_acquired": ["rare_gem", "magic_scroll"],
+      "timestamp": "2025-10-29T09:12:05Z"
+    },
+    {
+      "id": "discovery_ancient_ruins",
+      "type": "exploration",
+      "reward_xp": 200,
+      "area_unlocked": "forgotten_temple",
+      "timestamp": "2025-10-29T11:28:33Z"
+    }
+  ],
+  "lastSync": "2025-10-29T12:45:00Z"
+}

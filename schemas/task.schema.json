@@ -1,0 +1,139 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aicraft.dev/schemas/task.json",
+  "title": "Bot Task Schema",
+  "description": "Schema for bot task definitions",
+  "type": "object",
+  "required": ["action"],
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "Task action type",
+      "enum": [
+        "mine",
+        "build",
+        "gather",
+        "explore",
+        "guard",
+        "attack",
+        "follow",
+        "patrol",
+        "craft",
+        "transport",
+        "interact",
+        "idle",
+        "custom"
+      ],
+      "examples": ["mine", "build", "guard"]
+    },
+    "target": {
+      "type": "string",
+      "description": "Target resource, entity, or location",
+      "maxLength": 128,
+      "examples": ["iron_ore", "wood", "enemy_entity", "coordinates"]
+    },
+    "quantity": {
+      "type": "integer",
+      "description": "Target quantity for resource gathering",
+      "minimum": 1,
+      "maximum": 999,
+      "examples": [64, 10, 5]
+    },
+    "location": {
+      "type": "object",
+      "description": "Target location coordinates",
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"}
+      }
+    },
+    "priority": {
+      "type": "string",
+      "description": "Task priority level",
+      "enum": ["low", "normal", "high", "critical"],
+      "default": "normal"
+    },
+    "timeout": {
+      "type": "integer",
+      "description": "Task timeout in milliseconds",
+      "minimum": 1000,
+      "maximum": 600000,
+      "default": 30000
+    },
+    "parameters": {
+      "type": "object",
+      "description": "Additional task-specific parameters",
+      "additionalProperties": true
+    },
+    "conditions": {
+      "type": "object",
+      "description": "Task execution conditions",
+      "properties": {
+        "requiresTools": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Required tools or items"
+        },
+        "requiresSkillLevel": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Minimum skill level required"
+        },
+        "timeOfDay": {
+          "type": "string",
+          "enum": ["day", "night", "any"],
+          "default": "any"
+        },
+        "weather": {
+          "type": "string",
+          "enum": ["clear", "rain", "thunder", "any"],
+          "default": "any"
+        }
+      }
+    },
+    "callbacks": {
+      "type": "object",
+      "description": "Task lifecycle callbacks",
+      "properties": {
+        "onStart": {"type": "string"},
+        "onProgress": {"type": "string"},
+        "onComplete": {"type": "string"},
+        "onFail": {"type": "string"}
+      }
+    }
+  },
+  "examples": [
+    {
+      "action": "mine",
+      "target": "iron_ore",
+      "quantity": 64,
+      "priority": "high",
+      "timeout": 60000
+    },
+    {
+      "action": "build",
+      "target": "tower",
+      "location": {
+        "x": 100,
+        "y": 65,
+        "z": 200
+      },
+      "priority": "normal"
+    },
+    {
+      "action": "guard",
+      "location": {
+        "x": 0,
+        "y": 64,
+        "z": 0
+      },
+      "parameters": {
+        "radius": 50,
+        "alertOnHostile": true
+      }
+    }
+  ]
+}

@@ -22,6 +22,69 @@ npm start
 
 Visit: `http://localhost:3000`
 
+## Server Startup Options
+
+The project includes comprehensive startup scripts with pre-flight checks and error handling.
+
+### Simple Quick Start
+
+For the fastest way to start the server:
+
+```bash
+./quick-start.sh
+```
+
+This automatically handles dependency installation and starts the server on port 3000.
+
+### Advanced Startup Script
+
+For more control over the server startup:
+
+```bash
+./start-server.sh [mode] [options]
+```
+
+**Available Modes:**
+- `prod` - Production mode (default)
+- `dev` - Development mode with hot-reload
+- `test` - Run tests only
+
+**Options:**
+- `--port PORT` - Override default port (3000)
+- `--log-level LEVEL` - Set log level (DEBUG, INFO, WARN, ERROR, FATAL)
+- `--no-install` - Skip dependency installation check
+- `--help` - Show help message
+
+**Examples:**
+
+```bash
+# Start in development mode
+./start-server.sh dev
+
+# Start on custom port with debug logging
+./start-server.sh prod --port 8080 --log-level DEBUG
+
+# Run tests
+./start-server.sh test
+
+# Start without checking dependencies (faster)
+./start-server.sh prod --no-install
+```
+
+### What the Startup Script Does
+
+The startup script performs the following checks before starting the server:
+
+1. ✓ Verifies Node.js and npm are installed (requires Node.js 14+)
+2. ✓ Checks for required files (package.json, server.js)
+3. ✓ Installs/updates dependencies if needed
+4. ✓ Creates data directory if missing
+5. ✓ Verifies the port is available
+6. ✓ Sets up environment variables
+7. ✓ Starts the server with appropriate settings
+
+If any check fails, the script provides helpful error messages and troubleshooting steps.
+
 ## API Endpoints
 
 ### System Endpoints

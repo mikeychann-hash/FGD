@@ -16,6 +16,7 @@
     "jsonwebtoken": "^9.0.2",
     "rcon-client": "^4.2.5",
     "socket.io": "^4.6.1",
+    "rcon-client": "^4.2.5",
     "ws": "^8.17.0"
   }
 }

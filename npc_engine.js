@@ -163,6 +163,9 @@ export class NPCEngine extends EventEmitter {
     if (this.autonomyTimer) {
       clearInterval(this.autonomyTimer);
       this.autonomyTimer = null;
+    }
+  }
+
   async createNPC(options = {}) {
     if (!this.spawner) {
       throw new Error("NPC spawner is not configured for this engine instance");

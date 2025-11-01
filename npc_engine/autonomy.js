@@ -1,7 +1,7 @@
 // npc_engine/autonomy.js
 // AI-driven autonomous task generation and management
 
-import { generateModelTasks, DEFAULT_AUTONOMY_PROMPT_TEXT } from "../model_director.js";
+import { generateModelTasks, DEFAULT_AUTONOMY_PROMPT } from "../model_director.js";
 import { validateTask } from "../task_schema.js";
 import { cloneTask } from "./utils.js";
 
@@ -24,7 +24,7 @@ export class AutonomyManager {
     this.disableModelAutonomy();
 
     const {
-      instructions = DEFAULT_AUTONOMY_PROMPT_TEXT,
+      instructions = DEFAULT_AUTONOMY_PROMPT,
       intervalMs = 10000,
       maxTasks = 3,
       allowWhenBusy = false,

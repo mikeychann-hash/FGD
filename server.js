@@ -140,6 +140,34 @@ let systemState = {
   }
 };
 
+// NPC Engine instance
+let npcEngine = null;
+
+/**
+ * Initialize the NPC engine
+ */
+async function initializeNPCEngine() {
+  try {
+    npcEngine = new NPCEngine({
+      autoSpawn: false,
+      defaultSpawnPosition: { x: 0, y: 64, z: 0 },
+      autoRegisterFromRegistry: true
+    });
+
+    await npcEngine.registryReady;
+    await npcEngine.learningReady;
+
+    console.log('✅ NPC Engine initialized');
+    console.log(`   Registry: ${npcEngine.registry?.registryPath}`);
+    console.log(`   Learning: ${npcEngine.learningEngine?.path}`);
+
+    const activeNPCs = npcEngine.registry?.listActive() || [];
+    console.log(`   Active NPCs: ${activeNPCs.length}`);
+  } catch (err) {
+    console.error('❌ Failed to initialize NPC engine:', err.message);
+  }
+}
+
 /**
  * Initialize NPC system components
  */
@@ -261,9 +289,35 @@ function startDataSimulation() {
   }, 10000);
 }
 
-// Routes
+// ============================================================================
+// Authentication Routes
+// ============================================================================
+
+app.post("/api/auth/login", handleLogin);
+app.get("/api/auth/me", getCurrentUser);
+
+// ============================================================================
+// Bot Management Routes (integrated from routes/bot.js)
+// ============================================================================
+
+// Will be initialized after npcEngine is ready
+
+// ============================================================================
+// LLM Command Routes (integrated from routes/llm.js)
+// ============================================================================
+
+// Will be initialized after npcEngine is ready
+
+// ============================================================================
+// Dashboard Routes
+// ============================================================================
+
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "dashboard.html"));
+});
+
+app.get("/admin", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "admin.html"));
 });
 
 app.get("/api/cluster", (req, res) => {

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2025-10-31T01:58:46.477Z",
   "npcs": [
     {
       "id": "miner_01",
@@ -63,6 +63,382 @@
       "lastDespawnedAt": null,
       "createdAt": "2024-01-01T00:00:00.000Z",
       "updatedAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "builder_01",
+      "npcType": "builder",
+      "role": "builder",
+      "appearance": {
+        "skin": "default",
+        "outfit": "architect"
+      },
+      "spawnPosition": {
+        "x": 150,
+        "y": 65,
+        "z": 150
+      },
+      "lastKnownPosition": {
+        "x": 150,
+        "y": 65,
+        "z": 150
+      },
+      "personality": {
+        "curiosity": 0.7174393454585801,
+        "patience": 0.7362718311783134,
+        "motivation": 0.777472348365832,
+        "empathy": 0.7763484664361078,
+        "aggression": 0.21072393532854838,
+        "creativity": 0.6490955750479945,
+        "loyalty": 0.7990998473408635
+      },
+      "personalitySummary": "motivated and steady",
+      "personalityTraits": [
+        "Loves exploring and discovering new things",
+        "Rarely gives up on difficult tasks",
+        "Eager to work and improve",
+        "Works well with others",
+        "Thinks outside the box",
+        "Extremely loyal and dependable"
+      ],
+      "metadata": {
+        "personalitySummary": "motivated and steady",
+        "personalityTraits": [
+          "Loves exploring and discovering new things",
+          "Rarely gives up on difficult tasks",
+          "Eager to work and improve",
+          "Works well with others",
+          "Thinks outside the box",
+          "Extremely loyal and dependable"
+        ],
+        "learning": {
+          "xp": 0,
+          "tasksCompleted": 0,
+          "tasksFailed": 0,
+          "skills": {
+            "mining": 1,
+            "building": 1,
+            "gathering": 1,
+            "exploring": 1,
+            "guard": 1
+          }
+        },
+        "description": "Master architect specializing in complex structures"
+      },
+      "description": "Master architect specializing in complex structures",
+      "status": "active",
+      "spawnCount": 0,
+      "lastSpawnedAt": null,
+      "lastDespawnedAt": null,
+      "createdAt": "2025-10-31T01:58:20.756Z",
+      "updatedAt": "2025-10-31T01:58:20.760Z"
+    },
+    {
+      "id": "scout_01",
+      "npcType": "explorer",
+      "role": "explorer",
+      "appearance": {
+        "skin": "leather_armor",
+        "outfit": "traveler"
+      },
+      "spawnPosition": {
+        "x": 200,
+        "y": 70,
+        "z": 250
+      },
+      "lastKnownPosition": {
+        "x": 200,
+        "y": 70,
+        "z": 250
+      },
+      "personality": {
+        "curiosity": 0.2477072146822663,
+        "patience": 0.04273563509503098,
+        "motivation": 0.9246768311042025,
+        "empathy": 0.4725293719243633,
+        "aggression": 0.37463009287423876,
+        "creativity": 0.035583994373989514,
+        "loyalty": 0.1980840434812312
+      },
+      "personalitySummary": "impulsive",
+      "personalityTraits": [
+        "Eager to work and improve",
+        "⚠️ May rush through tasks"
+      ],
+      "metadata": {
+        "personalitySummary": "impulsive",
+        "personalityTraits": [
+          "Eager to work and improve",
+          "⚠️ May rush through tasks"
+        ],
+        "learning": {
+          "xp": 0,
+          "tasksCompleted": 0,
+          "tasksFailed": 0,
+          "skills": {
+            "mining": 1,
+            "building": 1,
+            "gathering": 1,
+            "exploring": 1,
+            "guard": 1
+          }
+        },
+        "description": "Explores uncharted territories and maps new regions"
+      },
+      "description": "Explores uncharted territories and maps new regions",
+      "status": "active",
+      "spawnCount": 0,
+      "lastSpawnedAt": null,
+      "lastDespawnedAt": null,
+      "createdAt": "2025-10-31T01:58:20.762Z",
+      "updatedAt": "2025-10-31T01:58:20.764Z"
+    },
+    {
+      "id": "guard_01",
+      "npcType": "guard",
+      "role": "guard",
+      "appearance": {
+        "skin": "iron_armor",
+        "outfit": "sentinel"
+      },
+      "spawnPosition": {
+        "x": 100,
+        "y": 65,
+        "z": 100
+      },
+      "lastKnownPosition": {
+        "x": 100,
+        "y": 65,
+        "z": 100
+      },
+      "personality": {
+        "curiosity": 0.5627921427268496,
+        "patience": 0.5838066599436367,
+        "motivation": 0.9934769854430611,
+        "empathy": 0.16333654525261765,
+        "aggression": 0.6007122158503317,
+        "creativity": 0.9323876344870323,
+        "loyalty": 0.496413830865007
+      },
+      "personalitySummary": "aggressive",
+      "personalityTraits": [
+        "Eager to work and improve",
+        "Quick to defend and protect",
+        "Thinks outside the box"
+      ],
+      "metadata": {
+        "personalitySummary": "aggressive",
+        "personalityTraits": [
+          "Eager to work and improve",
+          "Quick to defend and protect",
+          "Thinks outside the box"
+        ],
+        "learning": {
+          "xp": 0,
+          "tasksCompleted": 0,
+          "tasksFailed": 0,
+          "skills": {
+            "mining": 1,
+            "building": 1,
+            "gathering": 1,
+            "exploring": 1,
+            "guard": 1
+          }
+        },
+        "description": "Vigilant protector of the settlement"
+      },
+      "description": "Vigilant protector of the settlement",
+      "status": "active",
+      "spawnCount": 0,
+      "lastSpawnedAt": null,
+      "lastDespawnedAt": null,
+      "createdAt": "2025-10-31T01:58:20.765Z",
+      "updatedAt": "2025-10-31T01:58:20.767Z"
+    },
+    {
+      "id": "builder_02",
+      "npcType": "builder",
+      "role": "builder",
+      "appearance": {
+        "skin": "default",
+        "outfit": "architect"
+      },
+      "spawnPosition": {
+        "x": 150,
+        "y": 65,
+        "z": 150
+      },
+      "lastKnownPosition": {
+        "x": 150,
+        "y": 65,
+        "z": 150
+      },
+      "personality": {
+        "curiosity": 0.3930279684738196,
+        "patience": 0.6306726655452446,
+        "motivation": 0.5989942530300341,
+        "empathy": 0.17805716315697118,
+        "aggression": 0.7973693400164352,
+        "creativity": 0.9130755700359723,
+        "loyalty": 0.6188763063137812
+      },
+      "personalitySummary": "aggressive and balanced and steady",
+      "personalityTraits": [
+        "Rarely gives up on difficult tasks",
+        "Quick to defend and protect",
+        "Thinks outside the box",
+        "Extremely loyal and dependable"
+      ],
+      "metadata": {
+        "personalitySummary": "aggressive and balanced and steady",
+        "personalityTraits": [
+          "Rarely gives up on difficult tasks",
+          "Quick to defend and protect",
+          "Thinks outside the box",
+          "Extremely loyal and dependable"
+        ],
+        "learning": {
+          "xp": 0,
+          "tasksCompleted": 0,
+          "tasksFailed": 0,
+          "skills": {
+            "mining": 1,
+            "building": 1,
+            "gathering": 1,
+            "exploring": 1,
+            "guard": 1
+          }
+        },
+        "description": "Master architect specializing in complex structures"
+      },
+      "description": "Master architect specializing in complex structures",
+      "status": "active",
+      "spawnCount": 0,
+      "lastSpawnedAt": null,
+      "lastDespawnedAt": null,
+      "createdAt": "2025-10-31T01:58:46.463Z",
+      "updatedAt": "2025-10-31T01:58:46.467Z"
+    },
+    {
+      "id": "scout_02",
+      "npcType": "explorer",
+      "role": "explorer",
+      "appearance": {
+        "skin": "leather_armor",
+        "outfit": "traveler"
+      },
+      "spawnPosition": {
+        "x": 200,
+        "y": 70,
+        "z": 250
+      },
+      "lastKnownPosition": {
+        "x": 200,
+        "y": 70,
+        "z": 250
+      },
+      "personality": {
+        "curiosity": 0.3295270348266379,
+        "patience": 0.07575806159275578,
+        "motivation": 0.9531456640084657,
+        "empathy": 0.576855231445516,
+        "aggression": 0.1997100452689644,
+        "creativity": 0.08415206755733617,
+        "loyalty": 0.0019614874223696788
+      },
+      "personalitySummary": "impulsive",
+      "personalityTraits": [
+        "Eager to work and improve",
+        "⚠️ May rush through tasks"
+      ],
+      "metadata": {
+        "personalitySummary": "impulsive",
+        "personalityTraits": [
+          "Eager to work and improve",
+          "⚠️ May rush through tasks"
+        ],
+        "learning": {
+          "xp": 0,
+          "tasksCompleted": 0,
+          "tasksFailed": 0,
+          "skills": {
+            "mining": 1,
+            "building": 1,
+            "gathering": 1,
+            "exploring": 1,
+            "guard": 1
+          }
+        },
+        "description": "Explores uncharted territories and maps new regions"
+      },
+      "description": "Explores uncharted territories and maps new regions",
+      "status": "active",
+      "spawnCount": 0,
+      "lastSpawnedAt": null,
+      "lastDespawnedAt": null,
+      "createdAt": "2025-10-31T01:58:46.469Z",
+      "updatedAt": "2025-10-31T01:58:46.470Z"
+    },
+    {
+      "id": "guard_02",
+      "npcType": "guard",
+      "role": "guard",
+      "appearance": {
+        "skin": "iron_armor",
+        "outfit": "sentinel"
+      },
+      "spawnPosition": {
+        "x": 100,
+        "y": 65,
+        "z": 100
+      },
+      "lastKnownPosition": {
+        "x": 100,
+        "y": 65,
+        "z": 100
+      },
+      "personality": {
+        "curiosity": 0.6698306493644768,
+        "patience": 0.450527888109884,
+        "motivation": 0.5385781405340186,
+        "empathy": 0.4672625172169962,
+        "aggression": 0.05617301643257622,
+        "creativity": 0.6074006420121361,
+        "loyalty": 0.717073456641941
+      },
+      "personalitySummary": "balanced",
+      "personalityTraits": [
+        "Loves exploring and discovering new things",
+        "Thinks outside the box",
+        "Extremely loyal and dependable"
+      ],
+      "metadata": {
+        "personalitySummary": "balanced",
+        "personalityTraits": [
+          "Loves exploring and discovering new things",
+          "Thinks outside the box",
+          "Extremely loyal and dependable"
+        ],
+        "learning": {
+          "xp": 0,
+          "tasksCompleted": 0,
+          "tasksFailed": 0,
+          "skills": {
+            "mining": 1,
+            "building": 1,
+            "gathering": 1,
+            "exploring": 1,
+            "guard": 1
+          }
+        },
+        "description": "Vigilant protector of the settlement"
+      },
+      "description": "Vigilant protector of the settlement",
+      "status": "active",
+      "spawnCount": 0,
+      "lastSpawnedAt": null,
+      "lastDespawnedAt": null,
+      "createdAt": "2025-10-31T01:58:46.472Z",
+      "updatedAt": "2025-10-31T01:58:46.475Z"
     }
   ]
 }

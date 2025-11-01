@@ -1,0 +1,248 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aicraft.dev/schemas/bot-config.json",
+  "title": "Bot Configuration Schema",
+  "description": "Schema for bot creation and configuration",
+  "type": "object",
+  "required": ["role"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Custom bot name (optional, will be auto-generated if not provided)",
+      "pattern": "^[a-z0-9_-]+$",
+      "minLength": 3,
+      "maxLength": 32,
+      "examples": ["miner_01", "elite_guard", "builder_alpha"]
+    },
+    "role": {
+      "type": "string",
+      "description": "Bot's primary role",
+      "enum": ["miner", "builder", "scout", "guard", "gatherer", "explorer", "fighter"],
+      "examples": ["miner", "builder", "guard"]
+    },
+    "type": {
+      "type": "string",
+      "description": "Bot type (defaults to role if not specified)",
+      "enum": ["miner", "builder", "scout", "guard", "gatherer", "explorer", "fighter"]
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of the bot",
+      "maxLength": 256,
+      "examples": ["Elite tunnel excavator", "Master architect", "Settlement protector"]
+    },
+    "personality": {
+      "type": "object",
+      "description": "Personality trait values (0.0 - 1.0 scale)",
+      "properties": {
+        "curiosity": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Tendency to explore and discover"
+        },
+        "patience": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Persistence with difficult tasks"
+        },
+        "motivation": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Eagerness to work and improve"
+        },
+        "empathy": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Ability to work with others"
+        },
+        "aggression": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Defensive and protective behavior"
+        },
+        "creativity": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Innovative thinking"
+        },
+        "loyalty": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Dependability and commitment"
+        }
+      },
+      "additionalProperties": false
+    },
+    "appearance": {
+      "type": "object",
+      "description": "Visual appearance configuration",
+      "properties": {
+        "skin": {
+          "type": "string",
+          "description": "Skin or texture identifier",
+          "examples": ["default", "leather_armor", "iron_armor"]
+        },
+        "outfit": {
+          "type": "string",
+          "description": "Outfit or clothing style",
+          "examples": ["overalls", "architect", "sentinel", "traveler"]
+        },
+        "model": {
+          "type": "string",
+          "description": "3D model type",
+          "examples": ["villager", "iron_golem", "custom"]
+        },
+        "customizations": {
+          "type": "object",
+          "description": "Additional appearance customizations",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "position": {
+      "type": "object",
+      "description": "Spawn position in world coordinates",
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {
+          "type": "number",
+          "description": "X coordinate"
+        },
+        "y": {
+          "type": "number",
+          "description": "Y coordinate (height)",
+          "minimum": -64,
+          "maximum": 320
+        },
+        "z": {
+          "type": "number",
+          "description": "Z coordinate"
+        }
+      },
+      "additionalProperties": false
+    },
+    "taskParameters": {
+      "type": "object",
+      "description": "Default task execution parameters",
+      "properties": {
+        "maxConcurrentTasks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 1,
+          "description": "Maximum number of concurrent tasks"
+        },
+        "taskTimeout": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 300000,
+          "default": 30000,
+          "description": "Task timeout in milliseconds"
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "normal", "high"],
+          "default": "normal",
+          "description": "Default task priority"
+        },
+        "autoRetry": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically retry failed tasks"
+        },
+        "retryCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5,
+          "default": 3,
+          "description": "Number of retry attempts"
+        }
+      },
+      "additionalProperties": false
+    },
+    "behaviorPreset": {
+      "type": "string",
+      "description": "Predefined behavior configuration",
+      "enum": ["default", "aggressive", "passive", "efficient", "creative", "social", "independent"],
+      "default": "default",
+      "examples": ["aggressive", "efficient", "creative"]
+    },
+    "tags": {
+      "type": "array",
+      "description": "Custom tags for categorization",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9_-]+$"
+      },
+      "uniqueItems": true,
+      "maxItems": 10,
+      "examples": [["elite", "veteran"], ["starter", "training"]]
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional custom metadata",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "name": "elite_miner",
+      "role": "miner",
+      "description": "Expert tunnel excavator with high efficiency",
+      "personality": {
+        "curiosity": 0.6,
+        "patience": 0.9,
+        "motivation": 0.95,
+        "empathy": 0.4,
+        "aggression": 0.2,
+        "creativity": 0.3,
+        "loyalty": 0.85
+      },
+      "appearance": {
+        "skin": "default",
+        "outfit": "overalls"
+      },
+      "position": {
+        "x": 100,
+        "y": 65,
+        "z": 200
+      },
+      "taskParameters": {
+        "maxConcurrentTasks": 2,
+        "taskTimeout": 45000,
+        "priority": "high"
+      },
+      "behaviorPreset": "efficient",
+      "tags": ["elite", "mining"]
+    },
+    {
+      "role": "guard",
+      "description": "Settlement protector",
+      "personality": {
+        "aggression": 0.9,
+        "loyalty": 0.95,
+        "patience": 0.7
+      },
+      "behaviorPreset": "aggressive"
+    },
+    {
+      "name": "creative_builder",
+      "role": "builder",
+      "personality": {
+        "creativity": 0.95,
+        "patience": 0.9
+      },
+      "behaviorPreset": "creative",
+      "tags": ["architect", "advanced"]
+    }
+  ]
+}

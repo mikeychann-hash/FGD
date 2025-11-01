@@ -81,49 +81,29 @@ echo.
 
 call :print_header "Pre-flight Checks"
 
-REM Check Node.js - try multiple methods
+REM Check Node.js
 where node >nul 2>&1
 if %errorlevel% neq 0 (
-    REM Try direct execution as fallback
-    node --version >nul 2>&1
-    if %errorlevel% neq 0 (
-        call :print_error "Node.js is not installed or not in PATH"
-        echo.
-        echo   Please ensure Node.js is installed from https://nodejs.org/
-        echo.
-        echo   Troubleshooting:
-        echo   1. Check if Node.js is installed: Open a new PowerShell window and run: node --version
-        echo   2. If Node.js is installed, you may need to restart your terminal
-        echo   3. Verify Node.js is in your PATH environment variable
-        echo   4. Try running this script from a new PowerShell/CMD window
-        echo.
-        pause
-        exit /b 1
-    )
+    call :print_error "Node.js is not installed"
+    echo   Please install Node.js from https://nodejs.org/
+    exit /b 1
 )
 
-for /f "tokens=*" %%i in ('node --version 2^>^&1') do set "NODE_VERSION=%%i"
+for /f "tokens=*" %%i in ('node --version') do set "NODE_VERSION=%%i"
 call :print_success "Node.js installed: %NODE_VERSION%"
 
 REM Extract major version (remove 'v' and get first number)
 for /f "tokens=1 delims=." %%a in ("%NODE_VERSION:~1%") do set "MAJOR_VERSION=%%a"
 if %MAJOR_VERSION% lss 14 (
     call :print_error "Node.js version 14.x or higher required (found %NODE_VERSION%)"
-    echo.
-    pause
     exit /b 1
 )
 
 REM Check npm
 where npm >nul 2>&1
 if %errorlevel% neq 0 (
-    npm --version >nul 2>&1
-    if %errorlevel% neq 0 (
-        call :print_error "npm is not installed"
-        echo.
-        pause
-        exit /b 1
-    )
+    call :print_error "npm is not installed"
+    exit /b 1
 )
 
 for /f "tokens=*" %%i in ('npm --version') do set "NPM_VERSION=%%i"
@@ -132,8 +112,6 @@ call :print_success "npm installed: v%NPM_VERSION%"
 REM Check package.json
 if not exist "package.json" (
     call :print_error "package.json not found in %CD%"
-    echo.
-    pause
     exit /b 1
 )
 call :print_success "package.json found"
@@ -141,8 +119,6 @@ call :print_success "package.json found"
 REM Check server.js
 if not exist "server.js" (
     call :print_error "server.js not found in %CD%"
-    echo.
-    pause
     exit /b 1
 )
 call :print_success "server.js found"
@@ -154,8 +130,6 @@ if "%SKIP_INSTALL%"=="false" (
         call npm install
         if %errorlevel% neq 0 (
             call :print_error "Failed to install dependencies"
-            echo.
-            pause
             exit /b 1
         )
         call :print_success "Dependencies installed"
@@ -215,8 +189,6 @@ if /i "%MODE%"=="test" goto :start_test
 
 call :print_error "Invalid mode: %MODE%"
 echo Valid modes: prod, dev, test
-echo.
-pause
 exit /b 1
 
 :start_prod
@@ -236,8 +208,6 @@ call :print_info "Running tests..."
 echo.
 if not exist "test\npc_system.test.js" (
     call :print_error "Test file not found"
-    echo.
-    pause
     exit /b 1
 )
 node test\npc_system.test.js
@@ -293,12 +263,4 @@ echo [94mi[0m %~1
 goto :eof
 
 :end
-if %errorlevel% neq 0 (
-    echo.
-    echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    echo   Server exited with errors
-    echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    echo.
-    pause
-)
 endlocal

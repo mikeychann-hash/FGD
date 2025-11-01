@@ -24,9 +24,78 @@ Visit: `http://localhost:3000`
 
 ## Server Startup Options
 
-The project includes comprehensive startup scripts with pre-flight checks and error handling.
+The project includes comprehensive startup scripts with pre-flight checks and error handling for both **Linux/Mac** and **Windows**.
 
-### Simple Quick Start
+### For Windows Users 🪟
+
+If you're on Windows, use the `.bat` or `.ps1` scripts:
+
+#### Quick Start (Windows)
+
+**Using Command Prompt:**
+```cmd
+quick-start.bat
+```
+
+**Using PowerShell:**
+```powershell
+.\start-server.ps1
+```
+
+Both methods automatically handle dependency installation and start the server on port 3000.
+
+#### Advanced Windows Startup
+
+**Command Prompt:**
+```cmd
+start-server.bat [mode]
+
+REM Examples:
+start-server.bat           REM Production mode
+start-server.bat dev       REM Development mode
+start-server.bat test      REM Run tests
+```
+
+**PowerShell (recommended for advanced options):**
+```powershell
+.\start-server.ps1 [mode] [-Port <port>] [-LogLevel <level>]
+
+# Examples:
+.\start-server.ps1                          # Production mode
+.\start-server.ps1 dev                      # Development mode
+.\start-server.ps1 prod -Port 8080          # Custom port
+.\start-server.ps1 prod -LogLevel DEBUG     # Debug logging
+```
+
+#### Troubleshooting Windows Installation
+
+If you see "Node.js is not installed":
+
+1. **Check if Node.js is installed:**
+   ```cmd
+   check-requirements.bat
+   ```
+
+2. **Install Node.js:**
+   - Download from https://nodejs.org/
+   - Choose the **LTS version** (recommended)
+   - Run the installer
+   - **Restart your terminal** after installation
+
+3. **Verify installation:**
+   ```cmd
+   node --version
+   npm --version
+   ```
+
+4. **Try starting again:**
+   ```cmd
+   quick-start.bat
+   ```
+
+### For Linux/Mac Users 🐧🍎
+
+#### Simple Quick Start
 
 For the fastest way to start the server:
 
@@ -36,7 +105,7 @@ For the fastest way to start the server:
 
 This automatically handles dependency installation and starts the server on port 3000.
 
-### Advanced Startup Script
+#### Advanced Startup Script (Linux/Mac)
 
 For more control over the server startup:
 
@@ -71,7 +140,7 @@ For more control over the server startup:
 ./start-server.sh prod --no-install
 ```
 
-### What the Startup Script Does
+### What the Startup Scripts Do (All Platforms)
 
 The startup script performs the following checks before starting the server:
 

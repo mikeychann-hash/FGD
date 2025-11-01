@@ -3,8 +3,12 @@
  * Provides consistent, structured logging with levels and context
  */
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Log levels
 const LOG_LEVELS = {
@@ -168,8 +172,5 @@ const defaultLogger = new Logger({
   level: process.env.LOG_LEVEL ? LOG_LEVELS[process.env.LOG_LEVEL.toUpperCase()] : LOG_LEVELS.INFO
 });
 
-module.exports = {
-  Logger,
-  LOG_LEVELS,
-  logger: defaultLogger
-};
+export { Logger, LOG_LEVELS };
+export const logger = defaultLogger;

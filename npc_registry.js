@@ -4,6 +4,15 @@
 import fs from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
+import { fileURLToPath } from "url";
+
+import {
+  applyPersonalityMetadata,
+  buildPersonalityBundle,
+  cloneValue,
+  ensureTraitsHelper,
+  serializeRegistryEntry
+} from "./npc_identity.js";
 
 const VALID_ROLES = [
   "miner",
@@ -22,8 +31,11 @@ const VALID_ROLES = [
 /**
  * NPC Registry - Manages NPC identities, spawning, and persistence
  * Links NPCs with their learning profiles and tracks their lifecycle
+ *
+ * NOTE: This implementation is currently disabled due to conflicts.
+ * The active implementation is below (previously from npc_identity.js)
  */
-export class NPCRegistry {
+class NPCRegistryOld {
   /**
    * Creates a new NPCRegistry instance
    * @param {Object} options - Configuration options
@@ -469,17 +481,12 @@ export class NPCRegistry {
     this.nameIndex.clear();
     this.roleIndex.clear();
     console.log("✅ NPC Registry shutdown complete");
-import { promises as fs } from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+  }
+}
 
-import {
-  applyPersonalityMetadata,
-  buildPersonalityBundle,
-  cloneValue,
-  ensureTraitsHelper,
-  serializeRegistryEntry
-} from "./npc_identity.js";
+// ====================================================================
+// Alternative NPCRegistry implementation (from npc_identity.js)
+// ====================================================================
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

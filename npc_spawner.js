@@ -12,6 +12,9 @@ import {
 } from "./npc_identity.js";
 import { logger } from "./logger.js";
 
+// Maximum number of bots that can be spawned at once
+const MAX_BOTS = 8;
+
 /**
  * NPC Spawner - Creates and spawns NPCs with integrated personalities
  * Coordinates between NPCRegistry, LearningEngine, NPCEngine, and MinecraftBridge
@@ -156,6 +159,15 @@ class NPCSpawnerOld extends EventEmitter {
       throw new TypeError("npcList must be a non-empty array");
     }
 
+    // Check spawn limit
+    const currentCount = this.registry.getAll().filter(bot => bot.status === 'active').length;
+    if (currentCount + npcList.length > MAX_BOTS) {
+      throw new Error(
+        `Cannot spawn ${npcList.length} bot(s): would exceed maximum of ${MAX_BOTS} bots. ` +
+        `Currently ${currentCount} bot(s) active. Please despawn some bots first.`
+      );
+    }
+
     console.log(`🚀 Spawning batch of ${npcList.length} NPCs...`);
     const results = [];
     const errors = [];
@@ -224,6 +236,15 @@ class NPCSpawnerOld extends EventEmitter {
     if (!teamConfig) {
       throw new Error(
         `Unknown team type: ${teamType}. Valid types: ${Object.keys(teams).join(", ")}`
+      );
+    }
+
+    // Check spawn limit
+    const currentCount = this.registry.getAll().filter(bot => bot.status === 'active').length;
+    if (currentCount + teamConfig.length > MAX_BOTS) {
+      throw new Error(
+        `Cannot spawn ${teamType} team (${teamConfig.length} bots): would exceed maximum of ${MAX_BOTS} bots. ` +
+        `Currently ${currentCount} bot(s) active. Please despawn some bots first.`
       );
     }
 
@@ -369,6 +390,33 @@ export class NPCSpawner {
     this.log = logger.child({ component: 'NPCSpawner' });
   }
 
+  /**
+   * Count currently spawned bots
+   * @returns {number} Number of bots with status "active"
+   */
+  _countSpawnedBots() {
+    if (!this.registry) {
+      return 0;
+    }
+    const allBots = this.registry.getAll();
+    return allBots.filter(bot => bot.status === 'active').length;
+  }
+
+  /**
+   * Check if spawning additional bots would exceed the limit
+   * @param {number} count - Number of bots to spawn
+   * @throws {Error} If spawning would exceed MAX_BOTS limit
+   */
+  _checkSpawnLimit(count = 1) {
+    const currentCount = this._countSpawnedBots();
+    if (currentCount + count > MAX_BOTS) {
+      throw new Error(
+        `Cannot spawn ${count} bot(s): would exceed maximum of ${MAX_BOTS} bots. ` +
+        `Currently ${currentCount} bot(s) active. Please despawn some bots first.`
+      );
+    }
+  }
+
   async initialize() {
     if (!this.registryReady && this.registry) {
       this.registryReady = this.registry.load().catch(err => {
@@ -392,6 +440,9 @@ export class NPCSpawner {
 
   async spawn(options = {}) {
     await this.initialize();
+
+    // Check spawn limit before proceeding
+    this._checkSpawnLimit(1);
 
     const desiredPosition = options.position || options.spawnPosition || this.defaultPosition;
 
@@ -581,6 +632,16 @@ export class NPCSpawner {
     const npcs = this.registry
       ? this.registry.listActive()
       : [];
+
+    // Count how many NPCs need to be spawned (those not already active)
+    const currentlySpawned = this._countSpawnedBots();
+    const toSpawn = npcs.filter(npc => npc.status !== 'active');
+
+    // Check if spawning all would exceed limit
+    if (toSpawn.length > 0) {
+      this._checkSpawnLimit(toSpawn.length);
+    }
+
     const results = [];
     for (const profile of npcs) {
       const merged = {

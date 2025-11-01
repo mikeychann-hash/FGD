@@ -12,6 +12,7 @@ import { NPCSpawner } from "./npc_spawner.js";
 import { NPCFinalizer } from "./npc_finalizer.js";
 import { LearningEngine } from "./learning_engine.js";
 import { validator } from "./validator.js";
+import { handleLogin, getCurrentUser, authenticate, authorize } from "./middleware/auth.js";
 
 // Constants
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

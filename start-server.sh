@@ -114,7 +114,7 @@ check_command() {
 preflight_checks() {
     print_header "Pre-flight Checks"
 
-    # Check Node.js
+    # Check Node.js - try multiple methods
     if check_command node; then
         NODE_VERSION=$(node --version)
         print_success "Node.js installed: $NODE_VERSION"
@@ -126,9 +126,29 @@ preflight_checks() {
             exit 1
         fi
     else
-        print_error "Node.js is not installed"
-        echo -e "  Please install Node.js from ${BLUE}https://nodejs.org/${NC}"
-        exit 1
+        # Try direct execution as fallback (for Git Bash on Windows)
+        if node --version &> /dev/null; then
+            NODE_VERSION=$(node --version)
+            print_success "Node.js installed: $NODE_VERSION"
+
+            MAJOR_VERSION=$(echo "$NODE_VERSION" | cut -d'.' -f1 | tr -d 'v')
+            if [ "$MAJOR_VERSION" -lt 14 ]; then
+                print_error "Node.js version 14.x or higher required (found $NODE_VERSION)"
+                exit 1
+            fi
+        else
+            print_error "Node.js is not installed or not in PATH"
+            echo ""
+            echo -e "  Please ensure Node.js is installed from ${BLUE}https://nodejs.org/${NC}"
+            echo ""
+            echo "  ${YELLOW}Troubleshooting:${NC}"
+            echo "  1. If running on Windows via Git Bash, ensure Node.js is in your PATH"
+            echo "  2. Try running this script from a new terminal window"
+            echo "  3. On Windows, consider using start-server.bat instead"
+            echo "  4. Verify installation: node --version"
+            echo ""
+            exit 1
+        fi
     fi
 
     # Check npm
@@ -136,8 +156,14 @@ preflight_checks() {
         NPM_VERSION=$(npm --version)
         print_success "npm installed: v$NPM_VERSION"
     else
-        print_error "npm is not installed"
-        exit 1
+        # Try direct execution as fallback
+        if npm --version &> /dev/null; then
+            NPM_VERSION=$(npm --version)
+            print_success "npm installed: v$NPM_VERSION"
+        else
+            print_error "npm is not installed"
+            exit 1
+        fi
     fi
 
     # Check package.json

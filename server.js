@@ -12,6 +12,11 @@ import { NPCSpawner } from "./npc_spawner.js";
 import { NPCFinalizer } from "./npc_finalizer.js";
 import { LearningEngine } from "./learning_engine.js";
 import { validator } from "./validator.js";
+import { NPCEngine } from "./npc_engine.js";
+import { MinecraftBridge } from "./minecraft_bridge.js";
+import { initBotRoutes } from "./routes/bot.js";
+import { initLLMRoutes } from "./routes/llm.js";
+import { handleLogin, getCurrentUser, authenticate } from "./middleware/auth.js";
 
 // Constants
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,6 +28,8 @@ let npcRegistry = null;
 let npcSpawner = null;
 let npcFinalizer = null;
 let learningEngine = null;
+let npcEngine = null;
+let minecraftBridge = null;
 
 /**
  * Default fusion data structure returned when no data file exists
@@ -140,30 +147,73 @@ let systemState = {
   }
 };
 
-// NPC Engine instance
-let npcEngine = null;
+/**
+ * Initialize Minecraft Bridge (optional)
+ */
+async function initializeMinecraftBridge() {
+  try {
+    const host = process.env.MINECRAFT_RCON_HOST || '127.0.0.1';
+    const port = parseInt(process.env.MINECRAFT_RCON_PORT || '25575');
+    const password = process.env.MINECRAFT_RCON_PASSWORD || '';
+
+    // Only initialize if password is set (indicates intent to use RCON)
+    if (password) {
+      minecraftBridge = new MinecraftBridge({
+        host,
+        port,
+        password,
+        connectOnCreate: false // Don't auto-connect yet
+      });
+
+      logger.info('Minecraft Bridge configured', { host, port });
+      console.log(`🎮 Minecraft Bridge configured for ${host}:${port}`);
+
+      // Optionally connect
+      try {
+        await minecraftBridge.connect();
+        logger.info('Minecraft Bridge connected successfully');
+        console.log('✅ Minecraft Bridge connected');
+      } catch (err) {
+        logger.warn('Minecraft Bridge configured but not connected', { error: err.message });
+        console.log('⚠️  Minecraft Bridge configured but not connected:', err.message);
+      }
+    } else {
+      logger.info('Minecraft Bridge not configured (no RCON password set)');
+      console.log('ℹ️  Minecraft Bridge not configured (set MINECRAFT_RCON_PASSWORD to enable)');
+    }
+  } catch (err) {
+    logger.error('Failed to initialize Minecraft Bridge', { error: err.message });
+    console.error('❌ Failed to initialize Minecraft Bridge:', err.message);
+  }
+}
 
 /**
- * Initialize the NPC engine
+ * Initialize the NPC Engine with Minecraft Bridge
  */
 async function initializeNPCEngine() {
   try {
     npcEngine = new NPCEngine({
       autoSpawn: false,
       defaultSpawnPosition: { x: 0, y: 64, z: 0 },
-      autoRegisterFromRegistry: true
+      autoRegisterFromRegistry: true,
+      registry: npcRegistry,
+      learningEngine: learningEngine,
+      bridge: minecraftBridge
     });
 
     await npcEngine.registryReady;
     await npcEngine.learningReady;
 
+    logger.info('NPC Engine initialized');
     console.log('✅ NPC Engine initialized');
     console.log(`   Registry: ${npcEngine.registry?.registryPath}`);
     console.log(`   Learning: ${npcEngine.learningEngine?.path}`);
+    console.log(`   Bridge: ${minecraftBridge ? 'Connected' : 'Not configured'}`);
 
     const activeNPCs = npcEngine.registry?.listActive() || [];
     console.log(`   Active NPCs: ${activeNPCs.length}`);
   } catch (err) {
+    logger.error('Failed to initialize NPC engine', { error: err.message });
     console.error('❌ Failed to initialize NPC engine:', err.message);
   }
 }
@@ -200,6 +250,12 @@ async function initializeNPCSystem() {
       learningEngine: learningEngine
     });
     await npcFinalizer.load();
+
+    // Initialize Minecraft Bridge (optional)
+    await initializeMinecraftBridge();
+
+    // Initialize NPC Engine with all components
+    await initializeNPCEngine();
 
     logger.info('NPC system initialized successfully');
   } catch (err) {
@@ -294,19 +350,43 @@ function startDataSimulation() {
 // ============================================================================
 
 app.post("/api/auth/login", handleLogin);
-app.get("/api/auth/me", getCurrentUser);
+app.get("/api/auth/me", authenticate, getCurrentUser);
 
 // ============================================================================
 // Bot Management Routes (integrated from routes/bot.js)
 // ============================================================================
 
-// Will be initialized after npcEngine is ready
+/**
+ * Initialize API routes that depend on NPC Engine
+ * Must be called after NPC system initialization
+ */
+function initializeAPIRoutes() {
+  if (!npcEngine) {
+    logger.warn('Cannot initialize API routes - NPC Engine not ready');
+    return;
+  }
+
+  try {
+    // Initialize bot management routes
+    const botRouter = initBotRoutes(npcEngine, io);
+    app.use('/api/bots', botRouter);
+    logger.info('Bot management routes initialized');
+    console.log('✅ Bot management routes initialized');
+
+    // Initialize LLM command routes
+    const llmRouter = initLLMRoutes(npcEngine, io);
+    app.use('/api/llm', llmRouter);
+    logger.info('LLM command routes initialized');
+    console.log('✅ LLM command routes initialized');
+  } catch (err) {
+    logger.error('Failed to initialize API routes', { error: err.message });
+    console.error('❌ Failed to initialize API routes:', err.message);
+  }
+}
 
 // ============================================================================
-// LLM Command Routes (integrated from routes/llm.js)
+// LLM Command Routes - see initializeAPIRoutes() above
 // ============================================================================
-
-// Will be initialized after npcEngine is ready
 
 // ============================================================================
 // Dashboard Routes
@@ -787,6 +867,9 @@ async function startServer() {
 
     // Initialize NPC system
     await initializeNPCSystem();
+
+    // Initialize API routes (bot and LLM routes)
+    initializeAPIRoutes();
 
     // Set up file watcher
     setupFileWatcher();

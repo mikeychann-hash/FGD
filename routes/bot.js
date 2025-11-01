@@ -6,6 +6,40 @@ import { authenticate, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// Maximum number of bots that can be spawned at once
+const MAX_BOTS = 8;
+
+/**
+ * Count currently spawned bots
+ * @param {NPCEngine} npcEngine - The NPC engine instance
+ * @returns {number} Number of bots with status "active"
+ */
+function countSpawnedBots(npcEngine) {
+  const allBots = npcEngine.registry.getAll();
+  return allBots.filter(bot => bot.status === 'active').length;
+}
+
+/**
+ * Check if spawning additional bots would exceed the limit
+ * @param {NPCEngine} npcEngine - The NPC engine instance
+ * @param {number} count - Number of bots to spawn
+ * @returns {Object|null} Error object if limit exceeded, null otherwise
+ */
+function checkSpawnLimit(npcEngine, count = 1) {
+  const currentCount = countSpawnedBots(npcEngine);
+  if (currentCount + count > MAX_BOTS) {
+    return {
+      error: 'Spawn limit exceeded',
+      message: `Cannot spawn ${count} bot(s): would exceed maximum of ${MAX_BOTS} bots. ` +
+               `Currently ${currentCount} bot(s) active. Please despawn some bots first.`,
+      currentCount,
+      maxBots: MAX_BOTS,
+      requested: count
+    };
+  }
+  return null;
+}
+
 /**
  * Initialize bot routes with NPC engine and socket.io
  * @param {NPCEngine} npcEngine - The NPC engine instance
@@ -373,6 +407,15 @@ export function initBotRoutes(npcEngine, io) {
         });
       }
 
+      // Check if bot is already spawned
+      const spawnCount = bot.status === 'active' ? 0 : 1;
+
+      // Check spawn limit
+      const limitError = checkSpawnLimit(npcEngine, spawnCount);
+      if (limitError) {
+        return res.status(400).json(limitError);
+      }
+
       const spawnPosition = position || bot.lastKnownPosition || bot.spawnPosition;
       await npcEngine.spawnNPC(id, { position: spawnPosition });
 
@@ -512,6 +555,16 @@ export function initBotRoutes(npcEngine, io) {
           error: 'Service unavailable',
           message: 'Minecraft bridge not configured'
         });
+      }
+
+      // Count how many bots would be spawned
+      const allBots = npcEngine.registry.getAll();
+      const inactiveBots = allBots.filter(bot => bot.status !== 'active');
+
+      // Check spawn limit
+      const limitError = checkSpawnLimit(npcEngine, inactiveBots.length);
+      if (limitError) {
+        return res.status(400).json(limitError);
       }
 
       const results = await npcEngine.spawnAllKnownNPCs();

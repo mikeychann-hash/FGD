@@ -3,256 +3,469 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Administrative control panel for AICraft cluster management">
-  <title>AICraft Admin Panel</title>
-  <link rel="stylesheet" href="style.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <title>AICraft Admin Panel - Bot Management</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #0f0f23;
+      color: #e0e0e0;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+
+    h1 {
+      font-size: 28px;
+      margin-bottom: 10px;
+    }
+
+    .status-bar {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      font-size: 14px;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #4ade80;
+      animation: pulse 2s infinite;
+    }
+
+    .status-dot.offline {
+      background: #f87171;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 968px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: #1a1a2e;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .card-header {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 15px;
+      color: #667eea;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 14px;
+      color: #b0b0b0;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      padding: 10px;
+      background: #0f0f23;
+      border: 1px solid #333;
+      border-radius: 5px;
+      color: #e0e0e0;
+      font-size: 14px;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    button {
+      padding: 10px 20px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.3s;
+    }
+
+    button:hover {
+      background: #5568d3;
+    }
+
+    button:disabled {
+      background: #444;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: #444;
+    }
+
+    button.secondary:hover {
+      background: #555;
+    }
+
+    button.danger {
+      background: #f87171;
+    }
+
+    button.danger:hover {
+      background: #ef4444;
+    }
+
+    .bot-list {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .bot-item {
+      background: #0f0f23;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      border-left: 3px solid #667eea;
+    }
+
+    .bot-item.inactive {
+      opacity: 0.6;
+      border-left-color: #777;
+    }
+
+    .bot-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .bot-name {
+      font-weight: 600;
+      color: #667eea;
+    }
+
+    .bot-role {
+      font-size: 12px;
+      background: #667eea;
+      padding: 2px 8px;
+      border-radius: 3px;
+    }
+
+    .bot-actions {
+      display: flex;
+      gap: 5px;
+      margin-top: 10px;
+    }
+
+    .bot-actions button {
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+
+    .console {
+      background: #0f0f23;
+      padding: 15px;
+      border-radius: 5px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+    }
+
+    .console-line {
+      margin-bottom: 5px;
+      padding: 2px 0;
+    }
+
+    .console-line.success {
+      color: #4ade80;
+    }
+
+    .console-line.error {
+      color: #f87171;
+    }
+
+    .console-line.info {
+      color: #60a5fa;
+    }
+
+    .console-line.command {
+      color: #fbbf24;
+    }
+
+    .command-input {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .command-input input {
+      flex: 1;
+    }
+
+    .personality-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .personality-trait {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .personality-trait label {
+      flex: 1;
+      margin: 0;
+    }
+
+    .personality-trait input[type="range"] {
+      flex: 2;
+    }
+
+    .personality-trait span {
+      width: 40px;
+      text-align: right;
+      font-size: 12px;
+      color: #667eea;
+    }
+
+    .login-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #0f0f23;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .login-card {
+      background: #1a1a2e;
+      padding: 40px;
+      border-radius: 10px;
+      width: 400px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+
+    .login-card h2 {
+      margin-bottom: 20px;
+      color: #667eea;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 15px 20px;
+      border-radius: 5px;
+      background: #1a1a2e;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      z-index: 1001;
+      animation: slideIn 0.3s;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    .notification.success {
+      border-left: 4px solid #4ade80;
+    }
+
+    .notification.error {
+      border-left: 4px solid #f87171;
+    }
+
+    .notification.info {
+      border-left: 4px solid #60a5fa;
+    }
+  </style>
 </head>
 <body>
-  <header>
-    <div class="title-row">
-      <h1><span aria-hidden="true">⚡</span> Admin Control Panel</h1>
-      <nav class="nav-bar">
-        <a href="dashboard.html" class="nav-link">
-          <span aria-hidden="true">🧭</span> Dashboard
-        </a>
-        <a href="fusion.html" class="nav-link">
-          <span aria-hidden="true">🧠</span> Fusion Memory
-        </a>
-        <a href="admin.html" class="nav-link active">
-          <span aria-hidden="true">⚡</span> Admin Panel
-        </a>
-        <button id="theme-toggle" aria-label="Toggle theme">
-          <span aria-hidden="true">☀️</span> Light Mode
-        </button>
-      </nav>
+  <!-- Login Screen -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <h2>🤖 AICraft Admin Login</h2>
+      <form id="loginForm">
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="password" id="apiKeyInput" placeholder="Enter your API key" required>
+        </div>
+        <button type="submit">Login</button>
+      </form>
     </div>
-    <p>System administration, configuration management, and cluster control. Monitor system health, manage nodes, and configure advanced settings.</p>
-  </header>
-
-  <div class="admin-grid">
-    <!-- System Overview -->
-    <section class="card">
-      <h2><span aria-hidden="true">📊</span> System Overview</h2>
-      <p class="section-subtitle">Real-time system health and performance metrics</p>
-
-      <div class="stats-row">
-        <div class="stat-box">
-          <span class="stat-value" id="uptime">0d 0h</span>
-          <span class="stat-label">Uptime</span>
-        </div>
-        <div class="stat-box">
-          <span class="stat-value" id="total-nodes">0</span>
-          <span class="stat-label">Total Nodes</span>
-        </div>
-        <div class="stat-box">
-          <span class="stat-value" id="active-tasks">0</span>
-          <span class="stat-label">Active Tasks</span>
-        </div>
-      </div>
-
-      <div class="stats-row">
-        <div class="stat-box">
-          <span class="stat-value" id="avg-cpu">0%</span>
-          <span class="stat-label">Avg CPU</span>
-        </div>
-        <div class="stat-box">
-          <span class="stat-value" id="avg-memory">0%</span>
-          <span class="stat-label">Avg Memory</span>
-        </div>
-        <div class="stat-box">
-          <span class="stat-value" id="data-processed">0 GB</span>
-          <span class="stat-label">Data Processed</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- Node Management -->
-    <section class="card">
-      <h2><span aria-hidden="true">🖥️</span> Node Management</h2>
-      <p class="section-subtitle">Add, remove, or configure cluster nodes</p>
-
-      <div class="admin-actions">
-        <button class="admin-button" id="add-node">
-          <span aria-hidden="true">➕</span> Add New Node
-        </button>
-        <button class="admin-button" id="restart-nodes">
-          <span aria-hidden="true">🔄</span> Restart All Nodes
-        </button>
-        <button class="admin-button" id="sync-nodes">
-          <span aria-hidden="true">🔗</span> Force Sync
-        </button>
-        <button class="admin-button danger" id="shutdown-cluster">
-          <span aria-hidden="true">🛑</span> Emergency Shutdown
-        </button>
-      </div>
-
-      <div id="node-list" style="margin-top: 20px; font-size: 14px; color: var(--text-secondary);">
-        <div class="loading"></div> Loading nodes...
-      </div>
-    </section>
-
-    <!-- Configuration -->
-    <section class="card">
-      <h2><span aria-hidden="true">⚙️</span> System Configuration</h2>
-      <p class="section-subtitle">Adjust global system parameters</p>
-
-      <div style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
-        <div>
-          <label for="max-workers" style="display: block; margin-bottom: 6px; font-size: 14px;">
-            Max Workers: <strong id="max-workers-value">8</strong>
-          </label>
-          <input type="range" id="max-workers" min="1" max="32" value="8" style="width: 100%;">
-        </div>
-
-        <div>
-          <label for="log-level" style="display: block; margin-bottom: 6px; font-size: 14px;">
-            Log Level
-          </label>
-          <select id="log-level" style="width: 100%; padding: 8px; background: rgba(15, 23, 42, 0.8); color: var(--text-primary); border: 1px solid rgba(96, 165, 250, 0.3); border-radius: 8px; cursor: pointer;">
-            <option value="debug">Debug</option>
-            <option value="info" selected>Info</option>
-            <option value="warn">Warning</option>
-            <option value="error">Error</option>
-          </select>
-        </div>
-
-        <div>
-          <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
-            <input type="checkbox" id="auto-scaling" checked style="width: 18px; height: 18px; cursor: pointer;">
-            Enable Auto-Scaling
-          </label>
-        </div>
-
-        <div>
-          <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
-            <input type="checkbox" id="telemetry" checked style="width: 18px; height: 18px; cursor: pointer;">
-            Enable Telemetry
-          </label>
-        </div>
-
-        <button id="save-config" style="margin-top: 8px;">
-          <span aria-hidden="true">💾</span> Save Configuration
-        </button>
-      </div>
-    </section>
-
-    <!-- User Management -->
-    <section class="card">
-      <h2><span aria-hidden="true">👥</span> User Management</h2>
-      <p class="section-subtitle">Manage system users and permissions</p>
-
-      <div class="admin-actions">
-        <button class="admin-button" id="create-user">
-          <span aria-hidden="true">➕</span> Create User
-        </button>
-        <button class="admin-button" id="manage-roles">
-          <span aria-hidden="true">🔐</span> Manage Roles
-        </button>
-        <button class="admin-button" id="view-sessions">
-          <span aria-hidden="true">👁️</span> Active Sessions
-        </button>
-        <button class="admin-button" id="audit-log">
-          <span aria-hidden="true">📋</span> Audit Log
-        </button>
-      </div>
-
-      <div style="margin-top: 20px;">
-        <div class="stats-row">
-          <div class="stat-box">
-            <span class="stat-value" id="total-users">12</span>
-            <span class="stat-label">Total Users</span>
-          </div>
-          <div class="stat-box">
-            <span class="stat-value" id="active-users">5</span>
-            <span class="stat-label">Active Now</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Data Export/Import -->
-    <section class="card">
-      <h2><span aria-hidden="true">📦</span> Data Management</h2>
-      <p class="section-subtitle">Export, import, and backup system data</p>
-
-      <div class="admin-actions">
-        <button class="admin-button" id="export-data">
-          <span aria-hidden="true">📤</span> Export All Data
-        </button>
-        <button class="admin-button" id="import-data">
-          <span aria-hidden="true">📥</span> Import Data
-        </button>
-        <button class="admin-button" id="create-backup">
-          <span aria-hidden="true">💾</span> Create Backup
-        </button>
-        <button class="admin-button" id="restore-backup">
-          <span aria-hidden="true">♻️</span> Restore Backup
-        </button>
-      </div>
-
-      <div style="margin-top: 20px; font-size: 13px; color: var(--text-secondary);">
-        <p>Last backup: <strong id="last-backup">2025-10-28 14:30:00</strong></p>
-        <p>Backup size: <strong id="backup-size">2.4 GB</strong></p>
-      </div>
-    </section>
-
-    <!-- Monitoring & Alerts -->
-    <section class="card">
-      <h2><span aria-hidden="true">🔔</span> Alerts & Monitoring</h2>
-      <p class="section-subtitle">Configure alerts and notification rules</p>
-
-      <div class="admin-actions">
-        <button class="admin-button" id="configure-alerts">
-          <span aria-hidden="true">⚙️</span> Configure Alerts
-        </button>
-        <button class="admin-button" id="view-incidents">
-          <span aria-hidden="true">⚠️</span> View Incidents
-        </button>
-        <button class="admin-button" id="test-alerts">
-          <span aria-hidden="true">🧪</span> Test Alert System
-        </button>
-      </div>
-
-      <div style="margin-top: 20px;">
-        <div class="stats-row">
-          <div class="stat-box">
-            <span class="stat-value" id="active-alerts">2</span>
-            <span class="stat-label">Active Alerts</span>
-          </div>
-          <div class="stat-box">
-            <span class="stat-value" id="incidents-today">0</span>
-            <span class="stat-label">Incidents Today</span>
-          </div>
-        </div>
-      </div>
-    </section>
   </div>
 
-  <!-- System Logs Section -->
-  <section class="card" style="margin-top: 24px;">
-    <h2><span aria-hidden="true">📜</span> System Logs</h2>
-    <p class="section-subtitle">Real-time system event logs with filtering</p>
+  <!-- Main Admin Panel -->
+  <div id="adminPanel" class="container hidden">
+    <header>
+      <h1>🤖 AICraft Admin Panel</h1>
+      <div class="status-bar">
+        <div class="status-indicator">
+          <div class="status-dot" id="serverStatus"></div>
+          <span id="serverStatusText">Connecting...</span>
+        </div>
+        <div class="status-indicator">
+          <span id="botCount">0 bots</span>
+        </div>
+        <div class="status-indicator">
+          <span id="userInfo"></span>
+        </div>
+        <button class="secondary" onclick="logout()">Logout</button>
+      </div>
+    </header>
 
-    <div style="display: flex; gap: 12px; margin: 16px 0; flex-wrap: wrap;">
-      <button class="admin-button" id="filter-all" style="padding: 6px 12px;">All</button>
-      <button class="admin-button" id="filter-info" style="padding: 6px 12px;">Info</button>
-      <button class="admin-button" id="filter-warn" style="padding: 6px 12px;">Warnings</button>
-      <button class="admin-button" id="filter-error" style="padding: 6px 12px;">Errors</button>
-      <button class="admin-button" id="clear-logs" style="padding: 6px 12px; margin-left: auto;">Clear Logs</button>
+    <div class="grid">
+      <!-- Bot List -->
+      <div class="card">
+        <div class="card-header">
+          Active Bots
+          <button class="secondary" style="float: right;" onclick="loadBots()">Refresh</button>
+        </div>
+        <div class="bot-list" id="botList"></div>
+      </div>
+
+      <!-- Create Bot -->
+      <div class="card">
+        <div class="card-header">Create New Bot</div>
+        <form id="createBotForm">
+          <div class="form-group">
+            <label>Name (optional)</label>
+            <input type="text" id="botName" placeholder="auto-generated if empty">
+          </div>
+          <div class="form-group">
+            <label>Role *</label>
+            <select id="botRole" required>
+              <option value="">Select role...</option>
+              <option value="miner">Miner</option>
+              <option value="builder">Builder</option>
+              <option value="scout">Scout</option>
+              <option value="guard">Guard</option>
+              <option value="gatherer">Gatherer</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea id="botDescription" placeholder="Optional description"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Personality Traits</label>
+            <div class="personality-grid">
+              <div class="personality-trait">
+                <label>Curiosity</label>
+                <input type="range" id="curiosity" min="0" max="100" value="50">
+                <span id="curiosityVal">0.5</span>
+              </div>
+              <div class="personality-trait">
+                <label>Patience</label>
+                <input type="range" id="patience" min="0" max="100" value="50">
+                <span id="patienceVal">0.5</span>
+              </div>
+              <div class="personality-trait">
+                <label>Motivation</label>
+                <input type="range" id="motivation" min="0" max="100" value="50">
+                <span id="motivationVal">0.5</span>
+              </div>
+              <div class="personality-trait">
+                <label>Empathy</label>
+                <input type="range" id="empathy" min="0" max="100" value="50">
+                <span id="empathyVal">0.5</span>
+              </div>
+              <div class="personality-trait">
+                <label>Aggression</label>
+                <input type="range" id="aggression" min="0" max="100" value="50">
+                <span id="aggressionVal">0.5</span>
+              </div>
+              <div class="personality-trait">
+                <label>Creativity</label>
+                <input type="range" id="creativity" min="0" max="100" value="50">
+                <span id="creativityVal">0.5</span>
+              </div>
+              <div class="personality-trait">
+                <label>Loyalty</label>
+                <input type="range" id="loyalty" min="0" max="100" value="50">
+                <span id="loyaltyVal">0.5</span>
+              </div>
+            </div>
+          </div>
+          <button type="submit">Create Bot</button>
+        </form>
+      </div>
     </div>
 
-    <div class="log-viewer" id="log-viewer" role="log" aria-live="polite" aria-label="System logs">
-      <!-- Logs will be populated by JavaScript -->
+    <!-- Command Console -->
+    <div class="card">
+      <div class="card-header">Command Console</div>
+      <div class="console" id="console"></div>
+      <div class="command-input">
+        <input type="text" id="commandInput" placeholder="Enter command or natural language... (e.g., 'spawn bot miner_01 as miner')">
+        <button onclick="executeCommand()">Execute</button>
+      </div>
+      <div style="margin-top: 10px; font-size: 12px; color: #888;">
+        Examples: "list all bots" | "spawn bot miner_01 as miner" | "assign miner_01 task mine iron"
+      </div>
     </div>
-  </section>
-
-  <footer>
-    &copy; <span id="year"></span> AICraft Cluster Intelligence Network
-  </footer>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="theme.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>

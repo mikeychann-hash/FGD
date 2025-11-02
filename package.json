@@ -1,14 +1,14 @@
 {
   "name": "aicraft-cluster-dashboard",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
-  "main": "server.js",
+  "main": "index.js",
   "private": true,
   "license": "GPL-3.0",
-  "description": "AICraft Cluster Dashboard with real-time monitoring",
+  "description": "AICraft Federation unified admin and system dashboard with persistent backend and live monitoring.",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node index.js",
+    "dev": "node --watch index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -16,7 +16,6 @@
     "jsonwebtoken": "^9.0.2",
     "rcon-client": "^4.2.5",
     "socket.io": "^4.6.1",
-    "rcon-client": "^4.2.5",
     "ws": "^8.17.0"
   }
 }

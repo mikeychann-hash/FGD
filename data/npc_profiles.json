@@ -22,5 +22,143 @@
     "tasksFailed": 1,
     "lastActivity": "2024-01-05T12:00:00.000Z",
     "createdAt": "2024-01-01T00:00:00.000Z"
+  },
+  "builder_01": {
+    "role": "builder",
+    "skills": {
+      "mining": 1,
+      "building": 1,
+      "gathering": 1,
+      "exploring": 1,
+      "guard": 1
+    },
+    "personality": {
+      "curiosity": 0.29062150007415766,
+      "patience": 0.5925381016159055,
+      "motivation": 0.8010724950445163,
+      "empathy": 0.0761671210221514,
+      "aggression": 0.12473459109471607,
+      "creativity": 0.5149099301780655,
+      "loyalty": 0.5488603193042122
+    },
+    "xp": 0,
+    "tasksCompleted": 0,
+    "tasksFailed": 0,
+    "createdAt": "2025-11-01T22:59:55.658Z"
+  },
+  "scout_01": {
+    "role": "builder",
+    "skills": {
+      "mining": 1,
+      "building": 1,
+      "gathering": 1,
+      "exploring": 1,
+      "guard": 1
+    },
+    "personality": {
+      "curiosity": 0.03662789156677149,
+      "patience": 0.28989348552631533,
+      "motivation": 0.8632522212957094,
+      "empathy": 0.2520502448539955,
+      "aggression": 0.37813396459286996,
+      "creativity": 0.782631624522123,
+      "loyalty": 0.3222979279628463
+    },
+    "xp": 0,
+    "tasksCompleted": 0,
+    "tasksFailed": 0,
+    "createdAt": "2025-11-01T22:59:55.659Z"
+  },
+  "guard_01": {
+    "role": "builder",
+    "skills": {
+      "mining": 1,
+      "building": 1,
+      "gathering": 1,
+      "exploring": 1,
+      "guard": 1
+    },
+    "personality": {
+      "curiosity": 0.09453266995035636,
+      "patience": 0.3739357092621526,
+      "motivation": 0.6291979564549199,
+      "empathy": 0.8930577007179114,
+      "aggression": 0.33294319524931004,
+      "creativity": 0.6056196888331621,
+      "loyalty": 0.5166252006089003
+    },
+    "xp": 0,
+    "tasksCompleted": 0,
+    "tasksFailed": 0,
+    "createdAt": "2025-11-01T22:59:55.659Z"
+  },
+  "builder_02": {
+    "role": "builder",
+    "skills": {
+      "mining": 1,
+      "building": 1,
+      "gathering": 1,
+      "exploring": 1,
+      "guard": 1
+    },
+    "personality": {
+      "curiosity": 0.6586547753940846,
+      "patience": 0.5703075812847286,
+      "motivation": 0.893376763919624,
+      "empathy": 0.3370233843161755,
+      "aggression": 0.21237095140208717,
+      "creativity": 0.8114963395725145,
+      "loyalty": 0.39930982880946386
+    },
+    "xp": 0,
+    "tasksCompleted": 0,
+    "tasksFailed": 0,
+    "createdAt": "2025-11-01T22:59:55.659Z"
+  },
+  "scout_02": {
+    "role": "builder",
+    "skills": {
+      "mining": 1,
+      "building": 1,
+      "gathering": 1,
+      "exploring": 1,
+      "guard": 1
+    },
+    "personality": {
+      "curiosity": 0.9268226943732301,
+      "patience": 0.01962203461310119,
+      "motivation": 0.5457749364850609,
+      "empathy": 0.9840305938911911,
+      "aggression": 0.14636597502778947,
+      "creativity": 0.2548909931532978,
+      "loyalty": 0.3146152741722317
+    },
+    "xp": 0,
+    "tasksCompleted": 0,
+    "tasksFailed": 0,
+    "createdAt": "2025-11-01T22:59:55.659Z"
+  },
+  "guard_02": {
+    "role": "builder",
+    "skills": {
+      "mining": 1,
+      "building": 1,
+      "gathering": 1,
+      "exploring": 1,
+      "guard": 1
+    },
+    "personality": {
+      "curiosity": 0.25716475403110206,
+      "patience": 0.8163263507411213,
+      "motivation": 0.5182892439062907,
+      "empathy": 0.37458712154224416,
+      "aggression": 0.9963143662163968,
+      "creativity": 0.9459637788831592,
+      "loyalty": 0.001468545416878797
+    },
+    "xp": 0,
+    "tasksCompleted": 0,
+    "tasksFailed": 0,
+    "createdAt": "2025-11-01T22:59:55.659Z"
   }
 }

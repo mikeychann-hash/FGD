@@ -1,3 +1,7 @@
-Placeholder artifact for the FGDProxyPlayer Paper plugin.
-This stub represents the Java plugin responsible for bridging live telemetry
-and proxy player visuals. Replace with compiled JAR when available.
+# FGDProxyPlayer - Minecraft Plugin for FGD Hybrid Bot Framework
+
+Source code: /plugins/FGDProxyPlayer/
+Build: cd plugins/FGDProxyPlayer && mvn clean package
+Output: target/FGDProxyPlayer-1.0.0.jar
+
+This plugin provides real Minecraft integration for FGD bots (no simulation).

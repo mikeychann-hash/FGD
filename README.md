@@ -1,10 +1,30 @@
 # 🧠 AICraft Federation Governance Dashboard (FGD)
 
-AICraft Federation Governance Dashboard (FGD) is a full-stack control plane for managing Minecraft-based NPC swarms, monitoring cluster health, and coordinating LLM-assisted automation. The repository combines a persistent Express/Socket.IO backend, a web-based admin console, a live operations dashboard, and an extensible NPC/LLM integration layer that bridges into Paper/Geyser Minecraft servers.
+AICraft Federation Governance Dashboard (FGD) is a full-stack control plane for managing Minecraft-based NPC swarms with **hybrid bot architecture** combining Mineflayer-style embodiment with centralized AI governance. The repository combines a persistent Express/Socket.IO backend, a web-based admin console, live operations dashboards, and an extensible NPC/LLM integration layer that bridges into Paper/Geyser Minecraft servers through **real-time WebSocket communication** and a custom Paper plugin.
+
+## ✨ Key Features
+
+- 🤖 **Hybrid Bot Framework** – Bots combine Mineflayer-style embodied awareness (physics, movement, world scanning) with FGD's centralized intelligence (LLM integration, learning, governance)
+- 🎮 **Real Minecraft Integration** – Bots exist as visible entities in Minecraft via the FGDProxyPlayer plugin (no simulation)
+- 🧠 **Microcore Architecture** – Each bot runs a local "micro-brain" tick loop for reactive behavior while the federation manages strategic planning
+- 📡 **WebSocket Bridge** – Bidirectional real-time communication between FGD backend and Minecraft server
+- 🔬 **Environmental Awareness** – Bots scan actual Minecraft world data (blocks, entities, players) within configurable radius
+- 📊 **Adaptive Learning** – Persistent NPC profiles with skill progression, trait evolution, and outcome knowledge
+- 🎯 **LLM Command Surface** – Natural language instructions translated to bot actions via multiple LLM providers
+- 🏛️ **Autonomic Governance** – Policy-driven resource management and adaptive behavior control
+
+## 📚 Documentation
+
+- **[README_HYBRID_BOTS.md](README_HYBRID_BOTS.md)** – Architecture comparison: Mineflayer vs FGD vs Hybrid approach
+- **[HYBRID_BOTS_SETUP.md](HYBRID_BOTS_SETUP.md)** – Complete setup guide for real Minecraft integration with FGDProxyPlayer plugin
+- **[PAPER_GEYSER_SETUP.md](PAPER_GEYSER_SETUP.md)** – Minecraft server setup instructions for Paper + Geyser
+- **[ADMIN_PANEL_INTEGRATION.md](ADMIN_PANEL_INTEGRATION.md)** – Admin UI integration guide
+- **[NPC_SYSTEM_README.md](NPC_SYSTEM_README.md)** – NPC lifecycle and engine documentation
 
 ## Table of Contents
 - [Project Purpose](#project-purpose)
 - [System Architecture](#system-architecture)
+  - [Hybrid Bot Framework](#hybrid-bot-framework)
   - [Runtime Entry Points](#runtime-entry-points)
   - [Web Dashboards](#web-dashboards)
   - [NPC Lifecycle and Learning Stack](#npc-lifecycle-and-learning-stack)
@@ -16,6 +36,7 @@ AICraft Federation Governance Dashboard (FGD) is a full-stack control plane for 
 - [Installation and Setup](#installation-and-setup)
   - [Backend Services](#backend-services)
   - [Minecraft Server Preparation](#minecraft-server-preparation)
+  - [FGDProxyPlayer Plugin Installation](#fgdproxyplayer-plugin-installation)
   - [Admin and Dashboard Clients](#admin-and-dashboard-clients)
 - [Configuration](#configuration)
   - [Environment Variables](#environment-variables)
@@ -30,11 +51,60 @@ AICraft Federation Governance Dashboard (FGD) is a full-stack control plane for 
 ## Project Purpose
 FGD orchestrates the Minecraft Federation of agents by:
 - Operating an authenticated REST + WebSocket backend for NPC creation, lifecycle management, and telemetry streaming.
-- Providing dashboards for cluster metrics, fusion memory inspection, and governance policy controls.【F:dashboard.js†L1-L199】
-- Persisting NPC identity, traits, learning progress, and outcome knowledge to drive adaptive behaviors.【F:npc_registry.js†L1-L160】【F:learning_engine.js†L1-L149】【F:knowledge_store.js†L1-L72】
-- Bridging natural-language instructions through multiple LLM providers to in-game actions and NPC tasking.【F:routes/llm.js†L1-L160】【F:llm_bridge.js†L1-L195】
+- **Running hybrid bots** with Mineflayer-style embodiment (movement, physics, awareness) and centralized AI governance (LLM, learning, policy).
+- Providing dashboards for cluster metrics, fusion memory inspection, and governance policy controls.
+- Persisting NPC identity, traits, learning progress, and outcome knowledge to drive adaptive behaviors.
+- Bridging natural-language instructions through multiple LLM providers to in-game actions and NPC tasking.
+- **Spawning real entities** in Minecraft via the FGDProxyPlayer Paper plugin with bidirectional WebSocket communication.
 
 ## System Architecture
+
+### Hybrid Bot Framework
+
+FGD implements a **hybrid architecture** combining the best of both Mineflayer and traditional NPC systems:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                 🧠 Federation Layer (FGD Core)               │
+│  - LLM Command Surface (llm_bridge.js)                      │
+│  - Governance Core (autonomic_core.js / policy_engine.js)   │
+│  - Knowledge + Learning Persistence                         │
+└──────────────▲──────────────────────────────────────────────┘
+               │ Goals / Policies
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│           🤖 Local Behavior Core ("Micro-Brain")             │
+│  - Per-bot event loop (core/npc_microcore.js)               │
+│  - Movement, pathing, task execution (200ms tick)           │
+│  - Local state awareness (position, velocity, memory)       │
+└──────────────▲──────────────────────────────────────────────┘
+               │ Commands / Updates
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│       ⚙️ Minecraft Integration Layer (Bridge + Plugin)       │
+│  - Central RCON / WebSocket bridge (minecraft_bridge.js)    │
+│  - FGDProxyPlayer Paper plugin (Java)                       │
+│  - Real bot movement & scanning (WebSocket communication)   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Components:**
+
+- **`core/npc_microcore.js`** – Local tick loop (5 updates/sec) handling physics-lite movement, area scanning, and reactive behavior for each bot
+- **`minecraft_bridge.js`** – Centralized RCON bridge extended with `moveBot()` and `scanArea()` methods that communicate with the plugin
+- **`plugins/FGDProxyPlayer/`** – Paper/Spigot plugin (Java) that spawns real entities, executes movement commands, and scans Minecraft world data
+- **`server.js`** – WebSocket server with `pluginInterface` object for bidirectional communication between FGD and Minecraft
+
+**What Bots Can Do:**
+
+- ✅ **Move** with step-based physics (interpolated movement, velocity tracking)
+- ✅ **Scan** environment every 1.5 seconds (blocks, entities, players within 5-block radius)
+- ✅ **Exist** as visible entities in Minecraft (ArmorStand proxies with nametags)
+- ✅ **React** to world changes via microcore event loop
+- ✅ **Learn** from experiences via learning_engine persistence
+- ✅ **Coordinate** through centralized federation governance
+
+See **[README_HYBRID_BOTS.md](README_HYBRID_BOTS.md)** for detailed architecture comparison and **[HYBRID_BOTS_SETUP.md](HYBRID_BOTS_SETUP.md)** for setup instructions.
 
 ### Runtime Entry Point
 - **`server.js`** – Unified entry used by the helper scripts and `npm` commands. It layers authentication, cached fusion data access, bot/LLM routers, NPC archival, metrics simulation, and health endpoints to deliver the full governance stack in a single process.【F:server.js†L1-L640】
@@ -47,18 +117,36 @@ The server also serves static assets from the repository root so that `admin.htm
 
 ### NPC Lifecycle and Learning Stack
 The NPC subsystem is composed of:
-- **`npc_registry.js`** – Persistent identity database with role indices, validation, and serialization support.【F:npc_registry.js†L1-L160】
-- **`npc_spawner.js`** – Coordinates registry, learning engine, NPC engine, and Minecraft bridge to create fully realized bots (noting legacy/disabled sections for compatibility).【F:npc_spawner.js†L1-L150】
-- **`npc_finalizer.js`** – Archives, despawns, and cleans up NPCs while retaining lifecycle statistics.【F:npc_finalizer.js†L1-L138】
-- **`learning_engine.js`** – Maintains NPC profiles, traits, skill progression, and debounced persistence to disk.【F:learning_engine.js†L1-L149】
-- **`npc_engine/`** – Queueing, dispatch, autonomy, and bridge helpers that coordinate bot behaviors with the Minecraft bridge.【F:npc_engine/dispatch.js†L1-L200】
+- **`npc_registry.js`** – Persistent identity database with role indices, validation, and serialization support.
+- **`npc_spawner.js`** – Coordinates registry, learning engine, NPC engine, and Minecraft bridge to create fully realized bots. **Now auto-initializes microcore** for each spawned bot.
+- **`core/npc_microcore.js`** – **NEW:** Local tick loop system that gives each bot embodied behavior (movement physics, environmental scanning, reactive events).
+- **`npc_finalizer.js`** – Archives, despawns, and cleans up NPCs while retaining lifecycle statistics. **Now properly detaches microcore** on cleanup.
+- **`learning_engine.js`** – Maintains NPC profiles, traits, skill progression, and debounced persistence to disk.
+- **`npc_engine/`** – Queueing, dispatch, autonomy, and bridge helpers that coordinate bot behaviors with the Minecraft bridge. **Now integrates with microcore** for task synchronization.
 
-`server.js` wires these components together, ensures registries and archives are loaded, and surfaces management endpoints (`/api/npcs`, dead-letter queues, archives) for full lifecycle control.【F:server.js†L190-L400】
+`server.js` wires these components together, ensures registries and archives are loaded, and surfaces management endpoints (`/api/npcs`, dead-letter queues, archives) for full lifecycle control.
 
 ### Minecraft Bridge and Game Integration
-- **`minecraft_bridge.js`** – Wraps RCON, emits connection status, and provides spawn/despawn helpers used by REST and LLM flows.【F:minecraft_bridge.js†L1-L72】
-- **`minecraft-bridge-config.js`** – Centralizes host, port, security, heartbeat, and spawn templates for Paper/Geyser servers.【F:minecraft-bridge-config.js†L1-L117】
-- Environment-aware initialization in `server.js` skips bridge startup unless credentials are provided, making game connectivity optional in development.【F:server.js†L150-L188】
+- **`minecraft_bridge.js`** – Wraps RCON and **WebSocket plugin communication**, emits connection status, and provides spawn/despawn, **movement (`moveBot`)**, and **scanning (`scanArea`)** methods.
+- **`plugins/FGDProxyPlayer/`** – **NEW:** Paper/Spigot plugin (Java) that connects to FGD via WebSocket, spawns real bot entities, executes movement commands, and scans Minecraft world data (blocks, entities, players).
+  - **Build:** `cd plugins/FGDProxyPlayer && mvn clean package`
+  - **Install:** Copy `target/FGDProxyPlayer-1.0.0.jar` to your Paper server's `plugins/` folder
+  - **Configure:** Edit `plugins/FGDProxyPlayer/config.yml` with FGD WebSocket URL
+- **`server.js`** – Initializes `pluginInterface` object for bidirectional WebSocket communication, auto-wires to `minecraft_bridge` on plugin connection, and sets up telemetry channel.
+- **`minecraft-bridge-config.js`** – Centralizes host, port, security, heartbeat, and spawn templates for Paper/Geyser servers.
+- Environment-aware initialization in `server.js` skips bridge startup unless credentials are provided, making game connectivity optional in development.
+
+**Integration Flow:**
+```
+Bot Movement: npc_microcore → minecraft_bridge.moveBot()
+              → pluginInterface (WebSocket) → FGDProxyPlayer
+              → entity.teleport() in Minecraft
+
+Bot Scanning:  npc_microcore → minecraft_bridge.scanArea()
+              → pluginInterface (WebSocket) → FGDProxyPlayer
+              → getNearbyEntities() + getBlockAt()
+              → real world data returned to bot
+```
 
 ### Autonomic Governance and Policy Enforcement
 - **`autonomic_core.js`** – Periodically gathers system metrics, enforces thresholds, and coordinates with the policy engine; it runs automatically when the runtime boots.【F:autonomic_core.js†L1-L120】
@@ -76,18 +164,38 @@ The NPC subsystem is composed of:
 - Sample fusion data and metrics in `data/` bootstrap the dashboard for demos, while watchers and cache invalidation in `server.js` keep responses fresh as the knowledge base evolves.【F:server.js†L23-L116】【F:server.js†L268-L288】
 
 ## Key Modules Reference
+
+### Core Hybrid Bot Framework
 | Path | Role |
 | --- | --- |
-| `server.js` | Unified governance server with authentication, fusion data caching, NPC lifecycle endpoints, and simulated telemetry.【F:server.js†L1-L640】 |
-| `routes/bot.js` | Authenticated CRUD API for NPCs with spawn limits, learning integration, and Socket.IO notifications.【F:routes/bot.js†L1-L200】 |
-| `routes/llm.js` | Natural language interpreter translating operator prompts into NPC engine operations.【F:routes/llm.js†L1-L160】 |
-| `minecraft_bridge.js` | RCON abstraction with spawn/despawn helpers and event emitters for connection state.【F:minecraft_bridge.js†L1-L72】 |
-| `autonomic_core.js` / `policy_engine.js` | Governance loop for health monitoring and adaptive policy adjustments.【F:autonomic_core.js†L1-L120】【F:policy_engine.js†L1-L156】 |
-| `npc_registry.js`, `npc_spawner.js`, `npc_finalizer.js`, `learning_engine.js` | Identity persistence, spawn orchestration, archival, and skill tracking for NPCs.【F:npc_registry.js†L1-L160】【F:npc_spawner.js†L1-L150】【F:npc_finalizer.js†L1-L138】【F:learning_engine.js†L1-L149】 |
-| `tasks/` | Library of task planners and helpers for NPC action decomposition.【F:tasks/index.js†L1-L79】 |
-| `dashboard.html` / `dashboard.js` | Cluster monitoring UI with charts, fusion memory overview, and policy controls.【F:dashboard.js†L1-L199】 |
-| `admin.html` / `admin.js` | Admin portal with login, spawn/despawn forms, and realtime console feed.【F:admin.js†L1-L109】 |
-| `llm_bridge.js` | Multi-provider LLM adapter with retries and mock fallback for development.【F:llm_bridge.js†L1-L195】 |
+| **`core/npc_microcore.js`** | ⭐ **NEW:** Local tick loop (200ms) for each bot with movement physics, scanning, and reactive events |
+| **`plugins/FGDProxyPlayer/`** | ⭐ **NEW:** Paper/Spigot plugin (Java) for real Minecraft integration via WebSocket |
+| `minecraft_bridge.js` | RCON + WebSocket plugin abstraction with `moveBot()`, `scanArea()`, spawn/despawn helpers |
+| `npc_spawner.js` | Spawn orchestration with **microcore auto-initialization** |
+| `npc_engine.js` | Task dispatch, queueing, and **microcore task synchronization** |
+
+### Backend Services
+| Path | Role |
+| --- | --- |
+| `server.js` | Unified governance server with authentication, **plugin WebSocket interface**, NPC lifecycle endpoints, and telemetry |
+| `routes/bot.js` | Authenticated CRUD API for NPCs with spawn limits, learning integration, and **runtime data** (position, velocity, tick, scan results) |
+| `routes/llm.js` | Natural language interpreter translating operator prompts into NPC engine operations |
+| `llm_bridge.js` | Multi-provider LLM adapter with retries and mock fallback for development |
+
+### NPC Lifecycle & Learning
+| Path | Role |
+| --- | --- |
+| `npc_registry.js` | Persistent identity database with role indices, validation, and serialization support |
+| `npc_finalizer.js` | Archives, despawns, and cleans up NPCs while **detaching microcore** |
+| `learning_engine.js` | Maintains NPC profiles, traits, skill progression, and debounced persistence to disk |
+| `tasks/` | Library of task planners and helpers for NPC action decomposition |
+
+### Governance & Dashboards
+| Path | Role |
+| --- | --- |
+| `autonomic_core.js` / `policy_engine.js` | Governance loop for health monitoring and adaptive policy adjustments |
+| `dashboard.html` / `dashboard.js` | Cluster monitoring UI with charts, fusion memory overview, and policy controls |
+| `admin.html` / `admin.js` | Admin portal with login, spawn/despawn forms, and realtime console feed |
 
 ## Installation and Setup
 
@@ -102,9 +210,58 @@ The NPC subsystem is composed of:
 3. **Configure environment variables** as described below before launching in production.
 
 ### Minecraft Server Preparation
-1. Enable RCON on your Paper server and ensure the credentials in `minecraft-bridge-config.js` or environment variables match.【F:minecraft-bridge-config.js†L5-L44】
-2. Expose required ports (Minecraft, RCON, dashboard, update server) or limit them to localhost per the security recommendations in the config file.【F:minecraft-bridge-config.js†L80-L117】
-3. When using `server.js`, set `MINECRAFT_RCON_PASSWORD` to trigger bridge initialization; otherwise the bridge remains disabled for offline development.【F:server.js†L150-L188】
+1. **Install Paper Server** (1.20+ recommended) - See [PAPER_GEYSER_SETUP.md](PAPER_GEYSER_SETUP.md) for detailed instructions
+2. **Enable RCON** in `server.properties`:
+   ```properties
+   enable-rcon=true
+   rcon.port=25575
+   rcon.password=your_secure_password
+   ```
+3. **Set environment variables** in FGD `.env`:
+   ```bash
+   MINECRAFT_RCON_HOST=127.0.0.1
+   MINECRAFT_RCON_PORT=25575
+   MINECRAFT_RCON_PASSWORD=your_secure_password
+   ```
+4. Expose required ports (Minecraft, RCON, dashboard) or limit them to localhost for security.
+
+### FGDProxyPlayer Plugin Installation
+
+**For real bot integration (visible entities, movement, scanning):**
+
+1. **Build the plugin:**
+   ```bash
+   cd plugins/FGDProxyPlayer
+   mvn clean package
+   ```
+
+2. **Install to Minecraft server:**
+   ```bash
+   cp target/FGDProxyPlayer-1.0.0.jar /path/to/minecraft/plugins/
+   ```
+
+3. **Configure plugin:**
+   Edit `plugins/FGDProxyPlayer/config.yml`:
+   ```yaml
+   fgd:
+     server-url: "ws://localhost:3000"  # Your FGD server
+     auto-connect: true
+     auto-reconnect: true
+   ```
+
+4. **Restart Minecraft server** and verify connection:
+   ```
+   /fgd status
+   ```
+
+   You should see:
+   ```
+   Server URL: ws://localhost:3000
+   Connected: ✓ Yes
+   Active Bots: 0
+   ```
+
+**See [HYBRID_BOTS_SETUP.md](HYBRID_BOTS_SETUP.md) for complete setup guide and troubleshooting.**
 
 ### Admin and Dashboard Clients
 - Visit `http://localhost:3000/` for the admin panel and supply the API key configured in `ADMIN_API_KEY`. The UI now prompts for credentials instead of auto-signing in with a placeholder.【F:server.js†L360-L520】【F:admin.js†L1-L80】

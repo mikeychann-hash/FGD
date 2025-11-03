@@ -10,6 +10,7 @@ import {
   mergeLearningIntoProfile
 } from "./npc_identity.js";
 import { logger } from "./logger.js";
+import { startLoop } from "./core/npc_microcore.js";
 
 // Maximum number of bots that can be spawned at once
 const MAX_BOTS = 8;
@@ -405,6 +406,30 @@ export class NPCSpawner {
             ? [...updatedProfile.personalityTraits]
             : updatedProfile.personalityTraits
         };
+
+        // Initialize microcore for embodied bot behavior
+        if (context.shouldSpawn && !npcState.runtime?.microcore) {
+          try {
+            const bridge = this.engine.bridge || this.bridge;
+            const microcore = startLoop(npcState, {
+              bridge,
+              tickRateMs: 200,
+              scanIntervalMs: 1500,
+              scanRadius: 5
+            });
+
+            if (typeof this.engine.attachMicrocore === "function") {
+              this.engine.attachMicrocore(profile.id, microcore, npcState.runtime);
+            }
+
+            this.log.info("Microcore initialized for bot", { npcId: profile.id });
+          } catch (error) {
+            this.log.warn("Failed to initialize microcore", {
+              npcId: profile.id,
+              error: error.message
+            });
+          }
+        }
       }
 
       return {

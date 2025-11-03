@@ -178,6 +178,11 @@ async function initializeMinecraftBridge() {
         connectOnCreate: false // Don't auto-connect yet
       });
 
+      // Set up telemetry channel for real-time updates
+      minecraftBridge.setTelemetryChannel((event, payload) => {
+        io.emit(event, payload);
+      });
+
       logger.info('Minecraft Bridge configured', { host, port });
       console.log(`🎮 Minecraft Bridge configured for ${host}:${port}`);
 
@@ -1074,9 +1079,81 @@ process.on('uncaughtException', (err) => {
   gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
 
+// Plugin Interface for FGDProxyPlayer
+const pluginInterface = {
+  socket: null,
+  connected: false,
+
+  async moveBot({ botId, position }) {
+    return new Promise((resolve, reject) => {
+      if (!this.socket || !this.connected) {
+        reject(new Error('Plugin not connected'));
+        return;
+      }
+
+      const timeout = setTimeout(() => reject(new Error('Plugin moveBot timeout')), 5000);
+
+      this.socket.once(`moveBot_response_${botId}`, (response) => {
+        clearTimeout(timeout);
+        resolve(response);
+      });
+
+      this.socket.emit('moveBot', { botId, position });
+    });
+  },
+
+  async scanArea({ botId, radius, center }) {
+    return new Promise((resolve, reject) => {
+      if (!this.socket || !this.connected) {
+        reject(new Error('Plugin not connected'));
+        return;
+      }
+
+      const timeout = setTimeout(() => reject(new Error('Plugin scanArea timeout')), 5000);
+
+      this.socket.once(`scanArea_response_${botId}`, (response) => {
+        clearTimeout(timeout);
+        resolve(response.result);
+      });
+
+      this.socket.emit('scanArea', { botId, radius, center });
+    });
+  }
+};
+
 // WebSocket
 io.on('connection', (socket) => {
   console.log(`🔌 Client connected: ${socket.id}`);
+
+  // Check if this is the FGD plugin
+  socket.on('plugin_register', (data) => {
+    if (data.plugin === 'FGDProxyPlayer') {
+      pluginInterface.socket = socket;
+      pluginInterface.connected = true;
+      console.log('✅ FGDProxyPlayer plugin connected');
+
+      // Wire plugin to minecraft bridge
+      if (minecraftBridge) {
+        minecraftBridge.setPluginInterface(pluginInterface);
+        console.log('🔗 Plugin interface wired to MinecraftBridge');
+      }
+
+      // Handle plugin responses
+      socket.on('moveBot_response', (response) => {
+        socket.emit(`moveBot_response_${response.botId}`, response);
+      });
+
+      socket.on('scanArea_response', (response) => {
+        socket.emit(`scanArea_response_${response.botId}`, response);
+      });
+
+      socket.on('disconnect', () => {
+        pluginInterface.connected = false;
+        pluginInterface.socket = null;
+        console.log('❌ FGDProxyPlayer plugin disconnected');
+      });
+    }
+  });
 
   socket.emit('init', {
     nodes: systemState.nodes,

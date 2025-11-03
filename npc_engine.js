@@ -27,7 +27,7 @@ import { BridgeManager } from "./npc_engine/bridge.js";
 import { NPCRegistry } from "./npc_registry.js";
 import { NPCSpawner } from "./npc_spawner.js";
 import { LearningEngine } from "./learning_engine.js";
-import { stopLoop } from "./core/npc_microcore.js";
+import { startLoop, stopLoop } from "./core/npc_microcore.js";
 import {
   applyPersonalityMetadata,
   buildPersonalityBundle,
@@ -652,6 +652,26 @@ export class NPCEngine extends EventEmitter {
       personalityTraits,
       runtime
     });
+
+    // Initialize microcore for embodied bot behavior
+    const enableMicrocore = options.microcore !== false && options.enableMicrocore !== false;
+    if (enableMicrocore && !runtime.microcore) {
+      try {
+        const npcState = this.npcs.get(id);
+        const microcore = startLoop(npcState, {
+          bridge: this.bridge,
+          tickRateMs: options.microcoreTickRate || 200,
+          scanIntervalMs: options.microcoreScanInterval || 1500,
+          scanRadius: options.microcoreScanRadius || 5
+        });
+
+        this.attachMicrocore(id, microcore, runtime);
+        console.log(`🧠 Microcore initialized for ${id}`);
+      } catch (error) {
+        console.error(`⚠️  Failed to initialize microcore for ${id}:`, error.message);
+      }
+    }
+
     console.log(`🤖 Registered NPC ${id} (${type}${role && role !== type ? `/${role}` : ""})`);
     this.emit("npc_registered", {
       id,

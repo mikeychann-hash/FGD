@@ -50,6 +50,7 @@ export class NPCEngine extends EventEmitter {
     this.modelControlRatio = normalizeControlRatio(options.modelControlRatio);
     this.interpreterOptions = { ...(options.interpreterOptions || {}) };
     this.maxQueueSize = options.maxQueueSize ?? 100;
+    this.currentPhase = 1; // Track current progression phase
     this.registry = options.registry instanceof NPCRegistry ? options.registry : (options.registry === false ? null : new NPCRegistry(options.registryOptions || {}));
     this.learningEngine = options.learningEngine instanceof LearningEngine
       ? options.learningEngine
@@ -871,7 +872,8 @@ export class NPCEngine extends EventEmitter {
         : 0,
       queueByPriority: { high: 0, normal: 0, low: 0 },
       npcs: [],
-      bridgeConnected: Boolean(this.bridge?.isConnected?.())
+      bridgeConnected: Boolean(this.bridge?.isConnected?.()),
+      currentPhase: this.currentPhase
     };
 
     for (const npc of this.npcs.values()) {
@@ -1005,6 +1007,74 @@ export class NPCEngine extends EventEmitter {
         console.error(`⚠️  Failed to sync registry after learning enrichment for ${id}:`, err.message);
       });
     }
+  }
+
+  /**
+   * Update current progression phase and notify all NPC microcores
+   * @param {number} phase - New phase number (1-6)
+   */
+  setPhase(phase) {
+    if (typeof phase !== "number" || phase < 1 || phase > 6) {
+      console.warn(`⚠️  Invalid phase: ${phase}. Must be between 1 and 6`);
+      return;
+    }
+
+    this.currentPhase = phase;
+    console.log(`🎯 [NPCEngine] Phase updated to ${phase}`);
+
+    // Update bridge phase
+    if (this.bridge && typeof this.bridge.setPhase === "function") {
+      this.bridge.setPhase(phase);
+    }
+
+    // Notify all NPC microcores about phase change
+    for (const npc of this.npcs.values()) {
+      const microcore = npc.runtime?.microcore;
+      if (microcore) {
+        if (typeof microcore.setPhase === "function") {
+          microcore.setPhase(phase);
+        } else if (typeof microcore.handleEvent === "function") {
+          microcore.handleEvent({ type: "phaseUpdate", phase });
+        }
+      }
+    }
+
+    // Emit phase change event
+    this.emit("phaseChanged", { phase, timestamp: Date.now() });
+  }
+
+  /**
+   * Get current progression phase
+   * @returns {number} Current phase number
+   */
+  getPhase() {
+    return this.currentPhase;
+  }
+
+  /**
+   * Schedule multiple tasks as a batch (used by autonomic_core)
+   * @param {Array<string>} taskNames - Array of task names to schedule
+   */
+  async scheduleBatch(taskNames) {
+    if (!Array.isArray(taskNames)) {
+      console.warn("⚠️  scheduleBatch requires an array of task names");
+      return;
+    }
+
+    console.log(`📋 [NPCEngine] Scheduling batch of ${taskNames.length} tasks`);
+    const results = [];
+
+    for (const taskName of taskNames) {
+      try {
+        const result = await this.handleCommand(taskName, "progression_system");
+        results.push({ taskName, success: true, result });
+      } catch (err) {
+        console.error(`❌ Failed to schedule task ${taskName}:`, err.message);
+        results.push({ taskName, success: false, error: err.message });
+      }
+    }
+
+    return results;
   }
 }
 

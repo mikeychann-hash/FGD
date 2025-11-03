@@ -12,6 +12,7 @@ AICraft Federation Governance Dashboard (FGD) is a full-stack control plane for 
 - 📊 **Adaptive Learning** – Persistent NPC profiles with skill progression, trait evolution, and outcome knowledge
 - 🎯 **LLM Command Surface** – Natural language instructions translated to bot actions via multiple LLM providers
 - 🏛️ **Autonomic Governance** – Policy-driven resource management and adaptive behavior control
+- 🌍 **Phase Progression System** – Six-phase sustainable progression from survival to post-dragon with automatic phase advancement, policy adaptation, and phase-aware NPC behaviors
 
 ## 📚 Documentation
 
@@ -20,6 +21,9 @@ AICraft Federation Governance Dashboard (FGD) is a full-stack control plane for 
 - **[PAPER_GEYSER_SETUP.md](PAPER_GEYSER_SETUP.md)** – Minecraft server setup instructions for Paper + Geyser
 - **[ADMIN_PANEL_INTEGRATION.md](ADMIN_PANEL_INTEGRATION.md)** – Admin UI integration guide
 - **[NPC_SYSTEM_README.md](NPC_SYSTEM_README.md)** – NPC lifecycle and engine documentation
+- **[PHASE_INTEGRATION_SUMMARY.md](PHASE_INTEGRATION_SUMMARY.md)** – Six-phase progression system integration and API documentation
+- **[Minecraft_Sustainable_Progression_README.md](Minecraft_Sustainable_Progression_README.md)** – Phase definitions and progression milestones
+- **[README_AUTONOMOUS_PROGRESSION.md](README_AUTONOMOUS_PROGRESSION.md)** – Autonomous progression expansion design
 
 ## Table of Contents
 - [Project Purpose](#project-purpose)
@@ -30,6 +34,7 @@ AICraft Federation Governance Dashboard (FGD) is a full-stack control plane for 
   - [NPC Lifecycle and Learning Stack](#npc-lifecycle-and-learning-stack)
   - [Minecraft Bridge and Game Integration](#minecraft-bridge-and-game-integration)
   - [Autonomic Governance and Policy Enforcement](#autonomic-governance-and-policy-enforcement)
+  - [Phase Progression System](#phase-progression-system)
   - [LLM Command Surface](#llm-command-surface)
   - [Task Planning and Knowledge Persistence](#task-planning-and-knowledge-persistence)
 - [Key Modules Reference](#key-modules-reference)
@@ -149,9 +154,55 @@ Bot Scanning:  npc_microcore → minecraft_bridge.scanArea()
 ```
 
 ### Autonomic Governance and Policy Enforcement
-- **`autonomic_core.js`** – Periodically gathers system metrics, enforces thresholds, and coordinates with the policy engine; it runs automatically when the runtime boots.【F:autonomic_core.js†L1-L120】
-- **`policy_engine.js`** – Evaluates CPU/memory load, produces prioritized remediation actions, and persists policy adjustments for auditability.【F:policy_engine.js†L1-L156】
-- Policy adjustments feed into the dashboard’s sliders and configuration endpoints exposed by `server.js` for live tuning.【F:server.js†L320-L335】
+- **`autonomic_core.js`** – Periodically gathers system metrics, enforces thresholds, coordinates with the policy engine, and **integrates with the progression system** for phase-based governance.【F:autonomic_core.js†L1-L120】
+- **`policy_engine.js`** – Evaluates CPU/memory load, produces prioritized remediation actions, **applies phase-specific policies** (bot limits, permission gates), and persists policy adjustments for auditability.【F:policy_engine.js†L1-L335】
+- Policy adjustments feed into the dashboard's sliders and configuration endpoints exposed by `server.js` for live tuning.【F:server.js†L320-L335】
+
+### Phase Progression System
+
+FGD implements a **six-phase sustainable progression system** that manages the federation's journey from basic survival to post-dragon civilization:
+
+```
+Phase 1: Survival & Basics (0-5h)
+  └─→ Phase 2: Resource Expansion (5-12h)
+       └─→ Phase 3: Infrastructure (12-20h)
+            └─→ Phase 4: Nether Expansion (20-30h)
+                 └─→ Phase 5: End Prep (30-40h)
+                      └─→ Phase 6: Post-Dragon (40-50h+)
+```
+
+**Key Components:**
+
+- **`core/progression_engine.js`** – Central controller managing phase state, metrics tracking (food, shelters, tools, automations, etc.), completion criteria, and automatic phase advancement. Emits events (`phaseChanged`, `progressUpdate`, `metricUpdate`) for system-wide coordination.
+
+- **`llm_prompts/federation_progression_prompt.js`** – Strategic advisor prompts for LLM integration with context-aware guidance based on current phase, objectives, and bottlenecks.
+
+- **Phase-Aware Components:**
+  - `policy_engine.js` – Applies phase-specific resource limits (5→30 bots) and permission gates (combat, trading, Nether, End access)
+  - `npc_microcore.js` – Phase-aware autonomous behaviors (miners prioritize different ores per phase, builders adapt construction focus)
+  - `npc_engine.js` – Phase propagation to all NPCs with batch task scheduling
+  - `minecraft_bridge.js` – Phase telemetry broadcasting via WebSocket
+
+**Automatic Phase Advancement:**
+- Phases advance automatically when completion metrics are met (e.g., Phase 1→2 when food ≥50, shelters ≥1, iron tools ≥1)
+- Policy changes trigger automatically on phase transitions
+- NPCs receive phase updates and adapt behaviors accordingly
+- Tasks are filtered by phase appropriateness
+
+**REST API Endpoints:**
+- `GET /api/progression` – Complete status with metrics, completion %, history
+- `PUT /api/progression/phase` – Manual phase control (admin)
+- `POST /api/progression/metrics` – Bulk metrics update with auto-advancement check
+- `POST /api/progression/metric/:name` – Single metric update
+- `GET /api/progression/tasks` – Phase-appropriate task recommendations
+- `POST /api/progression/reset` – Reset to Phase 1
+
+**WebSocket Events:**
+- `progression:phaseChanged` – Real-time phase transition broadcasts
+- `progression:progressUpdate` – Metric updates and progress tracking
+- `progression:metricUpdate` – Individual metric changes
+
+See **[PHASE_INTEGRATION_SUMMARY.md](PHASE_INTEGRATION_SUMMARY.md)** for complete integration details, architecture diagrams, and usage examples.
 
 ### LLM Command Surface
 - **`routes/llm.js`** interprets natural-language commands, uses pattern matching for common intents (spawn, list, teleport, etc.), and falls back to NPC engine interpretation when needed.【F:routes/llm.js†L1-L160】
@@ -168,11 +219,19 @@ Bot Scanning:  npc_microcore → minecraft_bridge.scanArea()
 ### Core Hybrid Bot Framework
 | Path | Role |
 | --- | --- |
-| **`core/npc_microcore.js`** | ⭐ **NEW:** Local tick loop (200ms) for each bot with movement physics, scanning, and reactive events |
-| **`plugins/FGDProxyPlayer/`** | ⭐ **NEW:** Paper/Spigot plugin (Java) for real Minecraft integration via WebSocket |
-| `minecraft_bridge.js` | RCON + WebSocket plugin abstraction with `moveBot()`, `scanArea()`, spawn/despawn helpers |
+| **`core/npc_microcore.js`** | ⭐ Local tick loop (200ms) for each bot with movement physics, scanning, reactive events, and **phase-aware autonomous behaviors** |
+| **`plugins/FGDProxyPlayer/`** | ⭐ Paper/Spigot plugin (Java) for real Minecraft integration via WebSocket |
+| `minecraft_bridge.js` | RCON + WebSocket plugin abstraction with `moveBot()`, `scanArea()`, spawn/despawn helpers, and **phase telemetry** |
 | `npc_spawner.js` | Spawn orchestration with **microcore auto-initialization** |
-| `npc_engine.js` | Task dispatch, queueing, and **microcore task synchronization** |
+| `npc_engine.js` | Task dispatch, queueing, **microcore task synchronization**, and **phase propagation** |
+
+### Phase Progression System
+| Path | Role |
+| --- | --- |
+| **`core/progression_engine.js`** | ⭐ Central phase controller with metrics tracking, auto-advancement, and event emission |
+| **`llm_prompts/federation_progression_prompt.js`** | ⭐ Strategic advisor prompts for LLM integration |
+| `policy_engine.js` | Phase-based policies with bot limits, permission gates, and resource priorities |
+| `autonomic_core.js` | Event-based synchronization, task scheduling on phase changes |
 
 ### Backend Services
 | Path | Role |
@@ -193,7 +252,7 @@ Bot Scanning:  npc_microcore → minecraft_bridge.scanArea()
 ### Governance & Dashboards
 | Path | Role |
 | --- | --- |
-| `autonomic_core.js` / `policy_engine.js` | Governance loop for health monitoring and adaptive policy adjustments |
+| `autonomic_core.js` / `policy_engine.js` | Governance loop for health monitoring, adaptive policy adjustments, and **progression system integration** |
 | `dashboard.html` / `dashboard.js` | Cluster monitoring UI with charts, fusion memory overview, and policy controls |
 | `admin.html` / `admin.js` | Admin portal with login, spawn/despawn forms, and realtime console feed |
 
@@ -313,6 +372,51 @@ curl -X DELETE -H "X-API-Key: $ADMIN_API_KEY" \
 These routes are validated and broadcast over Socket.IO so that admin consoles stay in sync.【F:server.js†L360-L520】【F:routes/bot.js†L73-L200】
 
 `server.js` also exposes a richer `/api/npcs` namespace for archive queries, dead-letter retries, and lifecycle management if you need advanced controls.【F:server.js†L400-L760】
+
+### Phase Progression API
+The progression system provides comprehensive REST endpoints for managing and monitoring the federation's advancement:
+
+```bash
+# Get complete progression status
+curl http://localhost:3000/api/progression
+
+# Get current phase information
+curl http://localhost:3000/api/progression/phase
+
+# Update metrics (triggers auto-advancement check)
+curl -X POST -H "Content-Type: application/json" \
+     -d '{"food": 60, "shelters": 2, "ironTools": 3}' \
+     http://localhost:3000/api/progression/metrics
+
+# Manually advance to a specific phase (admin)
+curl -X PUT -H "Content-Type: application/json" \
+     -d '{"phase": 3}' \
+     http://localhost:3000/api/progression/phase
+
+# Increment a specific metric
+curl -X POST -H "Content-Type: application/json" \
+     -d '{"increment": 5}' \
+     http://localhost:3000/api/progression/metric/food
+
+# Get phase-appropriate task recommendations
+curl http://localhost:3000/api/progression/tasks
+
+# Reset progression to Phase 1
+curl -X POST http://localhost:3000/api/progression/reset
+
+# Get autonomic core status (includes progression state)
+curl http://localhost:3000/api/autonomic
+```
+
+**Phase Metrics by Phase:**
+- **Phase 1**: food, shelters, ironTools
+- **Phase 2**: automations, ironArmor, storage
+- **Phase 3**: villagers, diamondTools, netherPortal
+- **Phase 4**: netherAccess, blazeRods, enderPearls, potions
+- **Phase 5**: portalReady, maxEnchantedGear
+- **Phase 6**: dragonDefeated, elytra, shulkerBoxes, advancedFarms
+
+Real-time updates are broadcast via WebSocket on `progression:phaseChanged`, `progression:progressUpdate`, and `progression:metricUpdate` events.
 
 ### LLM-powered Commands
 Send a natural language instruction through the LLM router (requires JWT or API key configured for the `llm` role):

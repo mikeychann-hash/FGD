@@ -13,7 +13,13 @@ import EventEmitter from "events";
 import { interpretCommand } from "./interpreter.js";
 import { generateModelTasks, DEFAULT_AUTONOMY_PROMPT } from "./model_director.js";
 import { validateTask } from "./task_schema.js";
-import { normalizeControlRatio, normalizePriority, cloneTask, getPreferredNpcTypes } from "./npc_engine/utils.js";
+import {
+  normalizeControlRatio,
+  normalizePriority,
+  cloneTask,
+  getPreferredNpcTypes,
+  getTaskTargetPosition
+} from "./npc_engine/utils.js";
 import { AutonomyManager } from "./npc_engine/autonomy.js";
 import { QueueManager } from "./npc_engine/queue.js";
 import { DispatchManager } from "./npc_engine/dispatch.js";
@@ -21,6 +27,7 @@ import { BridgeManager } from "./npc_engine/bridge.js";
 import { NPCRegistry } from "./npc_registry.js";
 import { NPCSpawner } from "./npc_spawner.js";
 import { LearningEngine } from "./learning_engine.js";
+import { stopLoop } from "./core/npc_microcore.js";
 import {
   applyPersonalityMetadata,
   buildPersonalityBundle,
@@ -36,6 +43,7 @@ export class NPCEngine extends EventEmitter {
     this.taskQueue = []; // [{ task, enqueuedAt }]
     this.taskTimeouts = new Map(); // npcId -> timeoutId
     this.bridge = options.bridge || null;
+    this.bridgeSensors = null;
     this.autoSpawn = options.autoSpawn ?? false;
     this.defaultSpawnPosition = options.defaultSpawnPosition || { x: 0, y: 64, z: 0 };
     this.requireFeedback = options.requireFeedback ?? true;
@@ -77,6 +85,7 @@ export class NPCEngine extends EventEmitter {
 
     if (this.bridge) {
       this.bridgeManager.attachBridgeListeners(this.bridge);
+      this._bindBridgeSensors(this.bridge);
     }
 
     if (this.registry && this.autoRegisterFromRegistry) {
@@ -113,11 +122,346 @@ export class NPCEngine extends EventEmitter {
   // ============================================================================
 
   setBridge(bridge) {
+    if (this.bridge === bridge) {
+      return;
+    }
+    this._unbindBridgeSensors();
+    this.bridge = bridge || null;
     this.bridgeManager.setBridge(bridge);
+    if (bridge) {
+      this.bridgeManager.attachBridgeListeners(bridge);
+      this._bindBridgeSensors(bridge);
+    }
   }
 
   async spawnNPC(id, options = {}) {
     return this.bridgeManager.spawnNPC(id, options);
+  }
+
+  attachMicrocore(npcId, microcore, runtimeState = null) {
+    if (!npcId || !microcore) {
+      return;
+    }
+
+    const npc = this.npcs.get(npcId);
+    if (!npc) {
+      return;
+    }
+
+    if (npc.runtime?.microcore && npc.runtime.microcore !== microcore) {
+      this.detachMicrocore(npcId, { stop: false });
+    }
+
+    const runtime = {
+      ...(npc.runtime || {}),
+      ...(runtimeState || {}),
+      microcore,
+      status: runtimeState?.status || npc.runtime?.status || npc.state,
+      position: runtimeState?.position || npc.runtime?.position || npc.position,
+      velocity: runtimeState?.velocity || npc.runtime?.velocity || { x: 0, y: 0, z: 0 },
+      memory: runtimeState?.memory || npc.runtime?.memory || { context: [] }
+    };
+
+    const listeners = {
+      move: payload => this._handleMicrocoreMove(npcId, payload),
+      taskComplete: payload => this._handleMicrocoreTask(npcId, payload),
+      statusUpdate: payload => this._handleMicrocoreStatus(npcId, payload),
+      error: payload => this.emit("npc_error", { npcId, payload })
+    };
+
+    microcore.on("move", listeners.move);
+    microcore.on("taskComplete", listeners.taskComplete);
+    microcore.on("statusUpdate", listeners.statusUpdate);
+    microcore.on("error", listeners.error);
+
+    runtime.microcoreListeners = listeners;
+    npc.runtime = runtime;
+    npc.position = runtime.position || npc.position;
+    this.npcs.set(npcId, npc);
+
+    this.emit("npc_microcore_attached", { npcId });
+  }
+
+  detachMicrocore(npcId, options = {}) {
+    const npc = this.npcs.get(npcId);
+    if (!npc?.runtime?.microcore) {
+      return;
+    }
+
+    const { microcore, microcoreListeners } = npc.runtime;
+    if (microcoreListeners) {
+      const remove = (event, handler) => {
+        if (!handler) return;
+        if (typeof microcore.off === "function") {
+          microcore.off(event, handler);
+        } else if (typeof microcore.removeListener === "function") {
+          microcore.removeListener(event, handler);
+        }
+      };
+      remove("move", microcoreListeners.move);
+      remove("taskComplete", microcoreListeners.taskComplete);
+      remove("statusUpdate", microcoreListeners.statusUpdate);
+      remove("error", microcoreListeners.error);
+    }
+
+    if (options.stop !== false) {
+      microcore.stop?.();
+      stopLoop(npcId);
+    }
+
+    npc.runtime.microcore = null;
+    npc.runtime.microcoreListeners = null;
+    this.npcs.set(npcId, npc);
+    this.emit("npc_microcore_detached", { npcId });
+  }
+
+  handleMicrocoreEvent(npcId, eventName, payload) {
+    switch (eventName) {
+      case "microcore_move":
+        this._handleMicrocoreMove(npcId, payload);
+        break;
+      case "microcore_taskComplete":
+        this._handleMicrocoreTask(npcId, payload);
+        break;
+      case "microcore_status":
+        this._handleMicrocoreStatus(npcId, payload);
+        break;
+      case "microcore_error":
+        this.emit("npc_error", { npcId, payload });
+        break;
+      default:
+        break;
+    }
+  }
+
+  _handleMicrocoreMove(npcId, payload = {}) {
+    const npc = this.npcs.get(npcId);
+    if (!npc) return;
+
+    const runtime = { ...(npc.runtime || {}) };
+    if (payload.position) {
+      runtime.position = { ...payload.position };
+      npc.position = { ...payload.position };
+    }
+    if (payload.velocity) {
+      runtime.velocity = { ...payload.velocity };
+    }
+    runtime.lastTickAt = payload.timestamp
+      ? new Date(payload.timestamp).toISOString()
+      : new Date().toISOString();
+    runtime.status = payload.status || runtime.status || npc.state;
+    runtime.tickCount = typeof payload.tick === "number" ? payload.tick : runtime.tickCount;
+
+    npc.runtime = runtime;
+    npc.lastUpdate = runtime.lastTickAt;
+    npc.state = runtime.status || npc.state;
+    this.npcs.set(npcId, npc);
+
+    this.emit("npc_moved", { npcId, ...payload });
+  }
+
+  _handleMicrocoreTask(npcId, payload = {}) {
+    const npc = this.npcs.get(npcId);
+    if (!npc) return;
+
+    npc.task = null;
+    npc.state = "idle";
+    npc.runtime = {
+      ...(npc.runtime || {}),
+      status: "idle",
+      lastTickAt: new Date().toISOString()
+    };
+    this.npcs.set(npcId, npc);
+    this.emit("npc_task_completed", { npcId, ...payload });
+  }
+
+  _handleMicrocoreStatus(npcId, payload = {}) {
+    const npc = this.npcs.get(npcId);
+    if (!npc) return;
+
+    const runtime = { ...(npc.runtime || {}) };
+    if (payload.position) {
+      runtime.position = { ...payload.position };
+      npc.position = { ...payload.position };
+    }
+    if (payload.velocity) {
+      runtime.velocity = { ...payload.velocity };
+    }
+    if (payload.lastTickAt) {
+      runtime.lastTickAt = payload.lastTickAt;
+    }
+    if (typeof payload.tick === "number") {
+      runtime.tickCount = payload.tick;
+    }
+    if (payload.memory) {
+      runtime.memory = { context: [...payload.memory] };
+    }
+    if (payload.lastScan) {
+      runtime.lastScan = payload.lastScan;
+    }
+    runtime.status = payload.status || runtime.status || npc.state;
+
+    npc.runtime = runtime;
+    npc.state = runtime.status || npc.state;
+    npc.lastUpdate = runtime.lastTickAt || npc.lastUpdate;
+    this.npcs.set(npcId, npc);
+
+    this.emit("npc_status", { npcId, ...payload });
+  }
+
+  getMicrocore(npcOrId) {
+    const npc = typeof npcOrId === "string" ? this.npcs.get(npcOrId) : npcOrId;
+    return npc?.runtime?.microcore || null;
+  }
+
+  syncMicrocoreTask(npcOrId, task, options = {}) {
+    const npc = typeof npcOrId === "string" ? this.npcs.get(npcOrId) : npcOrId;
+    if (!npc) {
+      return;
+    }
+
+    const microcore = npc.runtime?.microcore;
+    if (!microcore) {
+      return;
+    }
+
+    const clonedTask = task ? cloneTask(task) : null;
+
+    if (typeof microcore.setTask === "function") {
+      microcore.setTask(clonedTask);
+    } else if (typeof microcore.handleEvent === "function") {
+      microcore.handleEvent({ type: "task", task: clonedTask });
+    }
+
+    if (!clonedTask) {
+      return;
+    }
+
+    const fallbackPosition = options.fallbackPosition
+      || npc.runtime?.position
+      || npc.position
+      || null;
+    const targetPosition = getTaskTargetPosition(clonedTask, fallbackPosition);
+
+    if (!targetPosition) {
+      return;
+    }
+
+    if (typeof microcore.setMovementTarget === "function") {
+      microcore.setMovementTarget(targetPosition);
+    } else if (typeof microcore.handleEvent === "function") {
+      microcore.handleEvent({ type: "moveTo", position: targetPosition });
+    }
+  }
+
+  clearMicrocoreTask(npcOrId, options = {}) {
+    const npc = typeof npcOrId === "string" ? this.npcs.get(npcOrId) : npcOrId;
+    if (!npc) {
+      return;
+    }
+
+    const microcore = npc.runtime?.microcore;
+    if (!microcore) {
+      return;
+    }
+
+    const { resetTarget = true } = options;
+
+    if (typeof microcore.setTask === "function") {
+      microcore.setTask(null);
+    } else if (typeof microcore.handleEvent === "function") {
+      microcore.handleEvent({ type: "task", task: null });
+    }
+
+    if (!resetTarget) {
+      return;
+    }
+
+    const currentPosition = npc.runtime?.position || npc.position || null;
+    if (!currentPosition) {
+      return;
+    }
+
+    if (typeof microcore.setMovementTarget === "function") {
+      microcore.setMovementTarget(currentPosition);
+    } else if (typeof microcore.handleEvent === "function") {
+      microcore.handleEvent({ type: "moveTo", position: currentPosition });
+    }
+  }
+
+  sendMicrocoreEvent(npcOrId, event) {
+    if (!event) {
+      return;
+    }
+
+    const npc = typeof npcOrId === "string" ? this.npcs.get(npcOrId) : npcOrId;
+    if (!npc) {
+      return;
+    }
+
+    const microcore = npc.runtime?.microcore;
+    if (!microcore) {
+      return;
+    }
+
+    if (typeof microcore.handleEvent === "function") {
+      microcore.handleEvent(event);
+    }
+  }
+
+  _bindBridgeSensors(bridge) {
+    if (!bridge) return;
+
+    const onScan = payload => {
+      if (!payload?.botId) return;
+      const npc = this.npcs.get(payload.botId);
+      if (!npc) return;
+      const runtime = { ...(npc.runtime || {}) };
+      runtime.lastScan = payload;
+      npc.runtime = runtime;
+      this.npcs.set(payload.botId, npc);
+      this.emit("npc_scan", payload);
+    };
+
+    const onMove = payload => {
+      if (!payload?.botId) return;
+      const npc = this.npcs.get(payload.botId);
+      if (!npc) return;
+      const runtime = { ...(npc.runtime || {}) };
+      if (payload.position) {
+        runtime.position = { ...payload.position };
+        npc.position = { ...payload.position };
+      }
+      runtime.lastTickAt = new Date(payload.timestamp || Date.now()).toISOString();
+      npc.runtime = runtime;
+      this.npcs.set(payload.botId, npc);
+      this.emit("npc_bridge_move", payload);
+    };
+
+    bridge.on("scanResult", onScan);
+    bridge.on("botMoved", onMove);
+
+    this.bridgeSensors = { bridge, onScan, onMove };
+  }
+
+  _unbindBridgeSensors() {
+    if (!this.bridgeSensors?.bridge) {
+      return;
+    }
+
+    const { bridge, onScan, onMove } = this.bridgeSensors;
+    this._removeBridgeListener(bridge, "scanResult", onScan);
+    this._removeBridgeListener(bridge, "botMoved", onMove);
+    this.bridgeSensors = null;
+  }
+
+  _removeBridgeListener(bridge, event, handler) {
+    if (!bridge || !handler) return;
+    if (typeof bridge.off === "function") {
+      bridge.off(event, handler);
+    } else if (typeof bridge.removeListener === "function") {
+      bridge.removeListener(event, handler);
+    }
   }
 
   enableModelAutonomy(options = {}) {
@@ -273,13 +617,30 @@ export class NPCEngine extends EventEmitter {
         }
       : null;
 
+    const runtime = {
+      ...(existing?.runtime || {}),
+      position: existing?.runtime?.position
+        ? { ...existing.runtime.position }
+        : { ...spawnPosition },
+      velocity: existing?.runtime?.velocity
+        ? { ...existing.runtime.velocity }
+        : { x: 0, y: 0, z: 0 },
+      status: existing?.runtime?.status || existing?.state || "idle",
+      memory: existing?.runtime?.memory || { context: [] },
+      lastTickAt: existing?.runtime?.lastTickAt || null,
+      lastScan: existing?.runtime?.lastScan || null,
+      tickCount: existing?.runtime?.tickCount || 0,
+      microcore: existing?.runtime?.microcore || null,
+      microcoreListeners: existing?.runtime?.microcoreListeners || null
+    };
+
     this.npcs.set(id, {
       id,
       type,
       role,
       task: existing?.task || null,
-      state: existing?.state || "idle",
-      position: { ...spawnPosition },
+      state: runtime.status || existing?.state || "idle",
+      position: { ...runtime.position },
       progress: existing?.progress || 0,
       lastUpdate: existing?.lastUpdate || null,
       awaitingFeedback: existing?.awaitingFeedback || false,
@@ -288,7 +649,8 @@ export class NPCEngine extends EventEmitter {
       metadata: metadataWithPersonality,
       profile: normalizedProfile,
       personalitySummary,
-      personalityTraits
+      personalityTraits,
+      runtime
     });
     console.log(`🤖 Registered NPC ${id} (${type}${role && role !== type ? `/${role}` : ""})`);
     this.emit("npc_registered", {
@@ -345,6 +707,10 @@ export class NPCEngine extends EventEmitter {
     }
 
     const npc = this.npcs.get(id);
+
+    if (npc?.runtime?.microcore) {
+      this.detachMicrocore(id, { stop: true });
+    }
 
     if (npc?.task) {
       const taskClone = cloneTask(npc.task);
@@ -489,13 +855,14 @@ export class NPCEngine extends EventEmitter {
     };
 
     for (const npc of this.npcs.values()) {
-      if (npc.state === "idle") status.idle++;
-      if (npc.state === "working") status.working++;
+      const runtimeState = npc.runtime?.status || npc.state;
+      if (runtimeState === "idle") status.idle++;
+      if (runtimeState === "working") status.working++;
       status.npcs.push({
         id: npc.id,
         type: npc.type,
         role: npc.role,
-        state: npc.state,
+        state: runtimeState,
         task: npc.task?.action || null,
         preferredNpcTypes: npc.task?.preferredNpcTypes || [],
         progress: npc.progress,
@@ -511,7 +878,10 @@ export class NPCEngine extends EventEmitter {
             : undefined,
         spawnCount: typeof npc.profile?.spawnCount === "number" ? npc.profile.spawnCount : null,
         lastSpawnedAt: npc.profile?.lastSpawnedAt || null,
-        lastKnownPosition: npc.profile?.lastKnownPosition || npc.position || null
+        lastKnownPosition: npc.profile?.lastKnownPosition || npc.position || null,
+        position: npc.runtime?.position || npc.position || null,
+        velocity: npc.runtime?.velocity || { x: 0, y: 0, z: 0 },
+        runtime: npc.runtime
       });
     }
 

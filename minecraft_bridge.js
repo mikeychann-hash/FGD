@@ -11,6 +11,9 @@ export class MinecraftBridge extends EventEmitter {
     this.options = { ...minecraftBridgeConfig, ...options };
     this.rcon = null;
     this.connected = false;
+    this.pluginInterface = null;
+    this.telemetryChannel = null;
+    this.botPositions = new Map();
   }
 
   async connect() {
@@ -46,6 +49,17 @@ export class MinecraftBridge extends EventEmitter {
     }
   }
 
+  isConnected() {
+    return this.connected && Boolean(this.rcon);
+  }
+
+  async ensureConnected() {
+    if (!this.isConnected()) {
+      await this.connect();
+    }
+    return this.isConnected();
+  }
+
   async sendCommand(command) {
     if (!this.connected || !this.rcon) await this.connect();
     try {
@@ -79,6 +93,7 @@ export class MinecraftBridge extends EventEmitter {
       await this.sendCommand(tpCmd);
       console.log(`🤖 Spawned NPC '${npcId}' at player location`);
       this.emit("npcSpawned", { npcId });
+      this.botPositions.set(npcId, null);
       return { success: true, npcId };
     } catch (err) {
       console.error("❌ Failed to spawn NPC:", err.message);
@@ -93,11 +108,112 @@ export class MinecraftBridge extends EventEmitter {
       const result = await this.sendCommand(command);
       console.log(`🗑️ Removed NPC: ${npcId}`);
       this.emit("npcRemoved", { npcId, result });
+      this.botPositions.delete(npcId);
       return result;
     } catch (err) {
       console.error("❌ Failed to despawn NPC:", err.message);
       this.emit("error", err);
       throw err;
+    }
+  }
+
+  setPluginInterface(pluginInterface) {
+    this.pluginInterface = pluginInterface || null;
+  }
+
+  setTelemetryChannel(channel) {
+    this.telemetryChannel = channel || null;
+  }
+
+  async moveBot(bot, dx = 0, dy = 0, dz = 0, options = {}) {
+    const botId = typeof bot === "string" ? bot : bot?.id;
+    if (!botId) {
+      throw new Error("moveBot requires a bot id or bot object with id");
+    }
+
+    const current = options.currentPosition ||
+      (typeof bot === "object" && bot?.runtime?.position) ||
+      this.botPositions.get(botId) || { x: 0, y: 0, z: 0 };
+
+    const nextPosition = options.nextPosition || {
+      x: current.x + dx,
+      y: current.y + dy,
+      z: current.z + dz
+    };
+
+    try {
+      if (this.pluginInterface?.moveBot) {
+        await this.pluginInterface.moveBot({ botId, position: nextPosition });
+      } else {
+        await this.ensureConnected();
+        const { x, y, z } = nextPosition;
+        const command = `tp ${botId} ${x.toFixed(2)} ${y.toFixed(2)} ${z.toFixed(2)}`;
+        await this.sendCommand(command);
+      }
+
+      this.botPositions.set(botId, { ...nextPosition });
+      const payload = { botId, position: { ...nextPosition }, timestamp: Date.now() };
+      this.emit("botMoved", payload);
+      this.#emitTelemetry("botMoved", payload);
+      return nextPosition;
+    } catch (err) {
+      console.error(`❌ Failed to move bot ${botId}:`, err.message);
+      this.emit("error", err);
+      throw err;
+    }
+  }
+
+  async scanArea(bot, radius = 5) {
+    const botId = typeof bot === "string" ? bot : bot?.id;
+    if (!botId) {
+      throw new Error("scanArea requires a bot id or bot object with id");
+    }
+
+    const center =
+      (typeof bot === "object" && bot?.runtime?.position) ||
+      this.botPositions.get(botId) ||
+      { x: 0, y: 0, z: 0 };
+
+    try {
+      let result = null;
+      if (this.pluginInterface?.scanArea) {
+        result = await this.pluginInterface.scanArea({ botId, radius, center });
+      } else {
+        result = {
+          center,
+          radius,
+          blocks: [],
+          entities: [],
+          note: "Proxy plugin not connected"
+        };
+      }
+
+      const payload = {
+        botId,
+        radius,
+        center,
+        result,
+        timestamp: Date.now()
+      };
+
+      this.emit("scanResult", payload);
+      this.#emitTelemetry("scanResult", payload);
+      return result;
+    } catch (err) {
+      console.error(`❌ scanArea failed for ${botId}:`, err.message);
+      this.emit("error", err);
+      throw err;
+    }
+  }
+
+  #emitTelemetry(event, payload) {
+    if (!this.telemetryChannel) return;
+    if (typeof this.telemetryChannel === "function") {
+      this.telemetryChannel(event, payload);
+      return;
+    }
+    if (typeof this.telemetryChannel.emit === "function") {
+      this.telemetryChannel.emit(event, payload);
     }
   }
 }

@@ -397,7 +397,7 @@ app.get("/", (req, res) => {
 });
 
 app.get("/admin", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "admin.html"));
+  res.sendFile(path.join(__dirname, "admin.html"));
 });
 
 app.get("/api/cluster", (req, res) => {
@@ -418,6 +418,50 @@ app.get("/api/stats", (req, res) => {
 
 app.get("/api/logs", (req, res) => {
   res.json({ logs: systemState.logs });
+});
+
+app.get("/debug/bot/:id/view", (req, res) => {
+  if (!npcEngine) {
+    return res.status(503).send("NPC engine not initialized");
+  }
+
+  const botId = req.params.id;
+  const registryBot = npcEngine.registry?.get(botId) || null;
+  const runtime = npcEngine.npcs instanceof Map
+    ? npcEngine.npcs.get(botId)?.runtime || null
+    : null;
+
+  const summary = {
+    id: botId,
+    role: registryBot?.role || runtime?.role || null,
+    status: runtime?.status || registryBot?.status || "unknown",
+    position: runtime?.position || registryBot?.lastKnownPosition || registryBot?.spawnPosition || null,
+    velocity: runtime?.velocity || null,
+    tickCount: runtime?.tickCount || 0,
+    lastTickAt: runtime?.lastTickAt || null,
+    memory: runtime?.memory?.context || []
+  };
+
+  const html = `<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <title>Bot Debug View - ${botId}</title>
+      <style>
+        body { font-family: Arial, sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; }
+        pre { background: rgba(15, 23, 42, 0.85); padding: 16px; border-radius: 8px; }
+        a { color: #38bdf8; }
+      </style>
+    </head>
+    <body>
+      <h1>Debug View: ${botId}</h1>
+      <p>This is a placeholder visualization for hybrid NPC telemetry.</p>
+      <pre>${JSON.stringify(summary, null, 2)}</pre>
+      <p><a href="/admin">Back to Admin</a></p>
+    </body>
+  </html>`;
+
+  res.type("html").send(html);
 });
 
 app.get("/api/config", (req, res) => {

@@ -4,6 +4,7 @@
 import EventEmitter from "events";
 import { NPCRegistry } from "./npc_registry.js";
 import { LearningEngine } from "./learning_engine.js";
+import { startLoop as startMicroLoop } from "./core/npc_microcore.js";
 import {
   applyPersonalityMetadata,
   buildPersonalityBundle,
@@ -37,6 +38,8 @@ class NPCSpawnerOld extends EventEmitter {
     this.bridge = options.bridge || null;
     this.defaultSpawnPosition = options.defaultSpawnPosition || { x: 0, y: 64, z: 0 };
     this.autoRegisterWithEngine = options.autoRegisterWithEngine !== false;
+    this.microTickRate = options.microTickRate || 200;
+    this.microScanRadius = options.microScanRadius || 5;
 
     if (!this.registry) {
       throw new Error("NPCSpawner requires a registry");
@@ -92,6 +95,17 @@ class NPCSpawnerOld extends EventEmitter {
 
     this.emit("npc_created", npc);
 
+    const runtimeState = {
+      status: "idle",
+      position: { ...position },
+      velocity: { x: 0, y: 0, z: 0 },
+      memory: { context: [] },
+      microcore: null,
+      lastTickAt: null,
+      lastScan: null
+    };
+    npc.runtime = runtimeState;
+
     // Step 2: Register with NPC Engine for task management
     if (registerWithEngine && this.npcEngine) {
       try {
@@ -115,6 +129,7 @@ class NPCSpawnerOld extends EventEmitter {
         });
 
         await this.registry.markSpawned(npc.id, { position, spawnResult });
+        runtimeState.position = { ...position };
 
         console.log(
           `🌱 Spawned ${npcName} in world at (${position.x}, ${position.y}, ${position.z})`
@@ -128,13 +143,60 @@ class NPCSpawnerOld extends EventEmitter {
       }
     }
 
+    // Step 3.5: Initialize microcore runtime
+    try {
+      const microcore = startMicroLoop(
+        {
+          id: npc.id,
+          name: npcName,
+          role,
+          position: { ...runtimeState.position },
+          runtime: runtimeState,
+          profile: this.learningEngine?.getProfile(npcName) || null,
+          bridge: this.bridge
+        },
+        {
+          bridge: this.bridge,
+          tickRateMs: this.microTickRate,
+          scanRadius: this.microScanRadius
+        }
+      );
+
+      runtimeState.microcore = microcore;
+
+      const forwardEvent = (eventName) => (payload) => {
+        this.emit(eventName, payload);
+        const engineHasLoop = this.npcEngine?.npcs instanceof Map
+          ? this.npcEngine.npcs.get(npc.id)?.runtime?.microcore != null
+          : false;
+        if (!engineHasLoop && typeof this.npcEngine?.handleMicrocoreEvent === "function") {
+          this.npcEngine.handleMicrocoreEvent(npc.id, eventName, payload);
+        }
+      };
+
+      microcore.on("move", forwardEvent("microcore_move"));
+      microcore.on("taskComplete", forwardEvent("microcore_taskComplete"));
+      microcore.on("statusUpdate", forwardEvent("microcore_status"));
+      microcore.on("error", (payload) => {
+        console.error(`⚠️ Microcore error for ${npcName}:`, payload?.error?.message || payload);
+        forwardEvent("microcore_error")(payload);
+      });
+
+      if (typeof this.npcEngine?.attachMicrocore === "function") {
+        this.npcEngine.attachMicrocore(npc.id, microcore, runtimeState);
+      }
+    } catch (err) {
+      console.error(`⚠️ Failed to start microcore for ${npcName}:`, err.message);
+    }
+
     // Step 4: Return complete NPC data with personality
     const profile = this.learningEngine?.getProfile(npcName);
     const result = {
       ...npc,
       profile: profile || null,
       spawned: spawnInWorld,
-      registeredWithEngine: registerWithEngine
+      registeredWithEngine: registerWithEngine,
+      runtime: runtimeState
     };
 
     console.log(

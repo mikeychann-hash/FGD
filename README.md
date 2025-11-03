@@ -1,6 +1,6 @@
 # 🧠 AICraft Federation Governance Dashboard (FGD)
 
-AICraft Federation Governance Dashboard (FGD) is a full-stack control plane for managing Minecraft-based NPC swarms, monitoring cluster health, and coordinating LLM-assisted automation. The repository combines a persistent Express/Socket.IO backend, a web-based admin console, a live operations dashboard, and an extensible NPC/LLM integration layer that bridges into Paper/Geyser Minecraft servers.【F:package.json†L2-L20】【F:index.js†L4-L110】【F:core_runtime.js†L5-L89】
+AICraft Federation Governance Dashboard (FGD) is a full-stack control plane for managing Minecraft-based NPC swarms, monitoring cluster health, and coordinating LLM-assisted automation. The repository combines a persistent Express/Socket.IO backend, a web-based admin console, a live operations dashboard, and an extensible NPC/LLM integration layer that bridges into Paper/Geyser Minecraft servers.
 
 ## Table of Contents
 - [Project Purpose](#project-purpose)
@@ -29,21 +29,20 @@ AICraft Federation Governance Dashboard (FGD) is a full-stack control plane for 
 
 ## Project Purpose
 FGD orchestrates the Minecraft Federation of agents by:
-- Operating an authenticated REST + WebSocket backend for NPC creation, lifecycle management, and telemetry streaming.【F:index.js†L20-L110】【F:server.js†L118-L385】
+- Operating an authenticated REST + WebSocket backend for NPC creation, lifecycle management, and telemetry streaming.
 - Providing dashboards for cluster metrics, fusion memory inspection, and governance policy controls.【F:dashboard.js†L1-L199】
 - Persisting NPC identity, traits, learning progress, and outcome knowledge to drive adaptive behaviors.【F:npc_registry.js†L1-L160】【F:learning_engine.js†L1-L149】【F:knowledge_store.js†L1-L72】
 - Bridging natural-language instructions through multiple LLM providers to in-game actions and NPC tasking.【F:routes/llm.js†L1-L160】【F:llm_bridge.js†L1-L195】
 
 ## System Architecture
 
-### Runtime Entry Points
-- **`index.js`** – Default entry used by `npm start`. It boots the unified runtime (Minecraft bridge, NPC engine, autonomic core), exposes `/api/bots`, `/api/llm/command`, `/api/system/stats`, and pushes socket events to the admin UI.【F:package.json†L5-L11】【F:index.js†L4-L110】【F:core_runtime.js†L14-L89】  
-- **`server.js`** – Advanced entry point that layers authentication, cached fusion data access, bot/LLM routers, NPC archival, metrics simulation, and health endpoints. Use this variant when you need the full governance feature set and fine-grained NPC lifecycle APIs.【F:server.js†L1-L400】
+### Runtime Entry Point
+- **`server.js`** – Unified entry used by the helper scripts and `npm` commands. It layers authentication, cached fusion data access, bot/LLM routers, NPC archival, metrics simulation, and health endpoints to deliver the full governance stack in a single process.【F:server.js†L1-L640】
 
-Both servers serve static assets from the repository root so that `admin.html`, `dashboard.html`, and `fusion.html` load without additional build steps.【F:index.js†L24-L34】【F:server.js†L118-L400】
+The server also serves static assets from the repository root so that `admin.html`, `dashboard.html`, and `fusion.html` load without additional build steps.【F:server.js†L118-L400】
 
 ### Web Dashboards
-- **Admin console (`admin.html` + `admin.js`)** auto-logins with an API key, lists bots, and exposes spawn/despawn workflows backed by REST endpoints and Socket.IO events.【F:admin.js†L1-L109】【F:index.js†L50-L109】  
+- **Admin console (`admin.html` + `admin.js`)** auto-logins with an API key, lists bots, and exposes spawn/despawn workflows backed by REST endpoints and Socket.IO events from the unified server.【F:admin.js†L1-L109】【F:server.js†L360-L520】
 - **Operations dashboard (`dashboard.html` + `dashboard.js`)** polls or streams cluster state, renders CPU/memory charts, summarizes fusion memory, and lets operators tweak policy parameters live.【F:dashboard.js†L1-L199】【F:server.js†L290-L345】
 
 ### NPC Lifecycle and Learning Stack
@@ -52,7 +51,7 @@ The NPC subsystem is composed of:
 - **`npc_spawner.js`** – Coordinates registry, learning engine, NPC engine, and Minecraft bridge to create fully realized bots (noting legacy/disabled sections for compatibility).【F:npc_spawner.js†L1-L150】
 - **`npc_finalizer.js`** – Archives, despawns, and cleans up NPCs while retaining lifecycle statistics.【F:npc_finalizer.js†L1-L138】
 - **`learning_engine.js`** – Maintains NPC profiles, traits, skill progression, and debounced persistence to disk.【F:learning_engine.js†L1-L149】
-- **`npc_engine/`** – Queueing, dispatch, autonomy, and bridge helpers used by both entry points to drive in-game behaviors.【F:core_runtime.js†L28-L88】
+- **`npc_engine/`** – Queueing, dispatch, autonomy, and bridge helpers that coordinate bot behaviors with the Minecraft bridge.【F:npc_engine/dispatch.js†L1-L200】
 
 `server.js` wires these components together, ensures registries and archives are loaded, and surfaces management endpoints (`/api/npcs`, dead-letter queues, archives) for full lifecycle control.【F:server.js†L190-L400】
 
@@ -62,7 +61,7 @@ The NPC subsystem is composed of:
 - Environment-aware initialization in `server.js` skips bridge startup unless credentials are provided, making game connectivity optional in development.【F:server.js†L150-L188】
 
 ### Autonomic Governance and Policy Enforcement
-- **`autonomic_core.js`** – Periodically gathers system metrics, enforces thresholds, and coordinates with the policy engine; it runs automatically when the runtime boots.【F:autonomic_core.js†L1-L120】【F:core_runtime.js†L41-L56】
+- **`autonomic_core.js`** – Periodically gathers system metrics, enforces thresholds, and coordinates with the policy engine; it runs automatically when the runtime boots.【F:autonomic_core.js†L1-L120】
 - **`policy_engine.js`** – Evaluates CPU/memory load, produces prioritized remediation actions, and persists policy adjustments for auditability.【F:policy_engine.js†L1-L156】
 - Policy adjustments feed into the dashboard’s sliders and configuration endpoints exposed by `server.js` for live tuning.【F:server.js†L320-L335】
 
@@ -79,9 +78,7 @@ The NPC subsystem is composed of:
 ## Key Modules Reference
 | Path | Role |
 | --- | --- |
-| `index.js` | Lightweight Express/Socket.IO API secured by an API key, used for quick admin operations.【F:index.js†L24-L110】 |
-| `server.js` | Full governance server with authentication, fusion data caching, NPC lifecycle endpoints, and simulated telemetry.【F:server.js†L1-L400】 |
-| `core_runtime.js` | Boots Minecraft bridge, NPC engine, and autonomic core; exposes helper APIs for other modules.【F:core_runtime.js†L14-L86】 |
+| `server.js` | Unified governance server with authentication, fusion data caching, NPC lifecycle endpoints, and simulated telemetry.【F:server.js†L1-L640】 |
 | `routes/bot.js` | Authenticated CRUD API for NPCs with spawn limits, learning integration, and Socket.IO notifications.【F:routes/bot.js†L1-L200】 |
 | `routes/llm.js` | Natural language interpreter translating operator prompts into NPC engine operations.【F:routes/llm.js†L1-L160】 |
 | `minecraft_bridge.js` | RCON abstraction with spawn/despawn helpers and event emitters for connection state.【F:minecraft_bridge.js†L1-L72】 |
@@ -99,9 +96,9 @@ The NPC subsystem is composed of:
    ```bash
    npm install
    ```
-2. **Choose an entry point**
-   - Quick admin stack: `npm start` (runs `index.js`).【F:package.json†L5-L11】
-   - Full governance stack: `node server.js` (requires Node 18+ for ES modules and async/await).
+2. **Start the unified server**
+   - Development or quick admin stack: `npm start` (runs `server.js`).【F:package.json†L5-L11】
+   - Live governance stack: `node server.js` (requires Node 18+ for ES modules and async/await).
 3. **Configure environment variables** as described below before launching in production.
 
 ### Minecraft Server Preparation
@@ -110,7 +107,7 @@ The NPC subsystem is composed of:
 3. When using `server.js`, set `MINECRAFT_RCON_PASSWORD` to trigger bridge initialization; otherwise the bridge remains disabled for offline development.【F:server.js†L150-L188】
 
 ### Admin and Dashboard Clients
-- Visit `http://localhost:3000/` for the admin panel (default API key `admin123`).【F:index.js†L27-L92】【F:admin.js†L4-L26】
+- Visit `http://localhost:3000/` for the admin panel (default API key `admin123`).【F:server.js†L360-L520】【F:admin.js†L4-L26】
 - Visit `http://localhost:3000/dashboard.html` or `http://localhost:3000/fusion.html` for operations dashboards once the server is running.
 
 ## Configuration
@@ -118,7 +115,8 @@ The NPC subsystem is composed of:
 ### Environment Variables
 | Variable | Default | Description |
 | --- | --- | --- |
-| `FGD_API_KEY` | `admin123` | API key expected by `index.js` middleware for REST calls.【F:index.js†L27-L48】 |
+| `ADMIN_API_KEY` | `admin-key-change-me` | API key accepted by the admin role through the authentication middleware.【F:middleware/auth.js†L18-L125】 |
+| `LLM_API_KEY` | `llm-key-change-me` | API key accepted by the LLM integration role for `/api/llm` access.【F:middleware/auth.js†L18-L125】 |
 | `PORT` | `3000` | HTTP port for `server.js` (falls back to default if unset).【F:server.js†L23-L24】【F:server.js†L818-L858】 |
 | `MINECRAFT_RCON_HOST` | `127.0.0.1` | Overrides Paper server host for bridge connections.【F:server.js†L150-L168】 |
 | `MINECRAFT_RCON_PORT` | `25575` | Overrides RCON port.【F:server.js†L150-L168】 |
@@ -155,7 +153,7 @@ curl -X POST -H "Content-Type: application/json" \
 curl -X DELETE -H "X-API-Key: admin123" \
      http://localhost:3000/api/bots/miner_01
 ```
-These routes are validated and broadcast over Socket.IO so that admin consoles stay in sync.【F:index.js†L50-L109】【F:routes/bot.js†L73-L200】
+These routes are validated and broadcast over Socket.IO so that admin consoles stay in sync.【F:server.js†L360-L520】【F:routes/bot.js†L73-L200】
 
 `server.js` also exposes a richer `/api/npcs` namespace for archive queries, dead-letter retries, and lifecycle management if you need advanced controls.【F:server.js†L400-L760】
 
@@ -167,10 +165,10 @@ curl -X POST -H "Content-Type: application/json" \
      -d '{"command":"spawn bot atlas as builder"}' \
      http://localhost:3000/api/llm/command
 ```
-Commands are parsed against pattern handlers (`spawn`, `list`, `teleport`, etc.) and ultimately executed through the NPC engine and bridge.【F:routes/llm.js†L16-L160】【F:core_runtime.js†L28-L86】
+Commands are parsed against pattern handlers (`spawn`, `list`, `teleport`, etc.) and ultimately executed through the NPC engine and bridge.【F:routes/llm.js†L16-L160】【F:minecraft_bridge.js†L1-L72】
 
 ## Developer Notes
-- Socket.IO events surface bot and system activity; listen to `bot:created`, `bot:spawned`, `bot:despawned`, and `system:log` for real-time automation hooks.【F:index.js†L94-L109】【F:core_runtime.js†L36-L50】
+- Socket.IO events surface bot and system activity; listen to `bot:created`, `bot:spawned`, `bot:despawned`, and `system:log` for real-time automation hooks.【F:server.js†L360-L520】
 - The autonomic core can be extended with new policy actions or telemetry taps; see `autonomic_core.js` for lifecycle hooks and `policy_engine.js` for thresholds and clamps.【F:autonomic_core.js†L41-L120】【F:policy_engine.js†L83-L156】
 - Task planners live in `tasks/` and can be expanded with additional Minecraft verbs; register new planners in `tasks/index.js` to make them available to interpreters.【F:tasks/index.js†L1-L79】
 - Knowledge persistence can be adapted by subclassing `KnowledgeStore` or changing the persistence path; it already emits events for analytics integrations.【F:knowledge_store.js†L1-L72】
@@ -178,11 +176,11 @@ Commands are parsed against pattern handlers (`spawn`, `list`, `teleport`, etc.)
 
 ## Versioning and Updates
 - Current package version: **2.1.0**, published under the GPL-3.0 license.【F:package.json†L2-L8】
-- Both entry points use ES modules; keep your runtime on modern Node.js (v18+) to leverage top-level `await` and native `fetch`.  
+- The server uses ES modules; keep your runtime on modern Node.js (v18+) to leverage top-level `await` and native `fetch`.
 - The repository includes Windows (`*.bat`) and Unix (`*.sh`) helper scripts for spinning up the full stack; adjust them to reference `server.js` if you migrate from the legacy runtime.
 
 ## Known Issues and Limitations
 - Some legacy classes (`NPCRegistryOld`, `NPCSpawnerOld`) remain in the codebase for compatibility but are marked as disabled; prefer the active implementations wired through `server.js` and `npc_engine/` when extending the system.【F:npc_registry.js†L1-L52】【F:npc_spawner.js†L18-L24】
-- Default secrets (`admin123`, `admin-key-change-me`, `llm-key-change-me`, `fgd_rcon_password_change_me`) are placeholders and must be overridden before production use.【F:index.js†L27-L48】【F:middleware/auth.js†L18-L156】【F:minecraft-bridge-config.js†L5-L117】
+- Default secrets (`admin123`, `admin-key-change-me`, `llm-key-change-me`, `fgd_rcon_password_change_me`) are placeholders and must be overridden before production use.【F:server.js†L360-L520】【F:middleware/auth.js†L18-L156】【F:minecraft-bridge-config.js†L5-L117】
 - The dashboard simulates metrics unless real telemetry is provided; integrate with actual cluster data sources to avoid relying on random sampling.【F:server.js†L290-L345】
 - LLM providers return mock responses when API keys are absent; ensure credentials are configured to avoid silent fallbacks during testing.【F:llm_bridge.js†L108-L195】

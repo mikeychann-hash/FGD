@@ -2,13 +2,13 @@
   "name": "aicraft-cluster-dashboard",
   "version": "2.1.0",
   "type": "module",
-  "main": "index.js",
+  "main": "server.js",
   "private": true,
   "license": "GPL-3.0",
   "description": "AICraft Federation unified admin and system dashboard with persistent backend and live monitoring.",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js"
+    "start": "node server.js",
+    "dev": "node --watch server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

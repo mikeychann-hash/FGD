@@ -50,6 +50,14 @@ export function initBotRoutes(npcEngine, io) {
     throw new Error('NPC engine is required');
   }
 
+  if (io) {
+    npcEngine.on('npc_moved', data => io.emit('bot:moved', data));
+    npcEngine.on('npc_status', data => io.emit('bot:status', data));
+    npcEngine.on('npc_task_completed', data => io.emit('bot:task_complete', data));
+    npcEngine.on('npc_scan', data => io.emit('bot:scan', data));
+    npcEngine.on('npc_error', data => io.emit('bot:error', data));
+  }
+
   // ============================================================================
   // Public Routes (no auth required)
   // ============================================================================
@@ -79,6 +87,7 @@ export function initBotRoutes(npcEngine, io) {
       const { status, role, type } = req.query;
 
       let bots = npcEngine.registry.getAll();
+      const runtimeMap = npcEngine.npcs instanceof Map ? npcEngine.npcs : null;
 
       // Apply filters
       if (status) {
@@ -94,20 +103,28 @@ export function initBotRoutes(npcEngine, io) {
       res.json({
         success: true,
         count: bots.length,
-        bots: bots.map(bot => ({
-          id: bot.id,
-          role: bot.role,
-          type: bot.npcType,
-          status: bot.status,
-          description: bot.description,
-          personalitySummary: bot.personalitySummary,
-          personalityTraits: bot.personalityTraits,
-          position: bot.lastKnownPosition || bot.spawnPosition,
-          spawnCount: bot.spawnCount,
-          lastSpawnedAt: bot.lastSpawnedAt,
-          createdAt: bot.createdAt,
-          updatedAt: bot.updatedAt
-        }))
+        bots: bots.map(bot => {
+          const runtime = runtimeMap?.get(bot.id)?.runtime || null;
+          return {
+            id: bot.id,
+            role: bot.role,
+            type: bot.npcType,
+            status: runtime?.status || bot.status,
+            description: bot.description,
+            personalitySummary: bot.personalitySummary,
+            personalityTraits: bot.personalityTraits,
+            position: runtime?.position || bot.lastKnownPosition || bot.spawnPosition,
+            velocity: runtime?.velocity || null,
+            tick: runtime?.tickCount || 0,
+            lastTickAt: runtime?.lastTickAt || null,
+            memory: runtime?.memory?.context || [],
+            lastScan: runtime?.lastScan || null,
+            spawnCount: bot.spawnCount,
+            lastSpawnedAt: bot.lastSpawnedAt,
+            createdAt: bot.createdAt,
+            updatedAt: bot.updatedAt
+          };
+        })
       });
     } catch (error) {
       console.error('Error listing bots:', error);
@@ -152,10 +169,28 @@ export function initBotRoutes(npcEngine, io) {
         }
       }
 
+      const runtime = npcEngine.npcs instanceof Map
+        ? npcEngine.npcs.get(id)?.runtime || null
+        : null;
+
+      const runtimeSafe = runtime
+        ? {
+            status: runtime.status,
+            position: runtime.position,
+            velocity: runtime.velocity,
+            tickCount: runtime.tickCount,
+            lastTickAt: runtime.lastTickAt,
+            memory: runtime.memory,
+            lastScan: runtime.lastScan
+          }
+        : null;
+
       res.json({
         success: true,
         bot: {
           ...bot,
+          state: runtime?.status || bot.status,
+          runtime: runtimeSafe,
           learning
         }
       });

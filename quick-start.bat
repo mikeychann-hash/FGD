@@ -20,7 +20,7 @@ if %errorlevel% neq 0 (
 REM --- Define paths ---
 set SERVER_DIR=%~dp0
 set MC_JAR=C:\Users\Admin\Desktop\FGD-main\minecraft-servers\paper-1.21.8-60.jar
-set NODE_SCRIPT=%SERVER_DIR%index.js
+set NODE_SCRIPT=%SERVER_DIR%server.js
 set LOG_DIR=%SERVER_DIR%logs
 set LOG_FILE=%LOG_DIR%\startup-%DATE:/=-%-%TIME::=-%.log
 
@@ -34,7 +34,7 @@ timeout /t 5 >nul
 echo [INFO] Waiting for Minecraft Server to initialize...
 
 echo [INFO] Starting AICraft Federation Backend (Node.js)...
-start "AICraft Backend" cmd /k "cd /d %SERVER_DIR% && node index.js"
+start "AICraft Backend" cmd /k "cd /d %SERVER_DIR% && node server.js"
 
 echo.
 echo [INFO] Both services launched successfully!

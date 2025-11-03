@@ -3,6 +3,7 @@
 
 let apiKey = "admin123";
 let socket = null;
+let refreshTimeout = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   localStorage.setItem("apiKey", apiKey);
@@ -29,6 +30,37 @@ function connectWebSocket() {
   socket = io({ auth: { apiKey } });
   socket.on("connect", () => logConsole("Connected to backend", "success"));
   socket.on("disconnect", () => logConsole("Disconnected", "error"));
+  socket.on("bot:moved", (payload) => {
+    logConsole(`Bot ${payload.botId} moved to ${formatPosition(payload.position)}`);
+    scheduleBotRefresh();
+  });
+  socket.on("bot:status", (payload) => {
+    logConsole(`Status update from ${payload.botId} (tick ${payload.tick ?? "?"})`);
+    scheduleBotRefresh();
+  });
+  socket.on("bot:task_complete", (payload) => {
+    logConsole(`Task complete for ${payload.botId}`, "success");
+    scheduleBotRefresh();
+  });
+  socket.on("bot:scan", (payload) => {
+    logConsole(`Scan received for ${payload.botId} (r=${payload.radius})`);
+  });
+  socket.on("bot:error", (payload) => {
+    logConsole(`Bot error for ${payload.npcId || payload.botId || "unknown"}`, "error");
+  });
+}
+
+function scheduleBotRefresh() {
+  if (refreshTimeout) return;
+  refreshTimeout = setTimeout(async () => {
+    try {
+      await loadBots();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      refreshTimeout = null;
+    }
+  }, 250);
 }
 
 async function apiCall(endpoint, options = {}) {
@@ -81,14 +113,37 @@ async function loadBots() {
       list.innerHTML = "<div>No bots</div>";
       return;
     }
-    list.innerHTML = data.bots.map(b => `
+    list.innerHTML = data.bots.map(b => {
+      const position = formatPosition(b.position);
+      const velocity = formatVelocity(b.velocity);
+      const state = b.state || "unknown";
+      return `
       <div class="bot-item">
-        <strong>${b.name}</strong> (${b.role || "unknown"})
-        <button onclick="deleteBot('${b.name}')">🗑️ Remove</button>
-      </div>`).join("");
+        <div class="bot-header">
+          <strong>${b.name || b.id}</strong>
+          <span class="bot-role">${b.role || "unknown"}</span>
+          <span class="bot-state ${state}">${state}</span>
+        </div>
+        <div class="bot-meta">Pos: ${position} • Vel: ${velocity}</div>
+        <div class="bot-meta">Tick: ${b.tick || 0} • Last Tick: ${b.lastTickAt || "—"}</div>
+        <button onclick="deleteBot('${b.id}')">🗑️ Remove</button>
+      </div>`;
+    }).join("");
   } catch (err) {
     console.error(err);
   }
+}
+
+function formatPosition(pos) {
+  if (!pos) return "N/A";
+  const { x = 0, y = 0, z = 0 } = pos;
+  return `${Number(x).toFixed(1)}, ${Number(y).toFixed(1)}, ${Number(z).toFixed(1)}`;
+}
+
+function formatVelocity(vel) {
+  if (!vel) return "0,0,0";
+  const { x = 0, y = 0, z = 0 } = vel;
+  return `${Number(x).toFixed(2)}, ${Number(y).toFixed(2)}, ${Number(z).toFixed(2)}`;
 }
 
 function logConsole(msg, type="info") {

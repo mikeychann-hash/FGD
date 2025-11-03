@@ -38,6 +38,8 @@ export class DispatchManager {
         this.engine.bridge &&
         this.engine.bridge.options?.enableUpdateServer !== false
     );
+
+    this.engine.syncMicrocoreTask(npc, normalizedTask);
     const preferenceNote =
       normalizedTask.preferredNpcTypes && normalizedTask.preferredNpcTypes.length > 0
         ? ` [preferred: ${normalizedTask.preferredNpcTypes.join(", ")}]`
@@ -104,6 +106,7 @@ export class DispatchManager {
         clearTimeout(this.engine.taskTimeouts.get(npc.id));
         this.engine.taskTimeouts.delete(npc.id);
       }
+      this.engine.clearMicrocoreTask(npc.id);
       npc.state = "idle";
       npc.awaitingFeedback = false;
       const requeueTask = cloneTask(task);
@@ -228,6 +231,8 @@ export class DispatchManager {
     npc.lastUpdate = Date.now();
     npc.awaitingFeedback = false;
 
+    this.engine.clearMicrocoreTask(npcId);
+
     if (success) {
       this.log.info('NPC completed task', { npcId, action: completedTask?.action });
       // Clear retry tracking on success
@@ -281,6 +286,7 @@ export class DispatchManager {
       npc.task = null;
       npc.progress = 0;
       npc.awaitingFeedback = false;
+      this.engine.clearMicrocoreTask(npcId);
 
       // Wait before retry
       await this._sleep(this.retryDelay);
@@ -330,6 +336,7 @@ export class DispatchManager {
       await this._sleep(this.retryDelay * (retryInfo.retryCount + 1)); // Exponential backoff
 
       // Reassign the task
+      this.engine.clearMicrocoreTask(npcId);
       this.assignTask(npc, task);
     } else {
       this.log.error('Task failed after max retries', {

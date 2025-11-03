@@ -1,0 +1,19 @@
+name: FGDProxyPlayer
+version: 1.0.0
+main: io.github.fgd.proxyplayer.FGDProxyPlayerPlugin
+api-version: '1.20'
+author: AICraft Federation
+description: Bridge plugin for FGD hybrid bot framework
+website: https://github.com/mikeychann-hash/FGD
+
+commands:
+  fgd:
+    description: FGD proxy player commands
+    usage: /<command> [reload|status|connect]
+    permission: fgd.admin
+    aliases: [fgdproxy]
+
+permissions:
+  fgd.admin:
+    description: Allows using FGD admin commands
+    default: op

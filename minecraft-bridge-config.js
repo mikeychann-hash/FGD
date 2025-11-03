@@ -1,12 +1,22 @@
 // Minecraft Bridge Configuration for Paper + Geyser
 // This file contains the configuration for connecting the FGD dashboard to your Paper/Geyser server
 
+import { ensureNonDefaultSecret } from "./security/secrets.js";
+
+const resolvedRconPassword = ensureNonDefaultSecret({
+  label: "Minecraft RCON password",
+  value: process.env.MINECRAFT_RCON_PASSWORD,
+  fallback: "fgd_rcon_password_change_me",
+  envVar: "MINECRAFT_RCON_PASSWORD",
+  allowEmpty: true
+});
+
 export const minecraftBridgeConfig = {
   // RCON Connection Settings
   // These must match the values in your Paper server's server.properties file
   host: "127.0.0.1",           // Server IP (use "127.0.0.1" for local, or your server IP)
   port: 25575,                  // RCON port (default: 25575)
-  password: "fgd_rcon_password_change_me",  // RCON password (CHANGE THIS!)
+  password: resolvedRconPassword || null,  // Set via MINECRAFT_RCON_PASSWORD
 
   // Connection Options
   timeout: 10000,               // Connection timeout in milliseconds

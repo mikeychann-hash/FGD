@@ -6,6 +6,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { watch } from "fs";
+import os from "os";
 import { logger } from "./logger.js";
 import { NPCRegistry } from "./npc_registry.js";
 import { NPCSpawner } from "./npc_spawner.js";
@@ -17,10 +18,12 @@ import { MinecraftBridge } from "./minecraft_bridge.js";
 import { initBotRoutes } from "./routes/bot.js";
 import { initLLMRoutes } from "./routes/llm.js";
 import { handleLogin, getCurrentUser, authenticate } from "./middleware/auth.js";
+import { ensureNonDefaultSecret, logSecretWarnings } from "./security/secrets.js";
 
 // Constants
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_PATH = path.join(__dirname, "data", "fused_knowledge.json");
+const DATA_DIR = path.join(__dirname, "data");
+const DATA_PATH = path.join(DATA_DIR, "fused_knowledge.json");
 const DEFAULT_PORT = 3000;
 
 // NPC System instances (initialized later)
@@ -147,6 +150,9 @@ let systemState = {
   }
 };
 
+const telemetryWatchers = [];
+const telemetryIntervals = [];
+
 /**
  * Initialize Minecraft Bridge (optional)
  */
@@ -154,7 +160,14 @@ async function initializeMinecraftBridge() {
   try {
     const host = process.env.MINECRAFT_RCON_HOST || '127.0.0.1';
     const port = parseInt(process.env.MINECRAFT_RCON_PORT || '25575');
-    const password = process.env.MINECRAFT_RCON_PASSWORD || '';
+    const rawPassword = process.env.MINECRAFT_RCON_PASSWORD || '';
+    const password = ensureNonDefaultSecret({
+      label: 'Minecraft RCON password',
+      value: rawPassword,
+      fallback: 'fgd_rcon_password_change_me',
+      envVar: 'MINECRAFT_RCON_PASSWORD',
+      allowEmpty: true
+    });
 
     // Only initialize if password is set (indicates intent to use RCON)
     if (password) {
@@ -212,6 +225,9 @@ async function initializeNPCEngine() {
 
     const activeNPCs = npcEngine.registry?.listActive() || [];
     console.log(`   Active NPCs: ${activeNPCs.length}`);
+    systemState.systemStats.activeBots = activeNPCs.length;
+    attachNpcEngineTelemetry(npcEngine);
+    recomputeSystemStats();
   } catch (err) {
     logger.error('Failed to initialize NPC engine', { error: err.message });
     console.error('❌ Failed to initialize NPC engine:', err.message);
@@ -269,17 +285,27 @@ async function initializeNPCSystem() {
  */
 async function initializeSystem() {
   try {
-    const clusterData = await fs.readFile(path.join(__dirname, 'data', 'cluster_status.json'), 'utf8');
-    const metricsData = await fs.readFile(path.join(__dirname, 'data', 'metrics.json'), 'utf8');
-    const fusionData = await fs.readFile(path.join(__dirname, 'data', 'fused_knowledge.json'), 'utf8');
-    const statsData = await fs.readFile(path.join(__dirname, 'data', 'system_stats.json'), 'utf8');
-    const logsData = await fs.readFile(path.join(__dirname, 'data', 'system_logs.json'), 'utf8');
+    const clusterData = await fs.readFile(path.join(DATA_DIR, 'cluster_status.json'), 'utf8');
+    const metricsData = await fs.readFile(path.join(DATA_DIR, 'metrics.json'), 'utf8');
+    const fusionData = await fs.readFile(path.join(DATA_DIR, 'fused_knowledge.json'), 'utf8');
+    const statsData = await fs.readFile(path.join(DATA_DIR, 'system_stats.json'), 'utf8');
+    const logsData = await fs.readFile(path.join(DATA_DIR, 'system_logs.json'), 'utf8');
 
     systemState.nodes = JSON.parse(clusterData).nodes;
-    systemState.metrics = JSON.parse(metricsData);
+    const parsedMetrics = JSON.parse(metricsData);
+    systemState.metrics = {
+      ...systemState.metrics,
+      cluster: parsedMetrics,
+      cpu: parsedMetrics.cpu ?? systemState.metrics.cpu,
+      memory: parsedMetrics.memory ?? systemState.metrics.memory,
+      timestamp: parsedMetrics.timestamp || systemState.metrics.timestamp || new Date().toISOString()
+    };
     systemState.fusionData = JSON.parse(fusionData);
-    systemState.systemStats = JSON.parse(statsData);
-    systemState.logs = JSON.parse(logsData).logs;
+    systemState.systemStats = { ...JSON.parse(statsData) };
+    const parsedLogs = JSON.parse(logsData).logs;
+    systemState.logs = Array.isArray(parsedLogs) ? parsedLogs.slice(-100) : [];
+
+    recomputeSystemStats();
 
     logger.info('System initialized with sample data');
   } catch (err) {
@@ -287,62 +313,221 @@ async function initializeSystem() {
   }
 }
 
-/**
- * Simulate real-time data updates
- */
-function startDataSimulation() {
-  setInterval(() => {
-    systemState.metrics.cpu = Math.floor(Math.random() * 30) + 40;
-    systemState.metrics.memory = Math.floor(Math.random() * 30) + 50;
-    systemState.metrics.timestamp = new Date().toISOString();
+function appendSystemLog(entry) {
+  const now = new Date();
+  const logEntry = {
+    time: entry.time || now.toTimeString().split(' ')[0],
+    level: entry.level || 'info',
+    message: entry.message || ''
+  };
 
-    systemState.nodes.forEach(node => {
-      if (node.status === 'healthy') {
-        node.cpu = Math.floor(Math.random() * 40) + 30;
-        node.memory = Math.floor(Math.random() * 40) + 40;
-        node.tasks = Math.floor(Math.random() * 10) + 5;
-      }
-    });
+  systemState.logs.push(logEntry);
+  if (systemState.logs.length > 100) {
+    systemState.logs.shift();
+  }
 
-    const healthyNodes = systemState.nodes.filter(n => n.status === 'healthy');
-    if (healthyNodes.length > 0) {
-      systemState.systemStats.avgCpu = Math.floor(
-        healthyNodes.reduce((sum, n) => sum + n.cpu, 0) / healthyNodes.length
-      );
-      systemState.systemStats.avgMemory = Math.floor(
-        healthyNodes.reduce((sum, n) => sum + n.memory, 0) / healthyNodes.length
-      );
-      systemState.systemStats.activeTasks = healthyNodes.reduce((sum, n) => sum + n.tasks, 0);
+  io.emit('log:new', logEntry);
+  io.emit('logs:update', systemState.logs);
+}
+
+function recomputeSystemStats() {
+  const nodes = Array.isArray(systemState.nodes) ? systemState.nodes : [];
+  const healthyNodes = nodes.filter(node => node && node.status === 'healthy');
+
+  const sumCpu = healthyNodes.reduce((sum, node) => sum + (Number(node.cpu) || 0), 0);
+  const sumMemory = healthyNodes.reduce((sum, node) => sum + (Number(node.memory) || 0), 0);
+  const sumTasks = healthyNodes.reduce((sum, node) => sum + (Number(node.tasks) || 0), 0);
+
+  const avgCpu = healthyNodes.length ? Math.round(sumCpu / healthyNodes.length) : 0;
+  const avgMemory = healthyNodes.length ? Math.round(sumMemory / healthyNodes.length) : 0;
+
+  const activeBots = npcEngine?.npcs instanceof Map ? npcEngine.npcs.size : systemState.systemStats.activeBots || 0;
+
+  systemState.systemStats = {
+    ...systemState.systemStats,
+    nodeCount: nodes.length,
+    healthyNodes: healthyNodes.length,
+    avgCpu,
+    avgMemory,
+    activeTasks: sumTasks,
+    activeBots,
+    lastUpdated: new Date().toISOString()
+  };
+
+  io.emit('stats:update', systemState.systemStats);
+}
+
+function sampleCpuTimes() {
+  const cpus = os.cpus();
+  let idle = 0;
+  let total = 0;
+
+  for (const cpu of cpus) {
+    for (const type of Object.keys(cpu.times)) {
+      total += cpu.times[type];
     }
+    idle += cpu.times.idle;
+  }
 
-    io.emit('metrics:update', systemState.metrics);
-    io.emit('nodes:update', systemState.nodes);
-    io.emit('stats:update', systemState.systemStats);
-  }, 5000);
+  return { idle, total };
+}
 
-  setInterval(() => {
-    const logLevels = ['info', 'warn', 'error', 'success'];
-    const messages = [
-      'Task allocation completed successfully',
-      'Health check passed for all nodes',
-      'Fusion synchronization complete',
-      'Auto-scaling triggered',
-      'New learning data integrated'
-    ];
+function createHostMetricsSampler() {
+  let previous = sampleCpuTimes();
 
-    const now = new Date();
-    const time = now.toTimeString().split(' ')[0];
-    const newLog = {
-      time,
-      level: logLevels[Math.floor(Math.random() * logLevels.length)],
-      message: messages[Math.floor(Math.random() * messages.length)]
+  return () => {
+    const current = sampleCpuTimes();
+    const idleDiff = current.idle - previous.idle;
+    const totalDiff = current.total - previous.total;
+    previous = current;
+
+    const cpuPercent = totalDiff > 0
+      ? Math.max(0, Math.min(100, Math.round(100 - (idleDiff / totalDiff) * 100)))
+      : 0;
+
+    const totalMemory = os.totalmem();
+    const freeMemory = os.freemem();
+    const memoryPercent = Math.max(0, Math.min(100, Math.round(((totalMemory - freeMemory) / totalMemory) * 100)));
+
+    const hostMetrics = {
+      cpuPercent,
+      memoryPercent,
+      loadAverage: os.loadavg?.()[0] ?? null,
+      totalMemoryBytes: totalMemory,
+      freeMemoryBytes: freeMemory,
+      processMemoryMb: Math.round(process.memoryUsage().rss / (1024 * 1024))
     };
 
-    systemState.logs.push(newLog);
-    if (systemState.logs.length > 100) systemState.logs.shift();
+    systemState.metrics = {
+      ...systemState.metrics,
+      cpu: cpuPercent,
+      memory: memoryPercent,
+      timestamp: new Date().toISOString(),
+      host: hostMetrics
+    };
 
-    io.emit('log:new', newLog);
-  }, 10000);
+    io.emit('metrics:update', systemState.metrics);
+    recomputeSystemStats();
+  };
+}
+
+function debounce(fn, delay = 200) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+}
+
+function watchTelemetryFile(fileName, handler) {
+  const filePath = path.join(DATA_DIR, fileName);
+
+  const load = async () => {
+    try {
+      const content = await fs.readFile(filePath, 'utf8');
+      const parsed = JSON.parse(content);
+      handler(parsed);
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        logger.warn('Failed to load telemetry file', { file: fileName, error: error.message });
+      }
+    }
+  };
+
+  const debouncedLoad = debounce(load, 150);
+  load();
+
+  try {
+    const watcher = watch(filePath, { persistent: false }, () => debouncedLoad());
+    telemetryWatchers.push(watcher);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      const directoryWatcher = watch(DATA_DIR, { persistent: false }, (_, changedFile) => {
+        if (changedFile === fileName) {
+          debouncedLoad();
+        }
+      });
+      telemetryWatchers.push(directoryWatcher);
+    } else {
+      logger.warn('Failed to watch telemetry file', { file: fileName, error: error.message });
+    }
+  }
+}
+
+function startTelemetryPipeline() {
+  watchTelemetryFile('cluster_status.json', payload => {
+    if (Array.isArray(payload?.nodes)) {
+      systemState.nodes = payload.nodes;
+      recomputeSystemStats();
+      io.emit('nodes:update', systemState.nodes);
+    }
+  });
+
+  watchTelemetryFile('metrics.json', payload => {
+    if (payload && typeof payload === 'object') {
+      systemState.metrics = {
+        ...systemState.metrics,
+        cluster: payload,
+        clusterTimestamp: payload.timestamp || new Date().toISOString()
+      };
+      io.emit('metrics:update', systemState.metrics);
+    }
+  });
+
+  watchTelemetryFile('system_stats.json', payload => {
+    if (payload && typeof payload === 'object') {
+      systemState.systemStats = { ...systemState.systemStats, ...payload };
+      io.emit('stats:update', systemState.systemStats);
+    }
+  });
+
+  watchTelemetryFile('system_logs.json', payload => {
+    const logs = Array.isArray(payload?.logs) ? payload.logs.slice(-100) : [];
+    systemState.logs = logs;
+    io.emit('logs:update', systemState.logs);
+  });
+
+  const sampleHostMetrics = createHostMetricsSampler();
+  sampleHostMetrics();
+  telemetryIntervals.push(setInterval(sampleHostMetrics, 5000));
+}
+
+function attachNpcEngineTelemetry(engine) {
+  if (!engine || typeof engine.on !== 'function') {
+    return;
+  }
+
+  const updateStats = () => {
+    systemState.systemStats.activeBots = engine.npcs instanceof Map ? engine.npcs.size : 0;
+    recomputeSystemStats();
+  };
+
+  engine.on('npc_registered', updateStats);
+  engine.on('npc_unregistered', updateStats);
+  engine.on('npc_status', updateStats);
+
+  engine.on('npc_task_completed', payload => {
+    appendSystemLog({
+      level: 'success',
+      message: `Task completed by ${payload?.npcId || payload?.id || 'unknown'}`
+    });
+    updateStats();
+  });
+
+  engine.on('npc_error', payload => {
+    const details = payload?.payload?.message || payload?.error || payload?.message || 'Unknown error';
+    appendSystemLog({
+      level: 'error',
+      message: `NPC ${payload?.npcId || payload?.id || 'unknown'} error: ${details}`
+    });
+  });
+
+  engine.on('npc_scan', payload => {
+    appendSystemLog({
+      level: 'info',
+      message: `Scan received from ${payload?.npcId || payload?.botId || 'unknown'}`
+    });
+  });
 }
 
 // ============================================================================
@@ -841,6 +1026,13 @@ async function gracefulShutdown(signal) {
   console.log(`\n⚠️  ${signal} received, shutting down gracefully...`);
 
   try {
+    telemetryIntervals.forEach(interval => clearInterval(interval));
+    telemetryWatchers.forEach(watcher => {
+      if (typeof watcher.close === 'function') {
+        watcher.close();
+      }
+    });
+
     // Save any pending NPC data
     if (npcRegistry) {
       await npcRegistry.save();
@@ -918,8 +1110,11 @@ async function startServer() {
     // Set up file watcher
     setupFileWatcher();
 
-    // Start data simulation
-    startDataSimulation();
+    // Start telemetry ingestion
+    startTelemetryPipeline();
+
+    // Surface any secret configuration warnings
+    logSecretWarnings(logger);
 
     // Start HTTP server
     httpServer.listen(PORT, () => {

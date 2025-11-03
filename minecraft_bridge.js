@@ -38,6 +38,7 @@ export class MinecraftBridge extends EventEmitter {
     this.pluginInterface = null;
     this.telemetryChannel = null;
     this.botPositions = new Map();
+    this.currentPhase = 1; // Track current progression phase
   }
 
   async connect() {
@@ -474,6 +475,39 @@ export class MinecraftBridge extends EventEmitter {
     if (typeof this.telemetryChannel.emit === "function") {
       this.telemetryChannel.emit(event, payload);
     }
+  }
+
+  /**
+   * Update current progression phase for context-aware operations
+   * @param {number} phase - Current phase number (1-6)
+   */
+  setPhase(phase) {
+    if (typeof phase === "number" && phase >= 1 && phase <= 6) {
+      this.currentPhase = phase;
+      console.log(`🎮 [MinecraftBridge] Phase updated to ${phase}`);
+      this.#emitTelemetry("phaseUpdate", { phase, timestamp: Date.now() });
+    }
+  }
+
+  /**
+   * Get current progression phase
+   * @returns {number} Current phase number
+   */
+  getPhase() {
+    return this.currentPhase;
+  }
+
+  /**
+   * Emit progression-related telemetry
+   * @param {string} event - Event name
+   * @param {object} data - Event data
+   */
+  emitProgressionEvent(event, data) {
+    this.#emitTelemetry(`progression:${event}`, {
+      ...data,
+      phase: this.currentPhase,
+      timestamp: Date.now()
+    });
   }
 }
 

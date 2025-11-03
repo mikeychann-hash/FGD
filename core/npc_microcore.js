@@ -8,7 +8,9 @@ const DEFAULT_OPTIONS = {
   scanIntervalMs: 1500,
   scanRadius: 5,
   stepDistance: 0.6,
-  memorySize: 10
+  memorySize: 10,
+  enableAutonomy: true,
+  currentPhase: 1
 };
 
 const activeLoops = new Map();
@@ -42,6 +44,7 @@ class NPCMicrocore extends EventEmitter {
     this.lastTick = null;
     this.pendingEvents = [];
     this.currentTask = null;
+    this.currentPhase = options.currentPhase || 1;
     this.state = {
       position: normalizePosition(bot.runtime?.position || bot.position),
       velocity: { x: 0, y: 0, z: 0 },
@@ -251,6 +254,12 @@ class NPCMicrocore extends EventEmitter {
       return;
     }
 
+    if (event.type === "phaseUpdate" && typeof event.phase === "number") {
+      this.currentPhase = event.phase;
+      this.#remember(`Phase changed to ${event.phase}`);
+      return;
+    }
+
     if (event.memory) {
       this.#remember(event.memory);
     }
@@ -314,10 +323,99 @@ class NPCMicrocore extends EventEmitter {
         this.state.lastScanResult = payload;
         this.bot.runtime.lastScan = payload;
         this.emit("statusUpdate", this.#buildStatusPayload("microcore:scan"));
+
+        // Phase-aware autonomous behavior
+        if (this.options.enableAutonomy && !this.currentTask) {
+          this.#evaluateAutonomousAction(result);
+        }
       })
       .catch(error => {
         this.emit("error", { botId: this.bot.id, error });
       });
+  }
+
+  /**
+   * Evaluate autonomous actions based on scan results and current phase
+   * @param {object} scanResult - Scan result data
+   * @private
+   */
+  #evaluateAutonomousAction(scanResult) {
+    if (!scanResult || !this.bot) return;
+
+    const role = this.bot.role || this.bot.type;
+    const blocks = scanResult.blocks || [];
+    const entities = scanResult.entities || [];
+
+    // Phase-aware autonomous behaviors
+    switch (this.currentPhase) {
+      case 1: // Survival & Basics
+        if (role === "miner" && blocks.some(b => b.type?.includes("ore"))) {
+          this.#remember("Detected ore nearby - mining priority");
+        } else if (role === "builder" && blocks.some(b => b.type === "log")) {
+          this.#remember("Detected wood nearby - gathering priority");
+        } else if (role === "farmer" && blocks.some(b => b.type?.includes("wheat") || b.type?.includes("crop"))) {
+          this.#remember("Detected crops nearby - harvesting priority");
+        }
+        break;
+
+      case 2: // Resource Expansion & Early Automation
+        if (role === "miner" && blocks.some(b => b.type?.includes("iron_ore"))) {
+          this.#remember("Iron ore detected - automation material priority");
+        } else if (role === "builder" && blocks.length > 5) {
+          this.#remember("Suitable building area detected");
+        }
+        break;
+
+      case 3: // Infrastructure & Mega Base Foundations
+        if (role === "builder") {
+          this.#remember("Infrastructure phase - large build focus");
+        } else if (role === "miner" && blocks.some(b => b.type?.includes("diamond"))) {
+          this.#remember("Diamond ore detected - tool upgrade priority");
+        }
+        break;
+
+      case 4: // Nether Expansion
+        if (role === "explorer" || role === "scout") {
+          this.#remember("Nether phase - exploration priority");
+        } else if (role === "guard" && entities.length > 0) {
+          this.#remember("Entities detected - combat readiness");
+        }
+        break;
+
+      case 5: // End Prep
+        if (role === "miner" || role === "gatherer") {
+          this.#remember("End prep phase - resource gathering for final battle");
+        }
+        break;
+
+      case 6: // Post-Dragon
+        if (role === "builder") {
+          this.#remember("Post-dragon phase - mega base expansion");
+        }
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  /**
+   * Update current phase (called from external systems)
+   * @param {number} phase - New phase number
+   */
+  setPhase(phase) {
+    if (typeof phase === "number" && phase >= 1 && phase <= 6) {
+      this.currentPhase = phase;
+      this.#remember(`Phase updated to ${phase}`);
+    }
+  }
+
+  /**
+   * Get current phase
+   * @returns {number} Current phase number
+   */
+  getPhase() {
+    return this.currentPhase;
   }
 }
 

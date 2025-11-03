@@ -332,4 +332,174 @@ export class PolicyEngine {
     }
     this.lastActionTime.clear();
   }
+
+  /**
+   * Apply phase-specific policies based on progression system
+   * Adjusts resource limits, permissions, and behaviors per phase
+   * @param {number} phase - Current phase number (1-6)
+   */
+  applyPhasePolicies(phase) {
+    const phasePolicies = {
+      1: {
+        maxBots: 5,
+        allowFarming: true,
+        allowMining: true,
+        allowBuilding: true,
+        allowCrafting: true,
+        allowCombat: false,
+        allowTrading: false,
+        allowNether: false,
+        allowEnd: false,
+        resourcePriority: "survival",
+        delegationBias: 0.3,
+        learningRate: 1.2,
+        description: "Phase 1: Survival & Basics - Limited bot count, focus on core survival"
+      },
+      2: {
+        maxBots: 10,
+        allowFarming: true,
+        allowMining: true,
+        allowBuilding: true,
+        allowCrafting: true,
+        allowCombat: true,
+        allowTrading: false,
+        allowNether: false,
+        allowEnd: false,
+        resourcePriority: "automation",
+        delegationBias: 0.35,
+        learningRate: 1.1,
+        description: "Phase 2: Resource Expansion - More bots, enable automation systems"
+      },
+      3: {
+        maxBots: 15,
+        allowFarming: true,
+        allowMining: true,
+        allowBuilding: true,
+        allowCrafting: true,
+        allowCombat: true,
+        allowTrading: true,
+        allowNether: false,
+        allowEnd: false,
+        resourcePriority: "infrastructure",
+        delegationBias: 0.4,
+        learningRate: 1.0,
+        description: "Phase 3: Infrastructure - Enable trading, larger base operations"
+      },
+      4: {
+        maxBots: 20,
+        allowFarming: true,
+        allowMining: true,
+        allowBuilding: true,
+        allowCrafting: true,
+        allowCombat: true,
+        allowTrading: true,
+        allowNether: true,
+        allowEnd: false,
+        resourcePriority: "nether_expansion",
+        delegationBias: 0.4,
+        learningRate: 0.9,
+        description: "Phase 4: Nether Expansion - Enable Nether access, combat focus"
+      },
+      5: {
+        maxBots: 25,
+        allowFarming: true,
+        allowMining: true,
+        allowBuilding: true,
+        allowCrafting: true,
+        allowCombat: true,
+        allowTrading: true,
+        allowNether: true,
+        allowEnd: false,
+        resourcePriority: "end_preparation",
+        delegationBias: 0.45,
+        learningRate: 0.8,
+        description: "Phase 5: End Prep - Full access, prepare for Dragon fight"
+      },
+      6: {
+        maxBots: 30,
+        allowFarming: true,
+        allowMining: true,
+        allowBuilding: true,
+        allowCrafting: true,
+        allowCombat: true,
+        allowTrading: true,
+        allowNether: true,
+        allowEnd: true,
+        resourcePriority: "post_dragon",
+        delegationBias: 0.5,
+        learningRate: 0.7,
+        freeMode: true,
+        description: "Phase 6: Post-Dragon - Full autonomy, mega base and automation"
+      }
+    };
+
+    const policy = phasePolicies[phase] || phasePolicies[1];
+
+    // Apply relevant policy updates
+    const updates = {
+      delegationBias: policy.delegationBias,
+      learningRate: policy.learningRate
+    };
+
+    this.updatePolicy(updates);
+
+    // Store phase-specific permissions in state (not persisted to disk)
+    this.state.phasePermissions = {
+      maxBots: policy.maxBots,
+      allowFarming: policy.allowFarming,
+      allowMining: policy.allowMining,
+      allowBuilding: policy.allowBuilding,
+      allowCrafting: policy.allowCrafting,
+      allowCombat: policy.allowCombat,
+      allowTrading: policy.allowTrading,
+      allowNether: policy.allowNether,
+      allowEnd: policy.allowEnd,
+      resourcePriority: policy.resourcePriority,
+      freeMode: policy.freeMode || false
+    };
+
+    this.logger.log(`📋 [PolicyEngine] Applied Phase ${phase} policies: ${policy.description}`);
+    this.logger.log(`   Max Bots: ${policy.maxBots}, Resource Priority: ${policy.resourcePriority}`);
+
+    return policy;
+  }
+
+  /**
+   * Check if an action is allowed under current phase policies
+   * @param {string} action - Action name (e.g., "farming", "nether", "trading")
+   * @returns {boolean} true if action is allowed
+   */
+  isActionAllowed(action) {
+    if (!this.state.phasePermissions) {
+      // No phase policies applied, allow everything by default
+      return true;
+    }
+
+    const permissionKey = `allow${action.charAt(0).toUpperCase() + action.slice(1)}`;
+    return this.state.phasePermissions[permissionKey] ?? true;
+  }
+
+  /**
+   * Get current phase permissions
+   * @returns {object|null} Current phase permissions or null if not set
+   */
+  getPhasePermissions() {
+    return this.state.phasePermissions || null;
+  }
+
+  /**
+   * Get maximum allowed bots for current phase
+   * @returns {number|null} Max bots or null if not set
+   */
+  getMaxBots() {
+    return this.state.phasePermissions?.maxBots || null;
+  }
+
+  /**
+   * Get current resource priority
+   * @returns {string|null} Resource priority or null if not set
+   */
+  getResourcePriority() {
+    return this.state.phasePermissions?.resourcePriority || null;
+  }
 }

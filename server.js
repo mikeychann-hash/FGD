@@ -15,6 +15,8 @@ import { LearningEngine } from "./learning_engine.js";
 import { validator } from "./validator.js";
 import { NPCEngine } from "./npc_engine.js";
 import { MinecraftBridge } from "./minecraft_bridge.js";
+import { AutonomicCore } from "./autonomic_core.js";
+import { progressionEngine } from "./core/progression_engine.js";
 import { initBotRoutes } from "./routes/bot.js";
 import { initLLMRoutes } from "./routes/llm.js";
 import { handleLogin, getCurrentUser, authenticate } from "./middleware/auth.js";
@@ -33,6 +35,7 @@ let npcFinalizer = null;
 let learningEngine = null;
 let npcEngine = null;
 let minecraftBridge = null;
+let autonomicCore = null;
 
 /**
  * Default fusion data structure returned when no data file exists
@@ -278,10 +281,55 @@ async function initializeNPCSystem() {
     // Initialize NPC Engine with all components
     await initializeNPCEngine();
 
+    // Initialize Autonomic Core with Progression Engine
+    await initializeAutonomicCore();
+
     logger.info('NPC system initialized successfully');
   } catch (err) {
     logger.error('Failed to initialize NPC system', { error: err.message });
     throw err;
+  }
+}
+
+/**
+ * Initialize Autonomic Core with Progression Engine integration
+ */
+async function initializeAutonomicCore() {
+  try {
+    autonomicCore = new AutonomicCore();
+    await autonomicCore.init();
+
+    // Connect NPC engine and bridge for phase coordination
+    if (npcEngine) {
+      autonomicCore.setNPCEngine(npcEngine);
+    }
+
+    // Listen for phase changes and propagate to all systems
+    progressionEngine.on("phaseChanged", (data) => {
+      console.log(`🌍 [Server] Phase changed to ${data.phase}: ${data.guide.name}`);
+
+      // Update NPC engine phase
+      if (npcEngine && typeof npcEngine.setPhase === "function") {
+        npcEngine.setPhase(data.phase);
+      }
+
+      // Broadcast via WebSocket
+      io.emit("progression:phaseChanged", data);
+    });
+
+    progressionEngine.on("progressUpdate", (data) => {
+      io.emit("progression:progressUpdate", data);
+    });
+
+    progressionEngine.on("metricUpdate", (data) => {
+      io.emit("progression:metricUpdate", data);
+    });
+
+    console.log('✅ Autonomic Core and Progression Engine initialized');
+    logger.info('Autonomic Core and Progression Engine initialized');
+  } catch (err) {
+    logger.error('Failed to initialize Autonomic Core', { error: err.message });
+    console.error('❌ Failed to initialize Autonomic Core:', err.message);
   }
 }
 
@@ -987,6 +1035,171 @@ app.post("/api/npcs/deadletter/retry", async (req, res) => {
   } catch (err) {
     logger.error('Failed to retry dead letter queue', { error: err.message });
     res.status(500).json({ error: 'Failed to retry dead letter queue' });
+  }
+});
+
+// ============================================================================
+// Progression System API Routes
+// ============================================================================
+
+/**
+ * GET /api/progression - Get current progression status
+ */
+app.get("/api/progression", (req, res) => {
+  try {
+    const status = progressionEngine.getStatus();
+    res.json(status);
+  } catch (err) {
+    logger.error('Failed to get progression status', { error: err.message });
+    res.status(500).json({ error: 'Failed to get progression status' });
+  }
+});
+
+/**
+ * GET /api/progression/phase - Get current phase information
+ */
+app.get("/api/progression/phase", (req, res) => {
+  try {
+    const phaseInfo = progressionEngine.getCurrentPhase();
+    res.json(phaseInfo);
+  } catch (err) {
+    logger.error('Failed to get phase info', { error: err.message });
+    res.status(500).json({ error: 'Failed to get phase info' });
+  }
+});
+
+/**
+ * PUT /api/progression/phase - Manually set progression phase (admin)
+ */
+app.put("/api/progression/phase", async (req, res) => {
+  try {
+    const { phase } = req.body;
+
+    if (typeof phase !== "number" || phase < 1 || phase > 6) {
+      return res.status(400).json({ error: 'Phase must be a number between 1 and 6' });
+    }
+
+    await progressionEngine.setPhase(phase);
+    logger.info('Phase manually updated', { phase });
+
+    res.json({
+      success: true,
+      phase,
+      status: progressionEngine.getStatus()
+    });
+  } catch (err) {
+    logger.error('Failed to set phase', { error: err.message });
+    res.status(500).json({ error: 'Failed to set phase' });
+  }
+});
+
+/**
+ * POST /api/progression/metrics - Update progression metrics
+ */
+app.post("/api/progression/metrics", async (req, res) => {
+  try {
+    const metrics = req.body;
+
+    if (!metrics || typeof metrics !== 'object') {
+      return res.status(400).json({ error: 'Invalid metrics object' });
+    }
+
+    const phaseAdvanced = await progressionEngine.updateFederationState(metrics);
+    logger.info('Progression metrics updated', { metrics, phaseAdvanced });
+
+    res.json({
+      success: true,
+      phaseAdvanced,
+      currentPhase: progressionEngine.currentPhase,
+      metrics: progressionEngine.progressData
+    });
+  } catch (err) {
+    logger.error('Failed to update metrics', { error: err.message });
+    res.status(500).json({ error: 'Failed to update metrics' });
+  }
+});
+
+/**
+ * POST /api/progression/metric/:name - Update a specific metric
+ */
+app.post("/api/progression/metric/:name", (req, res) => {
+  try {
+    const { name } = req.params;
+    const { value, increment } = req.body;
+
+    if (increment !== undefined && typeof increment === "number") {
+      progressionEngine.incrementMetric(name, increment);
+    } else if (value !== undefined) {
+      progressionEngine.updateMetric(name, value);
+    } else {
+      return res.status(400).json({ error: 'Must provide either value or increment' });
+    }
+
+    logger.info('Metric updated', { name, value, increment });
+
+    res.json({
+      success: true,
+      metric: name,
+      value: progressionEngine.progressData[name]
+    });
+  } catch (err) {
+    logger.error('Failed to update metric', { error: err.message, metric: req.params.name });
+    res.status(500).json({ error: 'Failed to update metric' });
+  }
+});
+
+/**
+ * POST /api/progression/reset - Reset progression to Phase 1
+ */
+app.post("/api/progression/reset", async (req, res) => {
+  try {
+    await progressionEngine.reset();
+    logger.warn('Progression engine reset to Phase 1');
+
+    res.json({
+      success: true,
+      message: 'Progression reset to Phase 1',
+      status: progressionEngine.getStatus()
+    });
+  } catch (err) {
+    logger.error('Failed to reset progression', { error: err.message });
+    res.status(500).json({ error: 'Failed to reset progression' });
+  }
+});
+
+/**
+ * GET /api/progression/tasks - Get recommended tasks for current phase
+ */
+app.get("/api/progression/tasks", (req, res) => {
+  try {
+    const tasks = progressionEngine.getRecommendedTasks();
+    const builds = progressionEngine.getRecommendedBuilds();
+
+    res.json({
+      phase: progressionEngine.currentPhase,
+      recommendedTasks: tasks,
+      recommendedBuilds: builds
+    });
+  } catch (err) {
+    logger.error('Failed to get recommended tasks', { error: err.message });
+    res.status(500).json({ error: 'Failed to get recommended tasks' });
+  }
+});
+
+/**
+ * GET /api/autonomic - Get autonomic core status
+ */
+app.get("/api/autonomic", (req, res) => {
+  try {
+    if (!autonomicCore) {
+      return res.status(503).json({ error: 'Autonomic core not initialized' });
+    }
+
+    const status = autonomicCore.getStatus();
+    res.json(status);
+  } catch (err) {
+    logger.error('Failed to get autonomic status', { error: err.message });
+    res.status(500).json({ error: 'Failed to get autonomic status' });
   }
 });
 

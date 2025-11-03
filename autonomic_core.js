@@ -3,6 +3,7 @@
 
 import os from "os";
 import { PolicyEngine } from "./policy_engine.js";
+import { progressionEngine } from "./core/progression_engine.js";
 import fs from "fs/promises";
 
 // Constants
@@ -25,9 +26,10 @@ const PRIORITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
  * Monitors system metrics and enforces governance policies
  */
 export class AutonomicCore {
-  constructor(configPath = "./autonomic/governance_config.json") {
+  constructor(configPath = "./autonomic/governance_config.json", options = {}) {
     this.configPath = configPath;
     this.policy = new PolicyEngine();
+    this.progression = options.progressionEngine || progressionEngine;
     this.config = { ...DEFAULT_CONFIG };
     this.metrics = {
       cpu: 0,
@@ -42,6 +44,8 @@ export class AutonomicCore {
     this.isInitialized = false;
     this.metricsHistory = [];
     this.consecutiveFailures = 0;
+    this.npcEngine = null;
+    this.llmBridge = null;
   }
 
   /**
@@ -56,7 +60,17 @@ export class AutonomicCore {
     }
 
     await this.loadConfig();
+
+    // Initialize progression engine
+    if (!this.progression.isInitialized) {
+      await this.progression.init();
+    }
+
+    // Set up progression event listeners
+    this.#setupProgressionListeners();
+
     this.isInitialized = true;
+    console.log("✅ Autonomic core initialized with progression system");
     return this;
   }
 
@@ -327,6 +341,7 @@ export class AutonomicCore {
       config: { ...this.config },
       currentMetrics: { ...this.metrics },
       policyState: this.policy.getState(),
+      progressionState: this.progression.getStatus(),
       historySize: this.metricsHistory.length,
       consecutiveFailures: this.consecutiveFailures
     };
@@ -397,6 +412,125 @@ export class AutonomicCore {
     } catch (err) {
       console.error("❌ Error updating config:", err.message);
       return false;
+    }
+  }
+
+  /**
+   * Set up progression event listeners for phase changes and task scheduling
+   * @private
+   */
+  #setupProgressionListeners() {
+    this.progression.on("phaseChanged", (data) => {
+      const { phase, guide, previousPhase } = data;
+      console.log(`🧭 [AutonomicCore] Phase changed from ${previousPhase} to ${phase}`);
+
+      // Apply phase-specific policies
+      this.policy.applyPhasePolicies(phase);
+
+      // Schedule recommended tasks if NPC engine is available
+      if (this.npcEngine && guide.recommendedTasks) {
+        this.#schedulePhaseTasks(guide.recommendedTasks);
+      }
+
+      // Broadcast strategy to LLM bridge if available
+      if (this.llmBridge && typeof this.llmBridge.broadcastStrategy === "function") {
+        this.llmBridge.broadcastStrategy(guide);
+      }
+    });
+
+    this.progression.on("progressUpdate", (data) => {
+      console.log(`📊 [AutonomicCore] Progress update: Phase ${data.phase}, ${JSON.stringify(data.metrics)}`);
+    });
+
+    this.progression.on("metricUpdate", (data) => {
+      console.log(`📈 [AutonomicCore] Metric update: ${data.metric} = ${data.value}`);
+    });
+  }
+
+  /**
+   * Schedule recommended tasks for the current phase
+   * @param {Array<string>} taskNames - List of task names to schedule
+   * @private
+   */
+  #schedulePhaseTasks(taskNames) {
+    if (!this.npcEngine) {
+      console.warn("⚠️  Cannot schedule tasks: NPC engine not connected");
+      return;
+    }
+
+    console.log(`📋 [AutonomicCore] Scheduling ${taskNames.length} phase-recommended tasks`);
+    for (const taskName of taskNames) {
+      // Schedule task with NPC engine (implementation depends on NPC engine API)
+      // This is a placeholder - actual implementation may vary
+      if (typeof this.npcEngine.scheduleBatch === "function") {
+        this.npcEngine.scheduleBatch([taskName]);
+      } else if (typeof this.npcEngine.handleCommand === "function") {
+        this.npcEngine.handleCommand(taskName, "progression_system").catch((err) => {
+          console.error(`❌ Failed to schedule task ${taskName}:`, err.message);
+        });
+      }
+    }
+  }
+
+  /**
+   * Connect NPC engine for task scheduling integration
+   * @param {Object} npcEngine - NPC engine instance
+   */
+  setNPCEngine(npcEngine) {
+    this.npcEngine = npcEngine;
+    console.log("✅ NPC engine connected to autonomic core");
+  }
+
+  /**
+   * Connect LLM bridge for strategy broadcasting
+   * @param {Object} llmBridge - LLM bridge instance
+   */
+  setLLMBridge(llmBridge) {
+    this.llmBridge = llmBridge;
+    console.log("✅ LLM bridge connected to autonomic core");
+  }
+
+  /**
+   * Update federation metrics and check for phase progression
+   * @param {Object} metrics - Federation metrics
+   * @returns {Promise<boolean>} true if phase advanced
+   */
+  async updateFederationMetrics(metrics) {
+    return await this.progression.updateFederationState(metrics);
+  }
+
+  /**
+   * Get current progression phase
+   * @returns {number} Current phase number
+   */
+  getCurrentPhase() {
+    return this.progression.currentPhase;
+  }
+
+  /**
+   * Get progression engine instance
+   * @returns {Object} Progression engine
+   */
+  getProgressionEngine() {
+    return this.progression;
+  }
+
+  /**
+   * Cleanup method to clear pending saves and resources
+   * Call this before destroying the instance
+   */
+  destroy() {
+    if (this.monitoringInterval) {
+      clearInterval(this.monitoringInterval);
+      this.monitoringInterval = null;
+    }
+    if (this.statusInterval) {
+      clearInterval(this.statusInterval);
+      this.statusInterval = null;
+    }
+    // Remove all progression event listeners
+    if (this.progression) {
+      this.progression.removeAllListeners();
     }
   }
 }

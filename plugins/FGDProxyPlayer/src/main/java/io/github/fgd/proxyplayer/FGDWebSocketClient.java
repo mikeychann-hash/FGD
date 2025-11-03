@@ -18,13 +18,15 @@ public class FGDWebSocketClient extends WebSocketClient {
     private final FGDProxyPlayerPlugin plugin;
     private final BotManager botManager;
     private final ScanManager scanManager;
+    private final ActionManager actionManager;
     private final Gson gson;
 
-    public FGDWebSocketClient(URI serverUri, FGDProxyPlayerPlugin plugin, BotManager botManager, ScanManager scanManager) {
+    public FGDWebSocketClient(URI serverUri, FGDProxyPlayerPlugin plugin, BotManager botManager, ScanManager scanManager, ActionManager actionManager) {
         super(serverUri);
         this.plugin = plugin;
         this.botManager = botManager;
         this.scanManager = scanManager;
+        this.actionManager = actionManager;
         this.gson = new Gson();
     }
 
@@ -70,6 +72,34 @@ public class FGDWebSocketClient extends WebSocketClient {
 
             case "despawnBot":
                 handleDespawnBot(json);
+                break;
+
+            case "dig":
+                handleDig(json);
+                break;
+
+            case "place":
+                handlePlace(json);
+                break;
+
+            case "attack":
+                handleAttack(json);
+                break;
+
+            case "useItem":
+                handleUseItem(json);
+                break;
+
+            case "inventory":
+                handleInventory(json);
+                break;
+
+            case "chat":
+                handleChat(json);
+                break;
+
+            case "jump":
+                handleJump(json);
                 break;
 
             case "ping":
@@ -166,6 +196,153 @@ public class FGDWebSocketClient extends WebSocketClient {
 
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to despawn bot", e);
+        }
+    }
+
+    private void handleDig(JsonObject json) {
+        try {
+            String botId = json.get("botId").getAsString();
+            JsonObject blockPosition = json.getAsJsonObject("blockPosition");
+
+            double x = blockPosition.get("x").getAsDouble();
+            double y = blockPosition.get("y").getAsDouble();
+            double z = blockPosition.get("z").getAsDouble();
+
+            boolean success = actionManager.dig(botId, x, y, z);
+
+            // Send response
+            JsonObject response = new JsonObject();
+            response.addProperty("type", "dig_response");
+            response.addProperty("botId", botId);
+            response.addProperty("success", success);
+            response.add("blockPosition", blockPosition);
+            send(gson.toJson(response));
+
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to handle dig", e);
+        }
+    }
+
+    private void handlePlace(JsonObject json) {
+        try {
+            String botId = json.get("botId").getAsString();
+            JsonObject blockPosition = json.getAsJsonObject("blockPosition");
+            String blockType = json.has("blockType") ? json.get("blockType").getAsString() : "stone";
+
+            double x = blockPosition.get("x").getAsDouble();
+            double y = blockPosition.get("y").getAsDouble();
+            double z = blockPosition.get("z").getAsDouble();
+
+            boolean success = actionManager.place(botId, x, y, z, blockType);
+
+            // Send response
+            JsonObject response = new JsonObject();
+            response.addProperty("type", "place_response");
+            response.addProperty("botId", botId);
+            response.addProperty("success", success);
+            response.add("blockPosition", blockPosition);
+            response.addProperty("blockType", blockType);
+            send(gson.toJson(response));
+
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to handle place", e);
+        }
+    }
+
+    private void handleAttack(JsonObject json) {
+        try {
+            String botId = json.get("botId").getAsString();
+            String targetId = json.get("target").getAsString();
+
+            boolean success = actionManager.attack(botId, targetId);
+
+            // Send response
+            JsonObject response = new JsonObject();
+            response.addProperty("type", "attack_response");
+            response.addProperty("botId", botId);
+            response.addProperty("success", success);
+            response.addProperty("target", targetId);
+            send(gson.toJson(response));
+
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to handle attack", e);
+        }
+    }
+
+    private void handleUseItem(JsonObject json) {
+        try {
+            String botId = json.get("botId").getAsString();
+            String itemName = json.get("itemName").getAsString();
+            String target = json.has("target") ? json.get("target").getAsString() : null;
+
+            boolean success = actionManager.useItem(botId, itemName, target);
+
+            // Send response
+            JsonObject response = new JsonObject();
+            response.addProperty("type", "useItem_response");
+            response.addProperty("botId", botId);
+            response.addProperty("success", success);
+            response.addProperty("itemName", itemName);
+            send(gson.toJson(response));
+
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to handle useItem", e);
+        }
+    }
+
+    private void handleInventory(JsonObject json) {
+        try {
+            String botId = json.get("botId").getAsString();
+
+            JsonObject inventoryData = actionManager.inventory(botId);
+
+            // Send response
+            JsonObject response = new JsonObject();
+            response.addProperty("type", "inventory_response");
+            response.addProperty("botId", botId);
+            response.add("result", inventoryData);
+            send(gson.toJson(response));
+
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to handle inventory", e);
+        }
+    }
+
+    private void handleChat(JsonObject json) {
+        try {
+            String botId = json.get("botId").getAsString();
+            String message = json.get("message").getAsString();
+
+            boolean success = actionManager.chat(botId, message);
+
+            // Send response
+            JsonObject response = new JsonObject();
+            response.addProperty("type", "chat_response");
+            response.addProperty("botId", botId);
+            response.addProperty("success", success);
+            response.addProperty("message", message);
+            send(gson.toJson(response));
+
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to handle chat", e);
+        }
+    }
+
+    private void handleJump(JsonObject json) {
+        try {
+            String botId = json.get("botId").getAsString();
+
+            boolean success = actionManager.jump(botId);
+
+            // Send response
+            JsonObject response = new JsonObject();
+            response.addProperty("type", "jump_response");
+            response.addProperty("botId", botId);
+            response.addProperty("success", success);
+            send(gson.toJson(response));
+
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to handle jump", e);
         }
     }
 

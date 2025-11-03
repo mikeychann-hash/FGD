@@ -18,6 +18,7 @@ public class FGDProxyPlayerPlugin extends JavaPlugin {
     private FGDWebSocketClient webSocketClient;
     private BotManager botManager;
     private ScanManager scanManager;
+    private ActionManager actionManager;
     private String serverUrl;
     private boolean autoConnect;
 
@@ -29,6 +30,7 @@ public class FGDProxyPlayerPlugin extends JavaPlugin {
         // Initialize managers
         this.botManager = new BotManager(this);
         this.scanManager = new ScanManager(this);
+        this.actionManager = new ActionManager(this, botManager);
 
         // Load configuration
         FileConfiguration config = getConfig();
@@ -122,7 +124,7 @@ public class FGDProxyPlayerPlugin extends JavaPlugin {
     private void connectToFGD() {
         try {
             URI serverUri = new URI(serverUrl);
-            webSocketClient = new FGDWebSocketClient(serverUri, this, botManager, scanManager);
+            webSocketClient = new FGDWebSocketClient(serverUri, this, botManager, scanManager, actionManager);
             webSocketClient.connect();
             getLogger().info("Connecting to FGD server at " + serverUrl);
         } catch (Exception e) {
@@ -136,5 +138,9 @@ public class FGDProxyPlayerPlugin extends JavaPlugin {
 
     public ScanManager getScanManager() {
         return scanManager;
+    }
+
+    public ActionManager getActionManager() {
+        return actionManager;
     }
 }

@@ -1,13 +1,18 @@
 // admin.js
-// Admin panel with auto-login and remove buttons
+// Admin panel with secure login and bot controls
 
-let apiKey = "admin123";
+let apiKey = "";
 let socket = null;
 let refreshTimeout = null;
 
 document.addEventListener("DOMContentLoaded", () => {
-  localStorage.setItem("apiKey", apiKey);
-  login(apiKey);
+  apiKey = localStorage.getItem("apiKey") || "";
+  const apiKeyInput = document.getElementById("apiKeyInput");
+  if (apiKeyInput && apiKey) {
+    apiKeyInput.value = apiKey;
+  }
+
+  document.getElementById("loginForm").addEventListener("submit", handleLoginSubmit);
   document.getElementById("createBotForm").addEventListener("submit", handleCreateBot);
 });
 
@@ -21,6 +26,24 @@ async function login(key) {
     document.getElementById("adminPanel").classList.remove("hidden");
     connectWebSocket();
     await loadBots();
+  } catch (err) {
+    showNotification(err.message || "Login failed", "error");
+    throw err;
+  }
+}
+
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+  const input = document.getElementById("apiKeyInput");
+  const key = input?.value.trim();
+
+  if (!key) {
+    showNotification("API key is required", "error");
+    return;
+  }
+
+  try {
+    await login(key);
   } catch (err) {
     console.error(err);
   }
@@ -62,6 +85,29 @@ function scheduleBotRefresh() {
     }
   }, 250);
 }
+
+function logout() {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+
+  apiKey = "";
+  localStorage.removeItem("apiKey");
+
+  document.getElementById("adminPanel").classList.add("hidden");
+  document.getElementById("loginScreen").classList.remove("hidden");
+
+  const apiKeyInput = document.getElementById("apiKeyInput");
+  if (apiKeyInput) {
+    apiKeyInput.value = "";
+    apiKeyInput.focus();
+  }
+
+  showNotification("Logged out", "info");
+}
+
+window.logout = logout;
 
 async function apiCall(endpoint, options = {}) {
   const response = await fetch(endpoint, {

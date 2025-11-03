@@ -107,7 +107,7 @@ The NPC subsystem is composed of:
 3. When using `server.js`, set `MINECRAFT_RCON_PASSWORD` to trigger bridge initialization; otherwise the bridge remains disabled for offline development.【F:server.js†L150-L188】
 
 ### Admin and Dashboard Clients
-- Visit `http://localhost:3000/` for the admin panel (default API key `admin123`).【F:server.js†L360-L520】【F:admin.js†L4-L26】
+- Visit `http://localhost:3000/` for the admin panel and supply the API key configured in `ADMIN_API_KEY`. The UI now prompts for credentials instead of auto-signing in with a placeholder.【F:server.js†L360-L520】【F:admin.js†L1-L80】
 - Visit `http://localhost:3000/dashboard.html` or `http://localhost:3000/fusion.html` for operations dashboards once the server is running.
 
 ## Configuration
@@ -115,8 +115,8 @@ The NPC subsystem is composed of:
 ### Environment Variables
 | Variable | Default | Description |
 | --- | --- | --- |
-| `ADMIN_API_KEY` | `admin-key-change-me` | API key accepted by the admin role through the authentication middleware.【F:middleware/auth.js†L18-L125】 |
-| `LLM_API_KEY` | `llm-key-change-me` | API key accepted by the LLM integration role for `/api/llm` access.【F:middleware/auth.js†L18-L125】 |
+| `ADMIN_API_KEY` | `admin-key-change-me` | API key accepted by the admin role through the authentication middleware. Production boots will fail if this remains the placeholder.【F:middleware/auth.js†L18-L125】【F:security/secrets.js†L1-L104】 |
+| `LLM_API_KEY` | `llm-key-change-me` | API key accepted by the LLM integration role for `/api/llm` access. Must be overridden for production deployments.【F:middleware/auth.js†L18-L125】【F:security/secrets.js†L1-L104】 |
 | `PORT` | `3000` | HTTP port for `server.js` (falls back to default if unset).【F:server.js†L23-L24】【F:server.js†L818-L858】 |
 | `MINECRAFT_RCON_HOST` | `127.0.0.1` | Overrides Paper server host for bridge connections.【F:server.js†L150-L168】 |
 | `MINECRAFT_RCON_PORT` | `25575` | Overrides RCON port.【F:server.js†L150-L168】 |
@@ -126,7 +126,7 @@ The NPC subsystem is composed of:
 | `LLM_PROVIDER` | `openai` | Selects which provider configuration to use in the LLM bridge.【F:llm_bridge.js†L28-L36】 |
 | `JWT_SECRET` | Random | JWT signing secret for `server.js` authentication middleware.【F:middleware/auth.js†L1-L125】 |
 | `JWT_EXPIRES_IN` | `24h` | Token lifetime.【F:middleware/auth.js†L7-L56】 |
-| `ADMIN_API_KEY` / `LLM_API_KEY` | Hard-coded defaults | Alternative API key auth for admin vs LLM clients.【F:middleware/auth.js†L18-L156】 |
+| `ADMIN_API_KEY` / `LLM_API_KEY` | Hard-coded defaults | Alternative API key auth for admin vs LLM clients (development only defaults).【F:middleware/auth.js†L18-L156】【F:security/secrets.js†L1-L104】 |
 | `LOG_LEVEL` | `info` | Controls minimum log level for the shared logger instance.【F:logger.js†L150-L176】 |
 
 Additional experimental flags exist throughout the repository (e.g., `DEBUG`, `LLM_CONTROL_RATIO`) and can be toggled when running CLI tooling or interpreters.【F:npc_cli.js†L395-L400】【F:interpreter.js†L29-L279】
@@ -141,16 +141,16 @@ Additional experimental flags exist throughout the repository (e.g., `DEBUG`, `L
 ### REST API
 ```bash
 # List bots (admin API key)
-curl -H "X-API-Key: admin123" http://localhost:3000/api/bots
+curl -H "X-API-Key: $ADMIN_API_KEY" http://localhost:3000/api/bots
 
 # Create a miner bot
 curl -X POST -H "Content-Type: application/json" \
-     -H "X-API-Key: admin123" \
+     -H "X-API-Key: $ADMIN_API_KEY" \
      -d '{"name":"miner_01","role":"miner"}' \
      http://localhost:3000/api/bots
 
 # Despawn a bot
-curl -X DELETE -H "X-API-Key: admin123" \
+curl -X DELETE -H "X-API-Key: $ADMIN_API_KEY" \
      http://localhost:3000/api/bots/miner_01
 ```
 These routes are validated and broadcast over Socket.IO so that admin consoles stay in sync.【F:server.js†L360-L520】【F:routes/bot.js†L73-L200】
@@ -180,7 +180,7 @@ Commands are parsed against pattern handlers (`spawn`, `list`, `teleport`, etc.)
 - The repository includes Windows (`*.bat`) and Unix (`*.sh`) helper scripts for spinning up the full stack; adjust them to reference `server.js` if you migrate from the legacy runtime.
 
 ## Known Issues and Limitations
-- Some legacy classes (`NPCRegistryOld`, `NPCSpawnerOld`) remain in the codebase for compatibility but are marked as disabled; prefer the active implementations wired through `server.js` and `npc_engine/` when extending the system.【F:npc_registry.js†L1-L52】【F:npc_spawner.js†L18-L24】
-- Default secrets (`admin123`, `admin-key-change-me`, `llm-key-change-me`, `fgd_rcon_password_change_me`) are placeholders and must be overridden before production use.【F:server.js†L360-L520】【F:middleware/auth.js†L18-L156】【F:minecraft-bridge-config.js†L5-L117】
-- The dashboard simulates metrics unless real telemetry is provided; integrate with actual cluster data sources to avoid relying on random sampling.【F:server.js†L290-L345】
+- Legacy registry/spawner shims have been removed; extend the live `NPCRegistry` and `NPCSpawner` exports when building new features.【F:npc_registry.js†L1-L200】【F:npc_spawner.js†L1-L200】
+- Development defaults exist for API keys and the RCON password, but the server now emits warnings and blocks production boots when placeholders are detected. Override `ADMIN_API_KEY`, `LLM_API_KEY`, and `MINECRAFT_RCON_PASSWORD` before going live.【F:middleware/auth.js†L1-L125】【F:minecraft-bridge-config.js†L1-L48】【F:server.js†L120-L210】
+- Metrics are sourced from real telemetry feeds and host statistics; ensure your deployment updates the JSON payloads in `data/` (or supplies live emitters) instead of relying on random sampling.【F:server.js†L240-L420】
 - LLM providers return mock responses when API keys are absent; ensure credentials are configured to avoid silent fallbacks during testing.【F:llm_bridge.js†L108-L195】

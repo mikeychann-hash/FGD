@@ -4,6 +4,8 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
+import { resolveSecret } from '../security/secrets.js';
+
 // Generate a secure secret if not provided
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
@@ -16,20 +18,23 @@ export const ROLES = {
 };
 
 // Default users (in production, use a database)
+const ADMIN_API_KEY = resolveSecret('ADMIN_API_KEY', 'admin-key-change-me', { label: 'Admin API key' });
+const LLM_API_KEY = resolveSecret('LLM_API_KEY', 'llm-key-change-me', { label: 'LLM API key' });
+
 const USERS = {
   admin: {
     id: 'admin',
     username: 'admin',
     password: '$2b$10$XQmVZKZRqF0qXHqXqVHqVeH', // Change in production!
     role: ROLES.ADMIN,
-    apiKey: process.env.ADMIN_API_KEY || 'admin-key-change-me'
+    apiKey: ADMIN_API_KEY
   },
   llm: {
     id: 'llm',
     username: 'llm',
     password: null, // LLM uses API key only
     role: ROLES.LLM,
-    apiKey: process.env.LLM_API_KEY || 'llm-key-change-me'
+    apiKey: LLM_API_KEY
   }
 };
 

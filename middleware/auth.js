@@ -18,7 +18,8 @@ export const ROLES = {
 };
 
 // Default users (in production, use a database)
-const ADMIN_API_KEY = resolveSecret('ADMIN_API_KEY', 'admin-key-change-me', { label: 'Admin API key' });
+// Default API key for local development: folks123
+const ADMIN_API_KEY = resolveSecret('ADMIN_API_KEY', 'folks123', { label: 'Admin API key' });
 const LLM_API_KEY = resolveSecret('LLM_API_KEY', 'llm-key-change-me', { label: 'LLM API key' });
 
 const USERS = {

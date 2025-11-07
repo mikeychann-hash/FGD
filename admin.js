@@ -5,11 +5,29 @@ let apiKey = "";
 let socket = null;
 let refreshTimeout = null;
 
-document.addEventListener("DOMContentLoaded", () => {
-  apiKey = localStorage.getItem("apiKey") || "";
+document.addEventListener("DOMContentLoaded", async () => {
+  // Auto-login with default API key for local development
+  const DEFAULT_API_KEY = "folks123";
+  apiKey = localStorage.getItem("apiKey") || DEFAULT_API_KEY;
+
   const apiKeyInput = document.getElementById("apiKeyInput");
-  if (apiKeyInput && apiKey) {
+  if (apiKeyInput) {
     apiKeyInput.value = apiKey;
+  }
+
+  // Auto-login if we have an API key
+  if (apiKey) {
+    try {
+      await login(apiKey);
+      console.log("Auto-login successful");
+    } catch (err) {
+      // If auto-login fails, show login screen
+      console.log("Auto-login failed, showing login screen");
+      apiKey = DEFAULT_API_KEY;
+      if (apiKeyInput) {
+        apiKeyInput.value = apiKey;
+      }
+    }
   }
 
   document.getElementById("loginForm").addEventListener("submit", handleLoginSubmit);

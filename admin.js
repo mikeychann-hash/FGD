@@ -97,6 +97,10 @@ function connectWebSocket() {
   socket.on("bot:scan", (payload) => {
     logConsole(`Scan received for ${payload.botId} (r=${payload.radius})`);
   });
+  socket.on("bot:deleted", (payload) => {
+    logConsole(`Bot ${payload.botId} deleted by ${payload.deletedBy}`, "info");
+    scheduleBotRefresh();
+  });
   socket.on("bot:error", (payload) => {
     logConsole(`Bot error for ${payload.npcId || payload.botId || "unknown"}`, "error");
   });

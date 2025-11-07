@@ -4,6 +4,8 @@
 let apiKey = "";
 let socket = null;
 let refreshTimeout = null;
+let statusLogThrottle = new Map(); // Track last log time per bot
+const STATUS_LOG_INTERVAL = 5000; // Only log status updates every 5 seconds per bot
 
 document.addEventListener("DOMContentLoaded", async () => {
   // Auto-login with default API key for local development
@@ -70,13 +72,22 @@ async function handleLoginSubmit(event) {
 function connectWebSocket() {
   socket = io({ auth: { apiKey } });
   socket.on("connect", () => logConsole("Connected to backend", "success"));
-  socket.on("disconnect", () => logConsole("Disconnected", "error"));
+  socket.on("disconnect", () => {
+    logConsole("Disconnected", "error");
+    statusLogThrottle.clear(); // Clear throttle map on disconnect
+  });
   socket.on("bot:moved", (payload) => {
     logConsole(`Bot ${payload.botId} moved to ${formatPosition(payload.position)}`);
     scheduleBotRefresh();
   });
   socket.on("bot:status", (payload) => {
-    logConsole(`Status update from ${payload.botId} (tick ${payload.tick ?? "?"})`);
+    // Throttle status logs to prevent console spam
+    const now = Date.now();
+    const lastLog = statusLogThrottle.get(payload.botId) || 0;
+    if (now - lastLog >= STATUS_LOG_INTERVAL) {
+      logConsole(`Status update from ${payload.botId} (tick ${payload.tick ?? "?"})`);
+      statusLogThrottle.set(payload.botId, now);
+    }
     scheduleBotRefresh();
   });
   socket.on("bot:task_complete", (payload) => {

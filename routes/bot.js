@@ -223,8 +223,18 @@ export function initBotRoutes(npcEngine, io) {
         description,
         position,
         taskParameters,
-        behaviorPreset
+        behaviorPreset,
+        autoSpawn
       } = req.body;
+
+      const shouldAutoSpawn = autoSpawn !== false;
+
+      if (shouldAutoSpawn && npcEngine.bridge) {
+        const limitError = checkSpawnLimit(npcEngine, 1);
+        if (limitError) {
+          return res.status(400).json(limitError);
+        }
+      }
 
       if (!role && !type) {
         return res.status(400).json({
@@ -251,8 +261,11 @@ export function initBotRoutes(npcEngine, io) {
           createdBy: req.user.username,
           createdByRole: req.user.role
         },
-        autoSpawn: false
+        autoSpawn: shouldAutoSpawn
       });
+
+      const spawnResponse = bot?.lastSpawnResponse || null;
+      const spawned = Boolean(spawnResponse && spawnResponse.success !== false);
 
       // Emit WebSocket event
       if (io) {
@@ -272,7 +285,9 @@ export function initBotRoutes(npcEngine, io) {
 
       res.status(201).json({
         success: true,
-        message: `Bot ${bot.id} created successfully`,
+        message: spawned
+          ? `Bot ${bot.id} created and spawned successfully`
+          : `Bot ${bot.id} created successfully`,
         bot: {
           id: bot.id,
           role: bot.role,
@@ -281,7 +296,9 @@ export function initBotRoutes(npcEngine, io) {
           personalityTraits: bot.personalityTraits,
           description: bot.description,
           position: bot.spawnPosition
-        }
+        },
+        spawned,
+        spawnResponse: spawnResponse || undefined
       });
     } catch (error) {
       console.error('Error creating bot:', error);

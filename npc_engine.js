@@ -747,6 +747,12 @@ export class NPCEngine extends EventEmitter {
       clearTimeout(this.taskTimeouts.get(id));
       this.taskTimeouts.delete(id);
     }
+    if (this.bridge?.despawnEntity) {
+      Promise.resolve(this.bridge.despawnEntity({ npcId: id })).catch(error => {
+        console.error(`⚠️  Failed to despawn NPC ${id}:`, error.message);
+      });
+    }
+
     this.npcs.delete(id);
     console.log(`👋 Unregistered NPC ${id}`);
     this.emit("npc_unregistered", { id });

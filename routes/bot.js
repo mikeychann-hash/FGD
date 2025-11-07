@@ -89,6 +89,11 @@ export function initBotRoutes(npcEngine, io) {
       let bots = npcEngine.registry.getAll();
       const runtimeMap = npcEngine.npcs instanceof Map ? npcEngine.npcs : null;
 
+      // Filter out inactive bots by default (unless explicitly requested)
+      if (status !== 'inactive') {
+        bots = bots.filter(bot => bot.status !== 'inactive');
+      }
+
       // Apply filters
       if (status) {
         bots = bots.filter(bot => bot.status === status);

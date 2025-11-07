@@ -288,6 +288,38 @@ export class LearningEngine {
   }
 
   /**
+   * Gets or creates an NPC profile with a specific role
+   * @param {string} npcName - The name of the NPC
+   * @param {string} role - The role for the NPC (miner, builder, scout, guard)
+   * @returns {Object} The NPC profile
+   * @throws {TypeError} If npcName or role is invalid
+   */
+  getOrCreateProfile(npcName, role) {
+    this.validateNpcName(npcName);
+
+    if (!this.profiles[npcName]) {
+      const normalizedRole = this.normalizeRole(role, npcName);
+      this.profiles[npcName] = {
+        role: normalizedRole,
+        skills: {
+          mining: 1,
+          building: 1,
+          gathering: 1,
+          exploring: 1,
+          guard: 1
+        },
+        personality: this.traits.generate(),
+        xp: 0,
+        tasksCompleted: 0,
+        tasksFailed: 0,
+        createdAt: new Date().toISOString()
+      };
+      console.log(`✨ Created new profile for ${npcName} with role ${normalizedRole}`);
+    }
+    return this.profiles[npcName];
+  }
+
+  /**
    * Returns a deep copy of all profiles
    * @returns {Object} Deep copy of all NPC profiles
    */

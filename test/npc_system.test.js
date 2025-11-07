@@ -138,13 +138,13 @@ async function testLearningEngine() {
   assert(profile.personality, 'Profile should have personality');
 
   // Test: Record task success
-  learning.recordTask('test_miner_01', 'mine', true);
+  await learning.recordTask('test_miner_01', 'mine', true);
   const updated = learning.getProfile('test_miner_01');
   assertEqual(updated.tasksCompleted, 1, 'Tasks completed should be 1');
   assert(updated.xp > 0, 'XP should be greater than 0');
 
   // Test: Record task failure
-  learning.recordTask('test_miner_01', 'build', false);
+  await learning.recordTask('test_miner_01', 'build', false);
   const afterFailure = learning.getProfile('test_miner_01');
   assertEqual(afterFailure.tasksFailed, 1, 'Tasks failed should be 1');
 

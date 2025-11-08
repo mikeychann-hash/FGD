@@ -3,11 +3,9 @@
 
 import express from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
+import { MAX_BOTS } from '../constants.js';
 
 const router = express.Router();
-
-// Maximum number of bots that can be spawned at once
-const MAX_BOTS = 8;
 
 /**
  * Count currently spawned bots
@@ -229,11 +227,11 @@ export function initBotRoutes(npcEngine, io) {
 
       const shouldAutoSpawn = autoSpawn !== false;
 
-      if (shouldAutoSpawn && npcEngine.bridge) {
-        const limitError = checkSpawnLimit(npcEngine, 1);
-        if (limitError) {
-          return res.status(400).json(limitError);
-        }
+      // Always check spawn limit, regardless of bridge availability
+      // This prevents exceeding MAX_BOTS even if spawning is deferred
+      const limitError = checkSpawnLimit(npcEngine, 1);
+      if (limitError) {
+        return res.status(400).json(limitError);
       }
 
       if (!role && !type) {

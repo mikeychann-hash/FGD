@@ -8,9 +8,7 @@ let statusLogThrottle = new Map(); // Track last log time per bot
 const STATUS_LOG_INTERVAL = 5000; // Only log status updates every 5 seconds per bot
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // Auto-login with default API key for local development
-  const DEFAULT_API_KEY = "folks123";
-  apiKey = localStorage.getItem("apiKey") || DEFAULT_API_KEY;
+  apiKey = localStorage.getItem("apiKey") || "";
 
   const apiKeyInput = document.getElementById("apiKeyInput");
   if (apiKeyInput) {
@@ -25,9 +23,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch (err) {
       // If auto-login fails, show login screen
       console.log("Auto-login failed, showing login screen");
-      apiKey = DEFAULT_API_KEY;
+      apiKey = "";
       if (apiKeyInput) {
-        apiKeyInput.value = apiKey;
+        apiKeyInput.value = "";
       }
     }
   }

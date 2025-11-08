@@ -64,6 +64,7 @@ export class NPCFinalizer {
     try {
       const dir = path.dirname(this.archivePath);
       await fs.mkdir(dir, { recursive: true });
+      await this.#rotateBackups();
       await fs.writeFile(
         this.archivePath,
         JSON.stringify(this.archive, null, 2),
@@ -74,6 +75,33 @@ export class NPCFinalizer {
       this.log.error('Failed to save archive', { error: error.message });
       throw error;
     }
+  }
+
+  async #rotateBackups() {
+    try {
+      await fs.access(this.archivePath);
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return;
+      }
+      throw error;
+    }
+
+    const maxBackups = 5;
+    for (let index = maxBackups - 1; index >= 0; index -= 1) {
+      const source = `${this.archivePath}.bak.${index}`;
+      const target = `${this.archivePath}.bak.${index + 1}`;
+      try {
+        await fs.access(source);
+        await fs.rename(source, target);
+      } catch (error) {
+        if (error.code !== 'ENOENT') {
+          this.log.warn('Failed to rotate archive backup', { error: error.message, source });
+        }
+      }
+    }
+
+    await fs.copyFile(this.archivePath, `${this.archivePath}.bak.0`);
   }
 
   /**

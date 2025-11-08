@@ -10,7 +10,8 @@
     API_ENDPOINTS: {
       cluster: '/data/cluster_status.json',
       fusion: '/data/fused_knowledge.json',
-      metrics: '/data/metrics.json'
+      metrics: '/data/metrics.json',
+      performance: '/api/cluster/metrics'
     },
     CHART_COLORS: {
       cpu: '#60a5fa',
@@ -26,6 +27,8 @@
       clusterGrid: 'cluster-grid',
       cpuChart: 'cpuChart',
       memChart: 'memChart',
+      queueChart: 'queueChart',
+      latencyChart: 'latencyChart',
       fusionBar: 'fusionBar',
       fusionSkills: 'fusion-skills',
       fusionDialogues: 'fusion-dialogues',
@@ -45,12 +48,19 @@
   let chartInstances = {
     cpu: null,
     memory: null,
-    fusion: null
+    fusion: null,
+    queue: null,
+    latency: null
   };
   let pollingTimer = null;
   let metricsHistory = {
     cpu: [],
     memory: [],
+    timestamps: []
+  };
+  let performanceHistory = {
+    queue: [],
+    latency: [],
     timestamps: []
   };
 
@@ -150,6 +160,21 @@
       metricsHistory.cpu.shift();
       metricsHistory.memory.shift();
       metricsHistory.timestamps.shift();
+    }
+  }
+
+  function updatePerformanceHistory(performance) {
+    const MAX_HISTORY = 15;
+    const queueDepth = typeof performance.queueDepth === 'number' ? performance.queueDepth : 0;
+    const latency = typeof performance.lastLatencySeconds === 'number' ? performance.lastLatencySeconds : 0;
+    performanceHistory.queue.push(queueDepth);
+    performanceHistory.latency.push(latency);
+    performanceHistory.timestamps.push(new Date().toLocaleTimeString());
+
+    if (performanceHistory.queue.length > MAX_HISTORY) {
+      performanceHistory.queue.shift();
+      performanceHistory.latency.shift();
+      performanceHistory.timestamps.shift();
     }
   }
 
@@ -254,6 +279,94 @@
           legend: {
             display: false
           }
+        }
+      }
+    });
+  }
+
+  function renderQueueChart() {
+    const canvasEl = document.getElementById(CONFIG.ELEMENT_IDS.queueChart);
+    if (!canvasEl) {
+      return;
+    }
+
+    const ctx = canvasEl.getContext('2d');
+    if (!ctx) {
+      return;
+    }
+
+    if (chartInstances.queue) {
+      chartInstances.queue.destroy();
+    }
+
+    chartInstances.queue = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: performanceHistory.timestamps,
+        datasets: [{
+          label: 'Tasks Pending',
+          data: performanceHistory.queue,
+          borderColor: '#facc15',
+          backgroundColor: '#facc1533',
+          fill: true,
+          tension: 0.4,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        },
+        plugins: {
+          legend: { display: false }
+        }
+      }
+    });
+  }
+
+  function renderLatencyChart() {
+    const canvasEl = document.getElementById(CONFIG.ELEMENT_IDS.latencyChart);
+    if (!canvasEl) {
+      return;
+    }
+
+    const ctx = canvasEl.getContext('2d');
+    if (!ctx) {
+      return;
+    }
+
+    if (chartInstances.latency) {
+      chartInstances.latency.destroy();
+    }
+
+    chartInstances.latency = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: performanceHistory.timestamps,
+        datasets: [{
+          label: 'Seconds',
+          data: performanceHistory.latency,
+          borderColor: '#34d399',
+          backgroundColor: '#34d39933',
+          fill: true,
+          tension: 0.4,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        },
+        plugins: {
+          legend: { display: false }
         }
       }
     });
@@ -440,6 +553,26 @@
     }
   }
 
+  async function loadPerformanceData() {
+    try {
+      const res = await fetch(CONFIG.API_ENDPOINTS.performance);
+      if (!res.ok) {
+        throw new Error(`Performance request failed with status ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid performance payload');
+      }
+
+      updatePerformanceHistory(data.performance || {});
+      renderQueueChart();
+      renderLatencyChart();
+    } catch (err) {
+      console.error('Unable to load performance data', err);
+    }
+  }
+
   /**
    * Loads all dashboard data
    */
@@ -447,7 +580,8 @@
     await Promise.all([
       loadClusterData(),
       loadFusionData(),
-      loadMetricsData()
+      loadMetricsData(),
+      loadPerformanceData()
     ]);
   }
 

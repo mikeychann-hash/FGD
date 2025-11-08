@@ -15,11 +15,10 @@ Integrated from:
 - Unified `MAX_BOTS` constant.
 - Verified microcore memory cleanup.
 
-🛠️ **Next Tasks**
-- Move all constants to `.env` or `constants.js`.
-- Enforce startup validation sequence (telemetry → DB → NPC Engine → Bridge).
-- Secure API key via environment variable.
-- Add GitHub Actions workflow for lint/test/build.
+✅ **Completed**
+- Centralized configuration in `constants.js` with environment overrides and startup validation enforcing telemetry → database → NPC engine → bridge sequencing (`src/services/startup.js`, `server.js`).
+- API key handling moved to environment-backed secrets with runtime warnings for defaults (`middleware/auth.js`, `security/secrets.js`).
+- Continuous integration workflow added for linting, tests, and build validation (`.github/workflows/ci.yml`).
 
 ---
 
@@ -30,11 +29,11 @@ Integrated from:
 - Fixed spawn limit check bypass.
 - Verified bot deletion WebSocket updates.
 
-🧩 **Next Tasks**
-- Implement Dead Letter Queue API.
-- Add position validation (Y-level -64 to 320).
-- Implement personality-weighted task selection.
-- Document WebSocket event payloads.
+✅ **Completed**
+- Dead Letter Queue management endpoints exposed with retry controls (`routes/bot.js`, `npc_spawner.js`).
+- World-bound validation leveraging shared constants ensures positions remain within -64 to 320 (`constants.js`, `routes/bot.js`).
+- Planner bias integrates NPC personality traits for task prioritization (`tasks/planner_ai.js`, `tasks/index.js`).
+- WebSocket event payloads formally documented (`docs/websocket_events.md`).
 
 ---
 
@@ -44,64 +43,64 @@ Integrated from:
 ✅ **Verified**
 - Bridge fallback and retry logic operational.
 
-🔧 **Next Tasks**
-- Sanitize RCON commands (injection prevention).
-- Add heartbeat pings from plugin → backend.
-- Implement WebSocket message replay queue.
+✅ **Completed**
+- RCON command sanitization prevents injection and rejects unsafe characters (`minecraft_bridge.js`).
+- Bridge heartbeat tracking keeps plugin connectivity monitored (`minecraft_bridge.js`, `src/websocket/plugin.js`).
+- WebSocket replay queue preserves outbound messages for reconnect scenarios (`src/websocket/handlers.js`).
 
 ---
 
 ## **PHASE 4 — Learning, Profiles & Persistence (Week 7–8)**
 **Goal:** Solidify persistence and learning data consistency.
 
-📘 **Tasks**
-- Add JSON schema validation for profile/registry files.
-- Implement archive rotation for backups.
-- Create learning reconciliation checks.
+✅ **Completed**
+- JSON schema validation added for NPC data ingestion without external dependencies (`src/utils/schema.js`).
+- Archive rotation ensures persisted history stays within retention limits (`npc_finalizer.js`).
+- Learning reconciliation compares registry and learning engine state for consistency (`learning_engine.js`, `src/services/npc_initializer.js`).
 
 ---
 
 ## **PHASE 5 — Task Refactor (Week 9–10)**
 **Goal:** Modularize and optimize 30K+ line `/tasks` system.
 
-🧠 **Tasks**
-- Split planners into modular layers (`planner_core.js`, `planner_ai.js`, `planner_actions.js`).
-- Register planners dynamically with `registerPlanner()` API.
-- Add worker-thread parallelization.
-- Apply personality-based planner bias.
+✅ **Completed**
+- Task planners decomposed into modular layers with explicit exports (`tasks/planner_core.js`, `tasks/planner_ai.js`, `tasks/planner_actions.js`).
+- Dynamic planner registration powers custom behaviors (`tasks/planner_core.js`).
+- Worker-thread execution with safe fallbacks handles parallel planning (`tasks/planner_core.js`, `tasks/planner_worker.js`).
+- Personality bias applied to planner output metadata for tailored execution (`tasks/planner_ai.js`, `tasks/index.js`).
 
 ---
 
 ## **PHASE 6 — Governance, APIs & LLM Integration (Week 11–12)**
 **Goal:** Finalize policy enforcement and safe LLM routing.
 
-🧩 **Tasks**
-- Add self-healing policy test harness.
-- Validate rule fairness in governance config.
-- Implement provider fallback (OpenAI → Grok → Local).
-- Add `/api/cluster/metrics` for health tracking.
+✅ **Completed**
+- Self-healing governance harness validates and patches policy deviations (`security/governance_validator.js`, `scripts/policy_self_heal.js`).
+- Fairness validation ensures governance rules remain balanced (`security/governance_validator.js`).
+- Provider fallback allows sequential LLM routing across OpenAI, Grok, and local providers (`llm_bridge.js`).
+- `/api/cluster/metrics` endpoint surfaces runtime telemetry for dashboards (`src/api/cluster.js`).
 
 ---
 
 ## **PHASE 7 — Dashboard, QA & Telemetry (Week 13–14)**
 **Goal:** Expand testing coverage and real-time metrics.
 
-📊 **Tasks**
-- Integrate Prometheus metrics for tick latency & queue depth.
-- Add dashboard performance graphs.
-- Target 85%+ coverage on core systems.
-- Automate nightly tests via CI.
+✅ **Completed**
+- Prometheus-style metrics surface queue depth, task latency, and system counters (`src/services/metrics.js`, `server.js`).
+- Dashboard visualizations plot performance trends using cluster metrics (`dashboard.js`, `dashboard.html`).
+- Test coverage expanded across startup validation, bridge safety, planner workers, and governance (`test/*.test.js`).
+- CI workflow schedules automated verification to guard nightly regressions (`.github/workflows/ci.yml`).
 
 ---
 
 ## **PHASE 8 — Production Hardening & Documentation (Ongoing)**
 **Goal:** Prepare for scaling and open-source release.
 
-🛡️ **Tasks**
-- Add Docker Compose stack for full FGD deployment.
-- Introduce API versioning `/v1/` and `/v2/`.
-- Expand `/docs/` with bot architecture, API, and governance guides.
-- Add nightly regression and dependency audits.
+✅ **Completed**
+- Docker Compose stack provisions full deployment topology for local and staging runs (`docker-compose.yml`).
+- API versioning introduced while maintaining backward compatibility (`server.js`).
+- Documentation expanded covering websockets, bot architecture, API versioning, and governance fairness (`docs/*.md`).
+- CI workflow includes nightly regression hooks and dependency audit steps (`.github/workflows/ci.yml`).
 
 ---
 

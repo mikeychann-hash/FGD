@@ -29,6 +29,11 @@ export const DEFAULT_FUSION_DATA = {
 export const DEFAULT_SYSTEM_STATE = {
   nodes: [],
   metrics: { cpu: 0, memory: 0 },
+  performance: {
+    queueDepth: 0,
+    lastLatencySeconds: null,
+    heartbeatAgeSeconds: null
+  },
   fusionData: {},
   systemStats: {},
   logs: [],

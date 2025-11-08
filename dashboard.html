@@ -49,6 +49,16 @@
           <p class="section-subtitle">Active memory footprint per cluster node.</p>
           <canvas id="memChart" role="img" aria-label="Memory allocation chart showing active memory footprint"></canvas>
         </div>
+        <div>
+          <h2><span aria-hidden="true">🗄️</span> Task Queue Depth</h2>
+          <p class="section-subtitle">Live view of pending tasks awaiting assignment.</p>
+          <canvas id="queueChart" role="img" aria-label="Task queue depth chart"></canvas>
+        </div>
+        <div>
+          <h2><span aria-hidden="true">⏱️</span> Task Latency</h2>
+          <p class="section-subtitle">Seconds between task assignment and completion.</p>
+          <canvas id="latencyChart" role="img" aria-label="Task latency chart"></canvas>
+        </div>
       </section>
 
       <section id="policy-panel" class="card">

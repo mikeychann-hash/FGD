@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
 import { Traits } from "./traits.js";
+import { validateProfileData } from "./src/utils/schema.js";
 
 const SKILL_INCREMENT = 0.1;
 const XP_PER_TASK = 1;
@@ -73,6 +74,7 @@ export class LearningEngine {
 
       try {
         this.profiles = JSON.parse(data);
+        validateProfileData(this.profiles);
         Object.entries(this.profiles).forEach(([npcId, profile]) => {
           if (!profile || typeof profile !== "object") {
             return;
@@ -147,6 +149,43 @@ export class LearningEngine {
       console.error("❌ Error saving profiles:", err.message);
       throw new Error(`Failed to save profiles: ${err.message}`);
     }
+  }
+
+  async reconcileWithRegistry(registry) {
+    if (!registry) {
+      return { created: 0, removed: 0 };
+    }
+
+    await this.initialize();
+    await registry.load?.();
+
+    const entries = typeof registry.getAll === "function" ? registry.getAll() : [];
+    const registryIds = new Set(entries.map(entry => entry.id));
+
+    let removed = 0;
+    for (const npcId of Object.keys(this.profiles)) {
+      if (!registryIds.has(npcId)) {
+        delete this.profiles[npcId];
+        removed += 1;
+      }
+    }
+
+    let created = 0;
+    for (const entry of entries) {
+      if (!this.profiles[entry.id]) {
+        this.ensureProfile(entry.id);
+        const profile = this.profiles[entry.id];
+        profile.role = this.normalizeRole(entry.role || profile.role, entry.id);
+        profile.personality = entry.personality || profile.personality;
+        created += 1;
+      }
+    }
+
+    if (created > 0 || removed > 0) {
+      await this.forceSave();
+    }
+
+    return { created, removed };
   }
 
   /**

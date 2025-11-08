@@ -22,14 +22,24 @@ const PROVIDERS = {
     defaultModel: "grok-beta",
     envKeyName: "GROK_API_KEY",
     envUrlName: "GROK_API_URL"
+  },
+  local: {
+    name: "Local Mock",
+    apiUrl: null,
+    defaultModel: "fgd-local",
+    envKeyName: null,
+    envUrlName: null,
+    local: true
   }
 };
 
-// Get selected provider from environment
-const getSelectedProvider = () => {
-  const providerName = (process.env.LLM_PROVIDER || 'openai').toLowerCase();
-  return PROVIDERS[providerName] || PROVIDERS.openai;
-};
+const FALLBACK_SEQUENCE = ["openai", "grok", "local"];
+
+function resolveProviderSequence() {
+  const preferred = (process.env.LLM_PROVIDER || "openai").toLowerCase();
+  const sequence = [preferred, ...FALLBACK_SEQUENCE];
+  return sequence.filter((id, index) => PROVIDERS[id] && sequence.indexOf(id) === index);
+}
 
 // Legacy constants for backward compatibility
 const DEFAULT_API_URL = PROVIDERS.openai.apiUrl;
@@ -93,44 +103,37 @@ function buildPayload(request, provider) {
   return payload;
 }
 
-/**
- * Queries an LLM via the selected provider's API with retry logic
- * @param {string|object} request - The request to send to the LLM
- * @param {number} [retries=0] - Current retry count (used internally)
- * @returns {Promise<string|null>} The LLM's response content, or null on failure
- */
-export async function queryLLM(request, retries = 0) {
-  // Get selected provider configuration
-  const provider = getSelectedProvider();
-  const apiKey = process.env[provider.envKeyName];
-  const apiUrl = process.env[provider.envUrlName] || provider.apiUrl;
+async function executeProvider(providerId, request) {
+  const provider = PROVIDERS[providerId];
+  if (!provider) {
+    throw new Error(`Unknown provider: ${providerId}`);
+  }
+
+  if (provider.local) {
+    return "Mock LLM response: I understand you want to build a structure. Please provide more specific details about what you'd like to create.";
+  }
+
+  const apiKey = provider.envKeyName ? process.env[provider.envKeyName] : null;
+  if (!apiKey) {
+    throw new Error(`${provider.name} API key not configured`);
+  }
+
+  const apiUrl = provider.envUrlName ? (process.env[provider.envUrlName] || provider.apiUrl) : provider.apiUrl;
 
   let payload;
   try {
     payload = buildPayload(request, provider);
   } catch (err) {
-    console.error("❌ Invalid request format:", err.message);
-    return null;
+    throw new Error(`Invalid request format: ${err.message}`);
   }
 
-  // Return mock response if no API key is configured
-  if (!apiKey) {
-    console.warn(`⚠️  No ${provider.name} API key found; returning mock output.`);
-    console.warn(`   Set ${provider.envKeyName} environment variable to enable ${provider.name}.`);
-    return "Mock LLM response: I understand you want to build a structure. Please provide more specific details about what you'd like to create.";
-  }
+  console.log(`🤖 Using ${provider.name} (${payload.model}) for LLM query`);
 
-  // Log provider being used (only on first attempt)
-  if (retries === 0) {
-    console.log(`🤖 Using ${provider.name} (${payload.model}) for LLM query`);
-  }
-
-  let response = null;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), API_TIMEOUT);
 
   try {
-    response = await fetch(apiUrl, {
+    const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -150,48 +153,61 @@ export async function queryLLM(request, retries = 0) {
     }
 
     const data = await response.json();
-
-    // Validate response structure
-    if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+    if (!data || !Array.isArray(data.choices) || data.choices.length === 0) {
       throw new Error("Invalid response structure: missing choices array");
     }
 
     const content = data.choices[0]?.message?.content;
-
-    // Validate content exists and is a non-empty string
-    if (typeof content !== "string") {
-      throw new Error("Invalid response structure: content is not a string");
-    }
-
-    if (content.trim().length === 0) {
+    if (typeof content !== "string" || content.trim().length === 0) {
       throw new Error("Invalid response: empty content received");
     }
 
     return content;
-  } catch (err) {
-    // Always clear timeout to prevent memory leak
+  } finally {
     clearTimeout(timeout);
+  }
+}
 
-    const errorMsg = err.message || "Unknown error";
-    console.error(`❌ LLM query failed (attempt ${retries + 1}/${MAX_RETRIES + 1}):`, errorMsg);
+/**
+ * Queries an LLM with provider fallback support.
+ */
+export async function queryLLM(request, retries = 0, sequence = null) {
+  const providerSequence = Array.isArray(sequence) ? sequence : resolveProviderSequence();
+  if (providerSequence.length === 0) {
+    console.warn("No LLM providers available; returning mock response");
+    return "Mock LLM response: Provider unavailable.";
+  }
 
-    // Determine if we should retry based on error type
-    if (retries < MAX_RETRIES) {
-      const shouldRetry =
-        err.name === 'AbortError' ||                     // Timeout
-        err.name === 'TypeError' ||                      // Network error (fetch specific)
-        (err.status === 429) ||                          // Rate limit
-        (err.status >= 500 && err.status < 600);         // Server error
+  const [currentProvider, ...rest] = providerSequence;
+  try {
+    return await executeWithRetries(currentProvider, request, retries);
+  } catch (err) {
+    console.warn(`⚠️  Provider ${currentProvider} failed: ${err.message}`);
+    if (rest.length > 0) {
+      console.log(`🔁 Falling back to provider ${rest[0]}`);
+      return queryLLM(request, 0, rest);
+    }
+    console.error("❌ All LLM providers failed");
+    return null;
+  }
+}
 
-      if (shouldRetry) {
-        const delay = Math.pow(2, retries) * 1000; // Exponential backoff: 1s, 2s, 4s
-        console.log(`⏳ Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return queryLLM(request, retries + 1);
-      }
+async function executeWithRetries(providerId, request, attempt = 0) {
+  try {
+    return await executeProvider(providerId, request);
+  } catch (err) {
+    const shouldRetry =
+      attempt < MAX_RETRIES &&
+      (err.name === "AbortError" || err.name === "TypeError" || (err.status >= 500 && err.status < 600) || err.status === 429);
+
+    if (shouldRetry) {
+      const delay = Math.pow(2, attempt) * 1000;
+      console.log(`⏳ Provider ${providerId} retry in ${delay}ms due to ${err.message}`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return executeWithRetries(providerId, request, attempt + 1);
     }
 
-    return null;
+    throw err;
   }
 }
 
@@ -200,15 +216,15 @@ export async function queryLLM(request, retries = 0) {
  * @returns {object} Provider information
  */
 export function getProviderInfo() {
-  const provider = getSelectedProvider();
-  const apiKey = process.env[provider.envKeyName];
-  const apiUrl = process.env[provider.envUrlName] || provider.apiUrl;
-
+  const [current] = resolveProviderSequence();
+  const provider = PROVIDERS[current] || PROVIDERS.openai;
+  const apiKey = provider.envKeyName ? process.env[provider.envKeyName] : null;
+  const apiUrl = provider.envUrlName ? (process.env[provider.envUrlName] || provider.apiUrl) : provider.apiUrl;
   return {
     name: provider.name,
     model: provider.defaultModel,
     apiUrl: apiUrl,
-    configured: !!apiKey,
+    configured: provider.local ? true : !!apiKey,
     envKeyName: provider.envKeyName
   };
 }
@@ -220,14 +236,14 @@ export function getProviderInfo() {
 export function getAllProviders() {
   return Object.keys(PROVIDERS).map(key => {
     const provider = PROVIDERS[key];
-    const apiKey = process.env[provider.envKeyName];
+    const apiKey = provider.envKeyName ? process.env[provider.envKeyName] : null;
 
     return {
       id: key,
       name: provider.name,
       model: provider.defaultModel,
       apiUrl: provider.apiUrl,
-      configured: !!apiKey,
+      configured: provider.local ? true : !!apiKey,
       envKeyName: provider.envKeyName,
       envUrlName: provider.envUrlName
     };

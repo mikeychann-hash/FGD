@@ -45,7 +45,14 @@ export function resolveSecret(envVar, fallback, options = {}) {
   }
 
   if (process.env.NODE_ENV === "production" && options.allowFallback !== true) {
-    throw new Error(`${label} must be configured via ${envVar} with a non-default value in production environments.`);
+    throw new Error(
+      `${label} must be configured via ${envVar} with a non-default value in production environments.\n\n` +
+      `To fix this:\n` +
+      `  1. Create a .env file by copying .env.example: cp .env.example .env\n` +
+      `  2. Set NODE_ENV=development for local development, OR\n` +
+      `  3. Set ${envVar}=<secure-value> for production use\n\n` +
+      `See .env.example for configuration template.`
+    );
   }
 
   return fallback;
@@ -62,7 +69,14 @@ export function ensureNonDefaultSecret({ label, value, fallback, envVar, allowEm
     const message = `${label} is not configured${envVar ? ` via ${envVar}` : ""}.`;
     recordWarning(message);
     if (process.env.NODE_ENV === "production") {
-      throw new Error(`${message} It must be provided before running in production.`);
+      throw new Error(
+        `${message} It must be provided before running in production.\n\n` +
+        `To fix this:\n` +
+        `  1. Create a .env file by copying .env.example: cp .env.example .env\n` +
+        `  2. Set NODE_ENV=development for local development, OR\n` +
+        `  3. Set ${envVar ? envVar + '=<secure-value>' : 'the required value'} for production use\n\n` +
+        `See .env.example for configuration template.`
+      );
     }
     return normalized;
   }
@@ -71,7 +85,14 @@ export function ensureNonDefaultSecret({ label, value, fallback, envVar, allowEm
     const message = `${label} is using a placeholder value${envVar ? ` from ${envVar}` : ""}; replace it with a secure secret.`;
     recordWarning(message);
     if (process.env.NODE_ENV === "production") {
-      throw new Error(message);
+      throw new Error(
+        `${message}\n\n` +
+        `To fix this:\n` +
+        `  1. Set NODE_ENV=development for local development, OR\n` +
+        `  2. Set ${envVar ? envVar + '=<secure-value>' : 'a secure value'} in your .env file for production use\n\n` +
+        `Placeholder values like 'admin123', 'folks123', 'llm-key-change-me' are not allowed in production.\n` +
+        `See .env.example for configuration template.`
+      );
     }
   }
 

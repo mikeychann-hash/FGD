@@ -68,7 +68,13 @@ export class NPCRegistry {
   }
 
   listActive() {
-    return this.getAll().filter(entry => (entry.status || "idle") === "active");
+    // Return all bots that are not inactive (i.e., registered and available)
+    // This includes bots with status "idle" (registered but not spawned)
+    // and "active" (spawned and running)
+    return this.getAll().filter(entry => {
+      const status = entry.status || "idle";
+      return status !== "inactive";
+    });
   }
 
   listByStatus(status = "active") {

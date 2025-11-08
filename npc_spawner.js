@@ -10,10 +10,8 @@ import {
   mergeLearningIntoProfile
 } from "./npc_identity.js";
 import { logger } from "./logger.js";
-import { startLoop } from "./core/npc_microcore.js";
-
-// Maximum number of bots that can be spawned at once
-const MAX_BOTS = 8;
+import { startLoop, stopLoop } from "./core/npc_microcore.js";
+import { MAX_BOTS } from "./constants.js";
 
 /**
  * Coordinates NPC profile creation, engine registration and in-world spawning.

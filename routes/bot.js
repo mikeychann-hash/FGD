@@ -3,9 +3,7 @@
 
 import express from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
-import { MAX_BOTS } from '../constants.js';
-
-const router = express.Router();
+import { MAX_BOTS, WORLD_BOUNDS } from '../constants.js';
 
 /**
  * Count currently spawned bots
@@ -43,10 +41,14 @@ function checkSpawnLimit(npcEngine, count = 1) {
  * @param {NPCEngine} npcEngine - The NPC engine instance
  * @param {Server} io - Socket.io server instance
  */
-export function initBotRoutes(npcEngine, io) {
+export function initBotRoutes(npcSystem, io) {
+  const router = express.Router();
+  const npcEngine = npcSystem?.npcEngine;
   if (!npcEngine) {
     throw new Error('NPC engine is required');
   }
+
+  const npcSpawner = npcSystem?.npcSpawner || null;
 
   if (io) {
     npcEngine.on('npc_moved', data => io.emit('bot:moved', data));
@@ -226,6 +228,16 @@ export function initBotRoutes(npcEngine, io) {
       } = req.body;
 
       const shouldAutoSpawn = autoSpawn !== false;
+
+      if (position && typeof position === 'object') {
+        const { y } = position;
+        if (typeof y === 'number' && (y < WORLD_BOUNDS.MIN_Y || y > WORLD_BOUNDS.MAX_Y)) {
+          return res.status(400).json({
+            error: 'Invalid position',
+            message: `Y coordinate must be between ${WORLD_BOUNDS.MIN_Y} and ${WORLD_BOUNDS.MAX_Y}`
+          });
+        }
+      }
 
       // Always check spawn limit, regardless of bridge availability
       // This prevents exceeding MAX_BOTS even if spawning is deferred
@@ -719,6 +731,32 @@ export function initBotRoutes(npcEngine, io) {
       });
     }
   });
+
+  if (npcSpawner) {
+    router.get('/dead-letter', authenticate, authorize('read'), (req, res) => {
+      try {
+        const queue = npcSpawner.getDeadLetterQueue();
+        res.json({
+          success: true,
+          count: queue.length,
+          queue
+        });
+      } catch (error) {
+        console.error('Failed to fetch dead letter queue:', error);
+        res.status(500).json({ error: 'Failed to retrieve dead letter queue' });
+      }
+    });
+
+    router.post('/dead-letter/retry', authenticate, authorize('write'), async (req, res) => {
+      try {
+        const results = await npcSpawner.retryDeadLetterQueue();
+        res.json({ success: true, ...results });
+      } catch (error) {
+        console.error('Failed to retry dead letter queue:', error);
+        res.status(500).json({ error: 'Failed to retry dead letter queue', message: error.message });
+      }
+    });
+  }
 
   return router;
 }

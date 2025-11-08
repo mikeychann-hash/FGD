@@ -12,6 +12,7 @@ import {
   ensureTraitsHelper,
   serializeRegistryEntry
 } from "./npc_identity.js";
+import { validateRegistryData } from "./src/utils/schema.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +38,7 @@ export class NPCRegistry {
     try {
       const data = await fs.readFile(this.registryPath, "utf8");
       const parsed = JSON.parse(data);
+      validateRegistryData(parsed);
       const entries = Array.isArray(parsed?.npcs) ? parsed.npcs : [];
       this.npcs.clear();
       for (const entry of entries) {

@@ -173,6 +173,8 @@ export class NPCSystem {
       });
       await this.npcRegistry.load();
 
+      await this.learningEngine.reconcileWithRegistry(this.npcRegistry);
+
       // Initialize spawner
       this.npcSpawner = new NPCSpawner({
         registry: this.npcRegistry,

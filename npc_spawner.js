@@ -11,7 +11,7 @@ import {
 } from "./npc_identity.js";
 import { logger } from "./logger.js";
 import { startLoop, stopLoop } from "./core/npc_microcore.js";
-import { MAX_BOTS } from "./constants.js";
+import { MAX_BOTS, WORLD_BOUNDS } from "./constants.js";
 
 /**
  * Coordinates NPC profile creation, engine registration and in-world spawning.
@@ -73,6 +73,16 @@ export class NPCSpawner {
     }
   }
 
+  _validatePosition(position) {
+    if (!position) {
+      return;
+    }
+    const { y } = position;
+    if (typeof y === "number" && (y < WORLD_BOUNDS.MIN_Y || y > WORLD_BOUNDS.MAX_Y)) {
+      throw new Error(`Spawn position y=${y} is outside world bounds (${WORLD_BOUNDS.MIN_Y} to ${WORLD_BOUNDS.MAX_Y})`);
+    }
+  }
+
   async initialize() {
     if (!this.registryReady && this.registry) {
       this.registryReady = this.registry.load().catch(err => {
@@ -101,6 +111,7 @@ export class NPCSpawner {
     this._checkSpawnLimit(1);
 
     const desiredPosition = options.position || options.spawnPosition || this.defaultPosition;
+    this._validatePosition(desiredPosition);
 
     let profile = await this._resolveProfile(options, desiredPosition);
 

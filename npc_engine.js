@@ -828,12 +828,16 @@ export class NPCEngine extends EventEmitter {
     const createdAt = typeof task.createdAt === "number" ? task.createdAt : Date.now();
     const origin = task.sender || sender || "system";
     const preferredNpcTypes = getPreferredNpcTypes(task);
+    const personalityBias = Array.isArray(task?.metadata?.preferredTraits)
+      ? task.metadata.preferredTraits.map(trait => String(trait).toLowerCase())
+      : [];
     return {
       ...cloneTask(task),
       priority: normalizedPriority,
       sender: origin,
       createdAt,
-      preferredNpcTypes
+      preferredNpcTypes,
+      personalityBias
     };
   }
 
@@ -854,12 +858,29 @@ export class NPCEngine extends EventEmitter {
     }
 
     const preferredTypes = getPreferredNpcTypes(task);
-    if (preferredTypes.length === 0) {
+    const biasTraits = Array.isArray(task.personalityBias) ? task.personalityBias : [];
+
+    if (preferredTypes.length === 0 && biasTraits.length === 0) {
       return idleNPCs[0];
     }
 
-    const preferredMatch = idleNPCs.find(npc => preferredTypes.includes(npc.type));
-    return preferredMatch || null;
+    const scored = idleNPCs.map(npc => {
+      let score = 0;
+      if (preferredTypes.includes(npc.type)) {
+        score += 10;
+      }
+      if (biasTraits.length > 0) {
+        const traits = (npc.personalityTraits || npc.metadata?.personalityTraits || [])
+          .map(trait => String(trait).toLowerCase());
+        const matches = biasTraits.filter(trait => traits.includes(trait)).length;
+        score += matches * 2;
+      }
+      return { npc, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    const best = scored.find(entry => entry.score > 0) || scored[0];
+    return best ? best.npc : null;
   }
 
   getIdleNPCs() {

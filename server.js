@@ -15,6 +15,11 @@ import { handleLogin, getCurrentUser, authenticate } from "./middleware/auth.js"
 import { initBotRoutes } from "./routes/bot.js";
 import { initLLMRoutes } from "./routes/llm.js";
 import { logSecretWarnings } from "./security/secrets.js";
+import { runStartupValidation } from "./src/services/startup.js";
+import { initDatabase, closeDatabase } from "./src/database/connection.js";
+import { bindMetricsToNpcEngine, getPrometheusRegistry } from "./src/services/metrics.js";
+import { loadAndValidateGovernanceConfig } from "./security/governance_validator.js";
+import express from "express";
 
 // Create Express app, HTTP server, and Socket.IO
 const { app, httpServer, io } = createAppServer();
@@ -27,37 +32,52 @@ const stateManager = new SystemStateManager(io);
  * Initialize all API routes
  */
 function initializeAPIRoutes() {
-  // Auth routes
+  const apiV1 = express.Router();
+  const apiV2 = express.Router();
+
+  // Auth routes (unversioned for compatibility)
   app.post("/api/auth/login", handleLogin);
   app.get("/api/auth/me", authenticate, getCurrentUser);
 
-  // Dashboard and cluster routes
+  // Dashboard and cluster routes remain unversioned for HTML assets
   app.use("/", initClusterRoutes(stateManager, npcSystem));
 
-  // Health and metrics routes
-  app.use("/api", initHealthRoutes(npcSystem, stateManager));
+  const healthRouter = initHealthRoutes(npcSystem, stateManager);
+  const npcRouter = initNPCRoutes(npcSystem);
+  const progressionRouter = initProgressionRoutes();
 
-  // NPC management routes
-  app.use("/api/npcs", initNPCRoutes(npcSystem));
+  let botRouter = null;
+  let llmRouter = null;
 
-  // Progression system routes
-  app.use("/api/progression", initProgressionRoutes());
-
-  // Bot management routes (requires npcEngine)
   if (npcSystem.npcEngine) {
-    const botRouter = initBotRoutes(npcSystem.npcEngine, io);
-    app.use('/api/bots', botRouter);
+    botRouter = initBotRoutes(npcSystem, io);
+    llmRouter = initLLMRoutes(npcSystem.npcEngine, io);
     logger.info('Bot management routes initialized');
     console.log('✅ Bot management routes initialized');
-
-    // LLM command routes
-    const llmRouter = initLLMRoutes(npcSystem.npcEngine, io);
-    app.use('/api/llm', llmRouter);
     logger.info('LLM command routes initialized');
     console.log('✅ LLM command routes initialized');
   } else {
     logger.warn('Bot and LLM routes not initialized - NPC Engine not ready');
   }
+
+  const mountRoutes = (router) => {
+    router.use("/health", healthRouter);
+    router.use("/npcs", npcRouter);
+    router.use("/progression", progressionRouter);
+    if (botRouter) {
+      router.use("/bots", botRouter);
+    }
+    if (llmRouter) {
+      router.use("/llm", llmRouter);
+    }
+  };
+
+  mountRoutes(apiV1);
+  mountRoutes(apiV2);
+
+  app.use("/api", apiV1);
+  app.use("/api/v1", apiV1);
+  app.use("/api/v2", apiV2);
 
   // Error handlers
   app.use('/data', notFoundHandler);
@@ -90,6 +110,10 @@ async function gracefulShutdown(signal) {
   try {
     // Cleanup telemetry
     cleanupTelemetry();
+
+    await closeDatabase().catch(err => {
+      logger.error('Error closing database during shutdown', { error: err.message });
+    });
 
     // Save NPC system data
     await npcSystem.save();
@@ -126,20 +150,38 @@ async function startServer() {
     // Initialize system data
     await initializeSystem();
 
-    // Initialize NPC system
     const systemState = stateManager.getState();
-    await npcSystem.initialize(
-      io,
+
+    // Start telemetry before dependent services to satisfy validation order
+    startTelemetryPipeline(
       systemState,
-      (engine) => attachNpcEngineTelemetry(
-        engine,
-        systemState,
-        io,
-        () => stateManager.recomputeSystemStats(npcSystem.npcEngine),
-        (entry) => stateManager.appendSystemLog(entry)
-      ),
+      io,
       () => stateManager.recomputeSystemStats(npcSystem.npcEngine)
     );
+
+    await runStartupValidation({
+      stateManager,
+      npcSystem,
+      io,
+      initializeDatabase: () => initDatabase(),
+      initializeNpcSystem: async () => {
+        await npcSystem.initialize(
+          io,
+          systemState,
+          (engine) => attachNpcEngineTelemetry(
+            engine,
+            systemState,
+            io,
+            () => stateManager.recomputeSystemStats(npcSystem.npcEngine),
+            (entry) => stateManager.appendSystemLog(entry)
+          ),
+          () => stateManager.recomputeSystemStats(npcSystem.npcEngine)
+        );
+        bindMetricsToNpcEngine(npcSystem.npcEngine, stateManager);
+      }
+    });
+
+    await loadAndValidateGovernanceConfig();
 
     // Initialize API routes (after NPC system is ready)
     initializeAPIRoutes();
@@ -149,13 +191,6 @@ async function startServer() {
 
     // Set up file watcher
     setupFileWatcher();
-
-    // Start telemetry ingestion
-    startTelemetryPipeline(
-      systemState,
-      io,
-      () => stateManager.recomputeSystemStats(npcSystem.npcEngine)
-    );
 
     // Surface any secret configuration warnings
     logSecretWarnings(logger);
@@ -192,3 +227,14 @@ process.on('uncaughtException', (err) => {
 
 // Start the server
 startServer();
+
+// Expose Prometheus metrics endpoint
+app.get('/metrics', async (req, res) => {
+  try {
+    const registry = getPrometheusRegistry();
+    res.set('Content-Type', registry.contentType);
+    res.end(await registry.metrics());
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});

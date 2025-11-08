@@ -66,7 +66,15 @@ export class SystemStateManager {
     if (!loadedData) return;
 
     this.state.nodes = loadedData.nodes;
-    this.state.metrics = { ...this.state.metrics, ...loadedData.metrics };
+    const incomingMetrics = loadedData.metrics || {};
+    this.state.metrics = {
+      ...this.state.metrics,
+      ...incomingMetrics,
+      performance: {
+        ...(this.state.metrics.performance || {}),
+        ...(incomingMetrics.performance || {})
+      }
+    };
     this.state.fusionData = loadedData.fusionData;
     this.state.systemStats = { ...loadedData.systemStats };
     this.state.logs = loadedData.logs;
@@ -96,5 +104,19 @@ export class SystemStateManager {
     this.state.config.delegationBias = delegationBias;
     this.state.config.cooldown = cooldown;
     this.io.emit('policy:update', { learningRate, delegationBias, cooldown });
+  }
+
+  /**
+   * Update performance metrics exposed to dashboards and telemetry
+   */
+  updatePerformanceMetrics(updates = {}) {
+    const current = this.state.metrics.performance || {};
+    const next = {
+      ...current,
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+    this.state.metrics.performance = next;
+    this.io.emit('metrics:performance', next);
   }
 }

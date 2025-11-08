@@ -5,6 +5,7 @@ export class PluginInterface {
   constructor() {
     this.socket = null;
     this.connected = false;
+    this.lastHeartbeatAt = null;
   }
 
   async moveBot({ botId, position }) {
@@ -217,6 +218,19 @@ export class PluginInterface {
     this.connected = false;
     this.socket = null;
     console.log('❌ FGDProxyPlayer plugin disconnected');
+  }
+
+  recordHeartbeat(payload = {}) {
+    this.lastHeartbeatAt = Date.now();
+    if (payload?.meta?.tickLatency) {
+      // surface plugin-provided latency metrics to connected clients if needed
+      if (this.socket) {
+        this.socket.emit('plugin_latency_update', {
+          timestamp: this.lastHeartbeatAt,
+          tickLatency: payload.meta.tickLatency
+        });
+      }
+    }
   }
 
   /**

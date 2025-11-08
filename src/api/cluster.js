@@ -28,6 +28,14 @@ export function initClusterRoutes(stateManager, npcSystem) {
     res.json(systemState.metrics);
   });
 
+  router.get("/api/cluster/metrics", (req, res) => {
+    res.json({
+      system: systemState.metrics,
+      performance: systemState.metrics.performance || {},
+      timestamp: new Date().toISOString()
+    });
+  });
+
   router.get("/api/fusion", (req, res) => {
     res.json(systemState.fusionData);
   });

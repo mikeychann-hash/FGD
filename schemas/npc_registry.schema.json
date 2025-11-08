@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/npc_registry.schema.json",
+  "title": "NPC Registry",
+  "type": "object",
+  "properties": {
+    "npcs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "role", "npcType", "status"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "role": { "type": "string", "minLength": 1 },
+          "npcType": { "type": "string", "minLength": 1 },
+          "status": { "type": "string" },
+          "spawnCount": { "type": "number", "minimum": 0 },
+          "lastSpawnedAt": { "type": ["string", "null"], "format": "date-time" },
+          "lastKnownPosition": {
+            "type": ["object", "null"],
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "personalityTraits": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": ["npcs"],
+  "additionalProperties": false
+}

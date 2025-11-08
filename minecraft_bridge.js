@@ -5,6 +5,9 @@
 import EventEmitter from "events";
 import { Rcon } from "rcon-client";
 import minecraftBridgeConfig from "./minecraft-bridge-config.js";
+import { updateHeartbeatAge } from "./src/services/metrics.js";
+
+const COMMAND_SANITIZER = /^(?:[a-zA-Z0-9:_\-\s\.\{\}\[\]\"]+|)$/;
 
 /**
  * MinecraftBridge - Hybrid control interface for Minecraft bots
@@ -39,6 +42,19 @@ export class MinecraftBridge extends EventEmitter {
     this.telemetryChannel = null;
     this.botPositions = new Map();
     this.currentPhase = 1; // Track current progression phase
+    this.lastHeartbeatAt = null;
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 15000;
+  }
+
+  #sanitizeCommand(command) {
+    if (typeof command !== "string" || command.trim().length === 0) {
+      throw new Error("Command must be a non-empty string");
+    }
+    const trimmed = command.trim();
+    if (!COMMAND_SANITIZER.test(trimmed) || trimmed.includes(";;") || trimmed.includes("&&") || trimmed.includes("||")) {
+      throw new Error("Unsafe characters detected in RCON command");
+    }
+    return trimmed;
   }
 
   async connect() {
@@ -88,7 +104,8 @@ export class MinecraftBridge extends EventEmitter {
   async sendCommand(command) {
     if (!this.connected || !this.rcon) await this.connect();
     try {
-      const result = await this.rcon.send(command);
+      const sanitized = this.#sanitizeCommand(command);
+      const result = await this.rcon.send(sanitized);
       this.emit("commandSent", { command, result });
       return result;
     } catch (err) {
@@ -148,6 +165,22 @@ export class MinecraftBridge extends EventEmitter {
 
   setTelemetryChannel(channel) {
     this.telemetryChannel = channel || null;
+  }
+
+  recordHeartbeat(source = "plugin") {
+    this.lastHeartbeatAt = Date.now();
+    const ageSeconds = 0;
+    updateHeartbeatAge(ageSeconds);
+    this.emit("heartbeat", { source, timestamp: this.lastHeartbeatAt });
+  }
+
+  getHeartbeatAgeSeconds() {
+    if (!this.lastHeartbeatAt) {
+      return null;
+    }
+    const age = Math.max(0, (Date.now() - this.lastHeartbeatAt) / 1000);
+    updateHeartbeatAge(age);
+    return age;
   }
 
   async moveBot(bot, dx = 0, dy = 0, dz = 0, options = {}) {

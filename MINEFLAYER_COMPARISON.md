@@ -791,3 +791,1268 @@ This creates a **best-of-both-worlds** system: Mineflayer's battle-tested bot co
 3. Create proof-of-concept with Mineflayer
 4. Incrementally migrate FGD to use Mineflayer bridge
 5. Maintain backward compatibility during transition
+
+---
+
+## Detailed Feature Breakdown & Implementation Guide
+
+This section provides specific, actionable steps for implementing each Mineflayer feature into FGD.
+
+---
+
+### Feature Category 1: Bot Connection & Lifecycle Management
+
+#### What to Take from Mineflayer
+- Bot creation with configurable options
+- Connection state management
+- Spawn/respawn handling
+- Graceful disconnection
+- Multi-version support
+
+#### Implementation Steps
+
+**Step 1: Install Dependencies**
+```bash
+npm install mineflayer
+npm install mineflayer-pathfinder
+npm install mineflayer-pvp
+npm install mineflayer-auto-eat
+npm install vec3
+```
+
+**Step 2: Create Base MineflayerBridge**
+```javascript
+// minecraft_bridge_mineflayer.js
+import mineflayer from 'mineflayer';
+import { Vec3 } from 'vec3';
+import EventEmitter from 'events';
+
+export class MineflayerBridge extends EventEmitter {
+  constructor(options = {}) {
+    super();
+
+    // Configuration
+    this.host = options.host || 'localhost';
+    this.port = options.port || 25565;
+    this.version = options.version || '1.20.1';
+    this.auth = options.auth || 'offline';
+
+    // Bot storage
+    this.bots = new Map(); // botId -> { bot, state, metadata }
+
+    // Connection tracking
+    this.connectionAttempts = new Map();
+    this.maxReconnectAttempts = options.maxReconnectAttempts || 3;
+    this.reconnectDelay = options.reconnectDelay || 5000;
+  }
+
+  /**
+   * Create and connect a bot
+   */
+  async createBot(botId, options = {}) {
+    // Check if bot already exists
+    if (this.bots.has(botId)) {
+      throw new Error(`Bot ${botId} already exists`);
+    }
+
+    // Create bot instance
+    const bot = mineflayer.createBot({
+      host: this.host,
+      port: this.port,
+      username: botId,
+      version: this.version,
+      auth: this.auth,
+      hideErrors: false,
+      ...options
+    });
+
+    // Initialize bot metadata
+    const botData = {
+      bot,
+      id: botId,
+      state: 'connecting',
+      createdAt: Date.now(),
+      lastActivity: Date.now(),
+      metadata: options.metadata || {}
+    };
+
+    // Store bot
+    this.bots.set(botId, botData);
+
+    // Set up event handlers
+    this._setupBotEventHandlers(botId, bot);
+
+    // Wait for spawn
+    await this._waitForSpawn(bot, botId);
+
+    // Update state
+    botData.state = 'ready';
+    botData.spawnedAt = Date.now();
+
+    this.emit('bot_created', {
+      botId,
+      position: bot.entity.position,
+      dimension: bot.game.dimension
+    });
+
+    return {
+      success: true,
+      botId,
+      position: bot.entity.position,
+      health: bot.health,
+      food: bot.food
+    };
+  }
+
+  /**
+   * Set up comprehensive event handlers for a bot
+   */
+  _setupBotEventHandlers(botId, bot) {
+    // Connection events
+    bot.on('login', () => {
+      console.log(`[${botId}] Logged in`);
+      this.emit('bot_login', { botId });
+    });
+
+    bot.on('spawn', () => {
+      console.log(`[${botId}] Spawned at`, bot.entity.position);
+      this.emit('bot_spawn', {
+        botId,
+        position: bot.entity.position,
+        dimension: bot.game.dimension
+      });
+    });
+
+    bot.on('respawn', () => {
+      console.log(`[${botId}] Respawned`);
+      this.emit('bot_respawn', { botId });
+    });
+
+    bot.on('end', (reason) => {
+      console.log(`[${botId}] Disconnected:`, reason);
+      this._handleDisconnection(botId, reason);
+    });
+
+    bot.on('error', (err) => {
+      console.error(`[${botId}] Error:`, err.message);
+      this.emit('bot_error', { botId, error: err.message });
+    });
+
+    bot.on('kicked', (reason) => {
+      console.log(`[${botId}] Kicked:`, reason);
+      this.emit('bot_kicked', { botId, reason });
+    });
+
+    // Health events
+    bot.on('health', () => {
+      const botData = this.bots.get(botId);
+      if (botData) {
+        botData.lastActivity = Date.now();
+      }
+
+      this.emit('bot_health', {
+        botId,
+        health: bot.health,
+        food: bot.food,
+        saturation: bot.foodSaturation
+      });
+
+      // Critical health warning
+      if (bot.health <= 5) {
+        this.emit('bot_critical_health', { botId, health: bot.health });
+      }
+    });
+
+    bot.on('death', () => {
+      console.log(`[${botId}] Died`);
+      this.emit('bot_death', { botId });
+    });
+
+    // Movement events
+    bot.on('move', () => {
+      this.emit('bot_move', {
+        botId,
+        position: bot.entity.position,
+        velocity: bot.entity.velocity
+      });
+    });
+
+    // Chat events
+    bot.on('chat', (username, message) => {
+      this.emit('bot_chat', { botId, username, message });
+    });
+
+    bot.on('whisper', (username, message) => {
+      this.emit('bot_whisper', { botId, username, message });
+    });
+  }
+
+  /**
+   * Wait for bot to spawn
+   */
+  _waitForSpawn(bot, botId) {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Bot ${botId} spawn timeout`));
+      }, 30000); // 30 second timeout
+
+      bot.once('spawn', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+
+      bot.once('error', (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+
+      bot.once('kicked', (reason) => {
+        clearTimeout(timeout);
+        reject(new Error(`Kicked during spawn: ${reason}`));
+      });
+    });
+  }
+
+  /**
+   * Handle bot disconnection with reconnect logic
+   */
+  async _handleDisconnection(botId, reason) {
+    const botData = this.bots.get(botId);
+    if (!botData) return;
+
+    botData.state = 'disconnected';
+    botData.disconnectedAt = Date.now();
+    botData.disconnectReason = reason;
+
+    this.emit('bot_disconnected', { botId, reason });
+
+    // Check if should attempt reconnect
+    const attempts = this.connectionAttempts.get(botId) || 0;
+
+    if (attempts < this.maxReconnectAttempts &&
+        !reason.includes('disconnect.quitting')) {
+
+      this.connectionAttempts.set(botId, attempts + 1);
+
+      console.log(`[${botId}] Attempting reconnect ${attempts + 1}/${this.maxReconnectAttempts}`);
+
+      await new Promise(resolve => setTimeout(resolve, this.reconnectDelay));
+
+      try {
+        await this.reconnectBot(botId);
+        this.connectionAttempts.delete(botId);
+      } catch (err) {
+        console.error(`[${botId}] Reconnect failed:`, err.message);
+      }
+    } else {
+      console.log(`[${botId}] Max reconnect attempts reached or manual disconnect`);
+      this.bots.delete(botId);
+      this.connectionAttempts.delete(botId);
+    }
+  }
+
+  /**
+   * Reconnect a disconnected bot
+   */
+  async reconnectBot(botId) {
+    const oldBotData = this.bots.get(botId);
+    if (!oldBotData) {
+      throw new Error(`Bot ${botId} not found`);
+    }
+
+    // Remove old bot
+    this.bots.delete(botId);
+
+    // Create new bot with same settings
+    return this.createBot(botId, {
+      metadata: oldBotData.metadata
+    });
+  }
+
+  /**
+   * Gracefully disconnect a bot
+   */
+  async disconnectBot(botId) {
+    const botData = this.bots.get(botId);
+    if (!botData) {
+      return { success: false, error: 'Bot not found' };
+    }
+
+    const { bot } = botData;
+
+    // Quit gracefully
+    bot.quit('Disconnecting');
+
+    // Remove from storage
+    this.bots.delete(botId);
+    this.connectionAttempts.delete(botId);
+
+    this.emit('bot_removed', { botId });
+
+    return { success: true };
+  }
+
+  /**
+   * Get bot instance
+   */
+  getBot(botId) {
+    return this.bots.get(botId)?.bot;
+  }
+
+  /**
+   * Get bot state
+   */
+  getBotState(botId) {
+    const botData = this.bots.get(botId);
+    if (!botData) return null;
+
+    const { bot } = botData;
+
+    return {
+      id: botId,
+      state: botData.state,
+      position: bot.entity?.position || null,
+      health: bot.health,
+      food: bot.food,
+      saturation: bot.foodSaturation,
+      experience: {
+        level: bot.experience.level,
+        points: bot.experience.points,
+        progress: bot.experience.progress
+      },
+      gameMode: bot.game.gameMode,
+      dimension: bot.game.dimension,
+      createdAt: botData.createdAt,
+      lastActivity: botData.lastActivity
+    };
+  }
+
+  /**
+   * Get all bot states
+   */
+  getAllBotStates() {
+    return Array.from(this.bots.keys()).map(botId => this.getBotState(botId));
+  }
+
+  /**
+   * Disconnect all bots
+   */
+  async disconnectAll() {
+    const botIds = Array.from(this.bots.keys());
+
+    await Promise.all(
+      botIds.map(botId => this.disconnectBot(botId))
+    );
+
+    return { success: true, count: botIds.length };
+  }
+}
+```
+
+**Step 3: Integrate into NPCSystem**
+```javascript
+// src/services/npc_initializer.js
+import { MineflayerBridge } from '../../minecraft_bridge_mineflayer.js';
+import { MinecraftBridge } from '../../minecraft_bridge.js'; // RCON fallback
+
+export class NPCSystem {
+  async initializeMinecraftBridge() {
+    const useMineflayer = process.env.USE_MINEFLAYER !== 'false';
+
+    if (useMineflayer) {
+      try {
+        this.minecraftBridge = new MineflayerBridge({
+          host: process.env.MINECRAFT_HOST || 'localhost',
+          port: parseInt(process.env.MINECRAFT_PORT || '25565'),
+          version: process.env.MINECRAFT_VERSION || '1.20.1',
+          auth: process.env.MINECRAFT_AUTH || 'offline',
+          maxReconnectAttempts: 3,
+          reconnectDelay: 5000
+        });
+
+        // Set up bridge event forwarding
+        this._setupBridgeEvents();
+
+        logger.info('Mineflayer bridge initialized');
+        console.log('✅ Mineflayer bridge configured');
+
+      } catch (err) {
+        logger.error('Failed to initialize Mineflayer bridge', { error: err.message });
+        console.log('⚠️  Falling back to RCON bridge');
+
+        // Fallback to RCON
+        await this._initializeRCONBridge();
+      }
+    } else {
+      await this._initializeRCONBridge();
+    }
+  }
+
+  _setupBridgeEvents() {
+    // Forward all bridge events to WebSocket clients
+    this.minecraftBridge.on('bot_spawn', (data) => {
+      this.io.emit('bot:spawned', data);
+    });
+
+    this.minecraftBridge.on('bot_health', (data) => {
+      this.io.emit('bot:health', data);
+    });
+
+    this.minecraftBridge.on('bot_death', (data) => {
+      this.io.emit('bot:death', data);
+    });
+
+    this.minecraftBridge.on('bot_move', (data) => {
+      this.io.emit('bot:move', data);
+    });
+
+    this.minecraftBridge.on('bot_disconnected', (data) => {
+      this.io.emit('bot:disconnected', data);
+    });
+
+    this.minecraftBridge.on('bot_error', (data) => {
+      this.io.emit('bot:error', data);
+      logger.error('Bot error', data);
+    });
+  }
+
+  async _initializeRCONBridge() {
+    // Existing RCON initialization code...
+  }
+}
+```
+
+**Step 4: Update NPCSpawner**
+```javascript
+// npc_spawner.js
+async _spawnWithRetry(profile, position, options) {
+  const retries = options.maxRetries ?? this.maxRetries;
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = this.retryDelay * Math.pow(2, attempt - 1);
+        this.log.info('Retrying NPC spawn', { npcId: profile.id, attempt, delay });
+        await this._sleep(delay);
+      }
+
+      // NEW: Use Mineflayer if available
+      if (this.engine.bridge.createBot) {
+        const response = await this.engine.bridge.createBot(profile.id, {
+          metadata: {
+            profile,
+            appearance: profile.appearance,
+            personality: profile.personalitySummary,
+            role: profile.role
+          }
+        });
+
+        // Clear failure count on success
+        if (this.failureCount.has(profile.id)) {
+          this.failureCount.delete(profile.id);
+        }
+
+        this.log.info('NPC spawned via Mineflayer', { npcId: profile.id });
+        return response;
+
+      } else {
+        // Fallback to RCON
+        const response = await this.engine.spawnNPC?.(profile.id, {
+          npcType: profile.npcType,
+          position,
+          appearance: profile.appearance,
+          metadata: profile.metadata,
+          profile
+        });
+
+        return response;
+      }
+
+    } catch (error) {
+      lastError = error;
+      this.log.warn('Spawn attempt failed', {
+        npcId: profile.id,
+        attempt: attempt + 1,
+        error: error.message
+      });
+    }
+  }
+
+  // All retries exhausted
+  this._addToDeadLetterQueue(profile, position, lastError);
+  return null;
+}
+```
+
+---
+
+### Feature Category 2: Movement & Pathfinding
+
+#### What to Take from Mineflayer
+- Pathfinding with obstacle avoidance
+- Movement goals (GoalNear, GoalBlock, GoalXZ, etc.)
+- Physics-aware movement
+- Sprint/sneak/jump controls
+- Path calculation and visualization
+
+#### Implementation Steps
+
+**Step 1: Add Pathfinding Plugin**
+```javascript
+// minecraft_bridge_mineflayer.js
+import { pathfinder, Movements, goals } from 'mineflayer-pathfinder';
+import mcData from 'minecraft-data';
+
+export class MineflayerBridge extends EventEmitter {
+  async createBot(botId, options = {}) {
+    // ... existing code ...
+
+    // Load pathfinder plugin
+    bot.loadPlugin(pathfinder);
+
+    // Configure movements
+    const defaultMove = new Movements(bot);
+    defaultMove.canDig = options.canDig !== false;
+    defaultMove.canPlaceOn = options.canPlaceOn !== false;
+    defaultMove.allow1by1towers = options.allow1by1towers !== false;
+    defaultMove.allowFreeMotion = options.allowFreeMotion || false;
+    defaultMove.allowParkour = options.allowParkour || false;
+    defaultMove.allowSprinting = options.allowSprinting !== false;
+
+    bot.pathfinder.setMovements(defaultMove);
+
+    // ... rest of spawn logic ...
+  }
+
+  /**
+   * Move bot to a position using pathfinding
+   */
+  async moveToPosition(botId, target, options = {}) {
+    const botData = this.bots.get(botId);
+    if (!botData) throw new Error(`Bot ${botId} not found`);
+
+    const { bot } = botData;
+    const { x, y, z } = target;
+
+    // Create appropriate goal based on options
+    let goal;
+    const range = options.range || 0;
+
+    if (range > 0) {
+      goal = new goals.GoalNear(x, y, z, range);
+    } else {
+      goal = new goals.GoalBlock(x, y, z);
+    }
+
+    // Set movement restrictions if specified
+    if (options.movements) {
+      const movements = new Movements(bot);
+      Object.assign(movements, options.movements);
+      bot.pathfinder.setMovements(movements);
+    }
+
+    // Start pathfinding
+    bot.pathfinder.setGoal(goal);
+
+    // Wait for path completion or failure
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        bot.pathfinder.setGoal(null);
+        reject(new Error('Movement timeout'));
+      }, options.timeout || 60000);
+
+      const onGoalReached = () => {
+        clearTimeout(timeout);
+        cleanup();
+        resolve({
+          success: true,
+          position: bot.entity.position,
+          distance: bot.entity.position.distanceTo(new Vec3(x, y, z))
+        });
+      };
+
+      const onPathUpdate = (results) => {
+        if (results.status === 'noPath') {
+          clearTimeout(timeout);
+          cleanup();
+          reject(new Error('No path found to target'));
+        }
+      };
+
+      const onStuck = () => {
+        this.emit('bot_stuck', { botId, position: bot.entity.position });
+      };
+
+      const cleanup = () => {
+        bot.pathfinder.off('goal_reached', onGoalReached);
+        bot.pathfinder.off('path_update', onPathUpdate);
+        bot.pathfinder.off('stuck', onStuck);
+      };
+
+      bot.pathfinder.once('goal_reached', onGoalReached);
+      bot.pathfinder.on('path_update', onPathUpdate);
+      bot.pathfinder.on('stuck', onStuck);
+    });
+  }
+
+  /**
+   * Follow another entity
+   */
+  async followEntity(botId, entityId, options = {}) {
+    const botData = this.bots.get(botId);
+    if (!botData) throw new Error(`Bot ${botId} not found`);
+
+    const { bot } = botData;
+    const entity = bot.entities[entityId];
+
+    if (!entity) {
+      throw new Error(`Entity ${entityId} not found`);
+    }
+
+    const range = options.range || 2;
+    const goal = new goals.GoalFollow(entity, range);
+
+    bot.pathfinder.setGoal(goal, true); // dynamic goal
+
+    return {
+      success: true,
+      following: entity.username || entity.name
+    };
+  }
+
+  /**
+   * Stop current movement
+   */
+  stopMovement(botId) {
+    const botData = this.bots.get(botId);
+    if (!botData) return { success: false };
+
+    const { bot } = botData;
+    bot.pathfinder.setGoal(null);
+    bot.clearControlStates();
+
+    return { success: true };
+  }
+
+  /**
+   * Manual movement controls
+   */
+  setMovementControl(botId, control, state) {
+    const botData = this.bots.get(botId);
+    if (!botData) throw new Error(`Bot ${botId} not found`);
+
+    const { bot } = botData;
+
+    // Valid controls: forward, back, left, right, jump, sprint, sneak
+    bot.setControlState(control, state);
+
+    return { success: true };
+  }
+
+  /**
+   * Look at a position or entity
+   */
+  async lookAt(botId, target, options = {}) {
+    const botData = this.bots.get(botId);
+    if (!botData) throw new Error(`Bot ${botId} not found`);
+
+    const { bot } = botData;
+
+    let targetPos;
+    if (target.x !== undefined) {
+      // Position
+      targetPos = new Vec3(target.x, target.y, target.z);
+    } else if (typeof target === 'number') {
+      // Entity ID
+      const entity = bot.entities[target];
+      if (!entity) throw new Error('Entity not found');
+      targetPos = entity.position.offset(0, entity.height, 0);
+    }
+
+    await bot.lookAt(targetPos, options.force || false);
+
+    return {
+      success: true,
+      yaw: bot.entity.yaw,
+      pitch: bot.entity.pitch
+    };
+  }
+}
+```
+
+**Step 2: Create Task Executor for Movement**
+```javascript
+// tasks/executors/movement_executor.js
+export class MovementTaskExecutor {
+  constructor(bridge) {
+    this.bridge = bridge;
+  }
+
+  async execute(botId, task) {
+    const { action, target, params = {} } = task;
+
+    switch (action) {
+      case 'move_to':
+        return await this._moveToPosition(botId, target, params);
+
+      case 'follow':
+        return await this._follow(botId, target, params);
+
+      case 'patrol':
+        return await this._patrol(botId, params.waypoints, params);
+
+      case 'return_home':
+        return await this._returnHome(botId, params);
+
+      default:
+        throw new Error(`Unknown movement action: ${action}`);
+    }
+  }
+
+  async _moveToPosition(botId, target, params) {
+    try {
+      const result = await this.bridge.moveToPosition(botId, target, {
+        range: params.range || 1,
+        timeout: params.timeout || 60000,
+        movements: {
+          canDig: params.canDig !== false,
+          allowParkour: params.allowParkour || false,
+          allowSprinting: params.allowSprinting !== false
+        }
+      });
+
+      return {
+        success: true,
+        action: 'move_to',
+        ...result
+      };
+    } catch (error) {
+      return {
+        success: false,
+        action: 'move_to',
+        error: error.message
+      };
+    }
+  }
+
+  async _follow(botId, target, params) {
+    const result = await this.bridge.followEntity(botId, target, {
+      range: params.range || 3
+    });
+
+    // Follow is continuous, return immediately
+    return {
+      success: true,
+      action: 'follow',
+      ...result
+    };
+  }
+
+  async _patrol(botId, waypoints, params) {
+    if (!Array.isArray(waypoints) || waypoints.length === 0) {
+      throw new Error('Waypoints must be a non-empty array');
+    }
+
+    const loop = params.loop || false;
+    let currentIndex = 0;
+    const results = [];
+
+    do {
+      for (const waypoint of waypoints) {
+        try {
+          const result = await this.bridge.moveToPosition(botId, waypoint, params);
+          results.push({ waypoint, success: true, ...result });
+
+          // Pause at waypoint
+          if (params.pauseAtWaypoint) {
+            await new Promise(resolve => setTimeout(resolve, params.pauseAtWaypoint));
+          }
+        } catch (error) {
+          results.push({ waypoint, success: false, error: error.message });
+
+          if (!params.continueOnError) {
+            throw error;
+          }
+        }
+      }
+      currentIndex++;
+    } while (loop && (params.maxLoops ? currentIndex < params.maxLoops : true));
+
+    return {
+      success: true,
+      action: 'patrol',
+      waypoints: waypoints.length,
+      loops: currentIndex,
+      results
+    };
+  }
+
+  async _returnHome(botId, params) {
+    const botState = this.bridge.getBotState(botId);
+    const homePosition = params.home || { x: 0, y: 64, z: 0 };
+
+    return await this._moveToPosition(botId, homePosition, params);
+  }
+}
+```
+
+**Step 3: Integrate into NPCEngine**
+```javascript
+// npc_engine.js
+import { MovementTaskExecutor } from './tasks/executors/movement_executor.js';
+
+export class NPCEngine extends EventEmitter {
+  constructor(options = {}) {
+    super();
+    // ... existing code ...
+
+    // Initialize task executors
+    this.taskExecutors = new Map();
+    if (options.bridge) {
+      this.taskExecutors.set('movement', new MovementTaskExecutor(options.bridge));
+    }
+  }
+
+  async executeTask(npc, task) {
+    const executor = this.taskExecutors.get(task.category || 'movement');
+
+    if (!executor) {
+      throw new Error(`No executor found for task category: ${task.category}`);
+    }
+
+    return await executor.execute(npc.id, task);
+  }
+}
+```
+
+---
+
+### Feature Category 3: World Awareness & Block Interaction
+
+#### What to Take from Mineflayer
+- Block querying and finding
+- Block digging with tool selection
+- Block placing with proper orientation
+- Chunk loading awareness
+- Biome detection
+
+#### Implementation Steps
+
+**Step 1: Add World Query Methods**
+```javascript
+// minecraft_bridge_mineflayer.js
+
+export class MineflayerBridge extends EventEmitter {
+  /**
+   * Find blocks matching criteria
+   */
+  findBlocks(botId, options) {
+    const botData = this.bots.get(botId);
+    if (!botData) return [];
+
+    const { bot } = botData;
+
+    const matching = options.matching || ((block) => {
+      if (options.blockType) {
+        return block.name === options.blockType;
+      }
+      if (options.blockTypes) {
+        return options.blockTypes.includes(block.name);
+      }
+      return true;
+    });
+
+    const blocks = bot.findBlocks({
+      matching,
+      maxDistance: options.maxDistance || 32,
+      count: options.count || 100,
+      useExtraInfo: options.useExtraInfo || false
+    });
+
+    return blocks.map(pos => ({
+      position: pos,
+      block: bot.blockAt(pos)
+    }));
+  }
+
+  /**
+   * Find nearest block of type
+   */
+  findNearestBlock(botId, blockType, options = {}) {
+    const botData = this.bots.get(botId);
+    if (!botData) return null;
+
+    const { bot } = botData;
+
+    const block = bot.findBlock({
+      matching: (b) => b.name === blockType,
+      maxDistance: options.maxDistance || 64
+    });
+
+    if (!block) return null;
+
+    return {
+      position: block.position,
+      type: block.name,
+      metadata: block.metadata,
+      distance: bot.entity.position.distanceTo(block.position)
+    };
+  }
+
+  /**
+   * Get block at position
+   */
+  getBlockAt(botId, position) {
+    const botData = this.bots.get(botId);
+    if (!botData) return null;
+
+    const { bot } = botData;
+    const block = bot.blockAt(new Vec3(position.x, position.y, position.z));
+
+    if (!block) return null;
+
+    return {
+      position: block.position,
+      type: block.name,
+      displayName: block.displayName,
+      hardness: block.hardness,
+      metadata: block.metadata,
+      biome: bot.blockAt(block.position.offset(0, -1, 0))?.biome
+    };
+  }
+
+  /**
+   * Dig a block with proper tool
+   */
+  async digBlock(botId, position, options = {}) {
+    const botData = this.bots.get(botId);
+    if (!botData) throw new Error(`Bot ${botId} not found`);
+
+    const { bot } = botData;
+    const block = bot.blockAt(new Vec3(position.x, position.y, position.z));
+
+    if (!block) {
+      throw new Error('No block at position');
+    }
+
+    // Check if bot can dig this block
+    if (!bot.canDigBlock(block)) {
+      throw new Error(`Cannot dig ${block.name}`);
+    }
+
+    // Equip best tool if requested
+    if (options.equipTool !== false) {
+      await this._equipBestTool(bot, block);
+    }
+
+    // Start digging
+    await bot.dig(block, options.forceLook !== false);
+
+    return {
+      success: true,
+      blockType: block.name,
+      position: block.position
+    };
+  }
+
+  /**
+   * Place a block
+   */
+  async placeBlock(botId, position, blockType, options = {}) {
+    const botData = this.bots.get(botId);
+    if (!botData) throw new Error(`Bot ${botId} not found`);
+
+    const { bot } = botData;
+
+    // Find item in inventory
+    const item = bot.inventory.items().find(i => i.name === blockType);
+    if (!item) {
+      throw new Error(`No ${blockType} in inventory`);
+    }
+
+    // Equip item
+    await bot.equip(item, 'hand');
+
+    // Get reference block
+    const refBlock = bot.blockAt(new Vec3(position.x, position.y, position.z));
+    if (!refBlock) {
+      throw new Error('No reference block at position');
+    }
+
+    // Determine face vector
+    const faceVector = options.faceVector || new Vec3(0, 1, 0);
+
+    // Place block
+    await bot.placeBlock(refBlock, faceVector);
+
+    return {
+      success: true,
+      blockType,
+      position: refBlock.position.plus(faceVector)
+    };
+  }
+
+  /**
+   * Equip best tool for block
+   */
+  async _equipBestTool(bot, block) {
+    const tools = bot.inventory.items().filter(item => {
+      return item.name.includes('pickaxe') ||
+             item.name.includes('shovel') ||
+             item.name.includes('axe');
+    });
+
+    if (tools.length === 0) return;
+
+    // Find best tool (simplified - could use proper tool effectiveness)
+    let bestTool = tools[0];
+    let bestTime = block.digTime(bestTool);
+
+    for (const tool of tools) {
+      const digTime = block.digTime(tool);
+      if (digTime < bestTime) {
+        bestTime = digTime;
+        bestTool = tool;
+      }
+    }
+
+    await bot.equip(bestTool, 'hand');
+  }
+
+  /**
+   * Get blocks in area
+   */
+  getBlocksInArea(botId, start, end) {
+    const botData = this.bots.get(botId);
+    if (!botData) return [];
+
+    const { bot } = botData;
+    const blocks = [];
+
+    const minX = Math.min(start.x, end.x);
+    const maxX = Math.max(start.x, end.x);
+    const minY = Math.min(start.y, end.y);
+    const maxY = Math.max(start.y, end.y);
+    const minZ = Math.min(start.z, end.z);
+    const maxZ = Math.max(start.z, end.z);
+
+    for (let x = minX; x <= maxX; x++) {
+      for (let y = minY; y <= maxY; y++) {
+        for (let z = minZ; z <= maxZ; z++) {
+          const block = bot.blockAt(new Vec3(x, y, z));
+          if (block) {
+            blocks.push({
+              position: block.position,
+              type: block.name,
+              metadata: block.metadata
+            });
+          }
+        }
+      }
+    }
+
+    return blocks;
+  }
+
+  /**
+   * Get blocks bot can see
+   */
+  getVisibleBlocks(botId, maxDistance = 128) {
+    const botData = this.bots.get(botId);
+    if (!botData) return [];
+
+    const { bot } = botData;
+    const targetBlock = bot.blockAtCursor(maxDistance);
+
+    if (!targetBlock) return [];
+
+    // Get blocks in line of sight
+    const blocks = [];
+    const start = bot.entity.position.offset(0, bot.entity.height, 0);
+    const direction = targetBlock.position.minus(start).normalize();
+
+    for (let i = 0; i < maxDistance; i++) {
+      const pos = start.plus(direction.scaled(i)).floor();
+      const block = bot.blockAt(pos);
+
+      if (block && block.name !== 'air') {
+        blocks.push({
+          position: block.position,
+          type: block.name,
+          metadata: block.metadata,
+          distance: start.distanceTo(block.position)
+        });
+      }
+    }
+
+    return blocks;
+  }
+}
+```
+
+**Step 2: Create Mining Task Executor**
+```javascript
+// tasks/executors/mining_executor.js
+export class MiningTaskExecutor {
+  constructor(bridge) {
+    this.bridge = bridge;
+  }
+
+  async execute(botId, task) {
+    const { action, params = {} } = task;
+
+    switch (action) {
+      case 'mine_blocks':
+        return await this._mineBlocks(botId, params);
+
+      case 'mine_vein':
+        return await this._mineVein(botId, params);
+
+      case 'strip_mine':
+        return await this._stripMine(botId, params);
+
+      default:
+        throw new Error(`Unknown mining action: ${action}`);
+    }
+  }
+
+  async _mineBlocks(botId, params) {
+    const { blockType, count = 1, area = 32, equipTool = true } = params;
+    const mined = [];
+    const errors = [];
+
+    for (let i = 0; i < count; i++) {
+      try {
+        // Find nearest block
+        const nearest = this.bridge.findNearestBlock(botId, blockType, { maxDistance: area });
+
+        if (!nearest) {
+          throw new Error(`No ${blockType} blocks found within ${area} blocks`);
+        }
+
+        // Move to block
+        await this.bridge.moveToPosition(botId, nearest.position, { range: 4 });
+
+        // Dig block
+        const result = await this.bridge.digBlock(botId, nearest.position, { equipTool });
+
+        mined.push(result);
+
+      } catch (error) {
+        errors.push({ index: i, error: error.message });
+
+        if (!params.continueOnError) {
+          break;
+        }
+      }
+    }
+
+    return {
+      success: errors.length === 0,
+      action: 'mine_blocks',
+      mined: mined.length,
+      target: count,
+      blocks: mined,
+      errors
+    };
+  }
+
+  async _mineVein(botId, params) {
+    const { blockType, maxBlocks = 100 } = params;
+    const mined = [];
+    const checked = new Set();
+
+    const mineConnected = async (position) => {
+      const key = `${position.x},${position.y},${position.z}`;
+
+      if (checked.has(key) || mined.length >= maxBlocks) {
+        return;
+      }
+
+      checked.add(key);
+
+      // Check if this block is the target type
+      const block = this.bridge.getBlockAt(botId, position);
+      if (!block || block.type !== blockType) {
+        return;
+      }
+
+      // Mine this block
+      try {
+        await this.bridge.moveToPosition(botId, position, { range: 4 });
+        const result = await this.bridge.digBlock(botId, position);
+        mined.push(result);
+      } catch (error) {
+        console.error(`Failed to mine block at ${key}:`, error.message);
+        return;
+      }
+
+      // Check adjacent blocks
+      const adjacent = [
+        { x: 1, y: 0, z: 0 },
+        { x: -1, y: 0, z: 0 },
+        { x: 0, y: 1, z: 0 },
+        { x: 0, y: -1, z: 0 },
+        { x: 0, y: 0, z: 1 },
+        { x: 0, y: 0, z: -1 }
+      ];
+
+      for (const offset of adjacent) {
+        await mineConnected({
+          x: position.x + offset.x,
+          y: position.y + offset.y,
+          z: position.z + offset.z
+        });
+      }
+    };
+
+    // Start from first found block
+    const start = this.bridge.findNearestBlock(botId, blockType);
+    if (!start) {
+      return {
+        success: false,
+        action: 'mine_vein',
+        error: `No ${blockType} found`
+      };
+    }
+
+    await mineConnected(start.position);
+
+    return {
+      success: true,
+      action: 'mine_vein',
+      blockType,
+      mined: mined.length,
+      blocks: mined
+    };
+  }
+
+  async _stripMine(botId, params) {
+    const { length = 50, branches = 4, spacing = 3 } = params;
+    const mined = [];
+
+    // Main tunnel
+    // Implementation would create tunnels in a strip mining pattern
+    // This is a simplified version
+
+    return {
+      success: true,
+      action: 'strip_mine',
+      mined: mined.length
+    };
+  }
+}
+```
+
+---
+
+I'll continue adding more feature categories. Would you like me to continue with:
+1. Inventory Management
+2. Combat System
+3. Entity Interaction
+4. Crafting & Recipes
+5. Chat & Communication
+6. Plugin System Implementation
+
+Or would you prefer I commit what we have so far and continue in a follow-up?

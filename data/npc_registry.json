@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2025-11-06T00:58:24.000Z",
+  "updatedAt": "2025-11-12T02:10:15.775Z",
   "npcs": [
     {
       "id": "miner_01",
@@ -57,11 +57,18 @@
         "Extremely loyal and dependable"
       ],
       "description": "Primary tunnel excavator",
-      "status": "active",
+      "status": "inactive",
       "spawnCount": 0,
       "lastSpawnedAt": null,
-      "lastDespawnedAt": null,
-      "runtime": null,
+      "lastDespawnedAt": "2025-11-11T23:19:30.473Z",
+      "runtime": {
+        "lastDespawnedAt": "2025-11-11T23:19:30.473Z",
+        "lastKnownPosition": {
+          "x": 100,
+          "y": 65,
+          "z": 200
+        }
+      },
       "createdAt": "2024-01-01T00:00:00.000Z",
       "updatedAt": "2024-01-01T00:00:00.000Z"
     },
@@ -126,11 +133,18 @@
         "Extremely loyal and dependable"
       ],
       "description": "Master architect specializing in complex structures",
-      "status": "active",
+      "status": "inactive",
       "spawnCount": 0,
       "lastSpawnedAt": null,
-      "lastDespawnedAt": null,
-      "runtime": null,
+      "lastDespawnedAt": "2025-11-10T21:03:50.996Z",
+      "runtime": {
+        "lastDespawnedAt": "2025-11-10T21:03:50.996Z",
+        "lastKnownPosition": {
+          "x": 150,
+          "y": 65,
+          "z": 150
+        }
+      },
       "createdAt": "2025-10-31T01:58:20.756Z",
       "updatedAt": "2025-10-31T01:58:20.760Z"
     },
@@ -187,11 +201,18 @@
         "⚠️ May rush through tasks"
       ],
       "description": "Explores uncharted territories and maps new regions",
-      "status": "active",
+      "status": "inactive",
       "spawnCount": 0,
       "lastSpawnedAt": null,
-      "lastDespawnedAt": null,
-      "runtime": null,
+      "lastDespawnedAt": "2025-11-11T23:19:26.243Z",
+      "runtime": {
+        "lastDespawnedAt": "2025-11-11T23:19:26.243Z",
+        "lastKnownPosition": {
+          "x": 200,
+          "y": 70,
+          "z": 250
+        }
+      },
       "createdAt": "2025-10-31T01:58:20.762Z",
       "updatedAt": "2025-10-31T01:58:20.764Z"
     },
@@ -250,11 +271,18 @@
         "Thinks outside the box"
       ],
       "description": "Vigilant protector of the settlement",
-      "status": "active",
+      "status": "inactive",
       "spawnCount": 0,
       "lastSpawnedAt": null,
-      "lastDespawnedAt": null,
-      "runtime": null,
+      "lastDespawnedAt": "2025-11-11T23:19:28.752Z",
+      "runtime": {
+        "lastDespawnedAt": "2025-11-11T23:19:28.752Z",
+        "lastKnownPosition": {
+          "x": 100,
+          "y": 65,
+          "z": 100
+        }
+      },
       "createdAt": "2025-10-31T01:58:20.765Z",
       "updatedAt": "2025-10-31T01:58:20.767Z"
     },
@@ -315,7 +343,7 @@
         "Extremely loyal and dependable"
       ],
       "description": "Master architect specializing in complex structures",
-      "status": "active",
+      "status": "idle",
       "spawnCount": 0,
       "lastSpawnedAt": null,
       "lastDespawnedAt": null,
@@ -376,7 +404,7 @@
         "⚠️ May rush through tasks"
       ],
       "description": "Explores uncharted territories and maps new regions",
-      "status": "active",
+      "status": "idle",
       "spawnCount": 0,
       "lastSpawnedAt": null,
       "lastDespawnedAt": null,
@@ -439,13 +467,158 @@
         "Extremely loyal and dependable"
       ],
       "description": "Vigilant protector of the settlement",
-      "status": "active",
+      "status": "idle",
       "spawnCount": 0,
       "lastSpawnedAt": null,
       "lastDespawnedAt": null,
       "runtime": null,
       "createdAt": "2025-10-31T01:58:46.472Z",
       "updatedAt": "2025-10-31T01:58:46.475Z"
+    },
+    {
+      "id": "test_bot_01",
+      "role": "miner",
+      "npcType": "miner",
+      "appearance": {},
+      "spawnPosition": {
+        "x": 0,
+        "y": 64,
+        "z": 0
+      },
+      "lastKnownPosition": {
+        "x": 0,
+        "y": 64,
+        "z": 0
+      },
+      "metadata": {
+        "taskParameters": {},
+        "behaviorPreset": "default",
+        "createdBy": "admin",
+        "createdByRole": "admin",
+        "personalitySummary": "aggressive and motivated and impulsive",
+        "personalityTraits": [
+          "Loves exploring and discovering new things",
+          "Eager to work and improve",
+          "Works well with others",
+          "Quick to defend and protect"
+        ],
+        "learning": {
+          "xp": 0,
+          "tasksCompleted": 0,
+          "tasksFailed": 0,
+          "skills": {
+            "mining": 1,
+            "building": 1,
+            "gathering": 1,
+            "exploring": 1,
+            "guard": 1
+          }
+        },
+        "description": "Test bot for validation"
+      },
+      "personality": {
+        "curiosity": 0.6618361304718049,
+        "patience": 0.24046964639703317,
+        "motivation": 0.6651247591744801,
+        "empathy": 0.9979683861579292,
+        "aggression": 0.9407734103282611,
+        "creativity": 0.1395622697127703,
+        "loyalty": 0.2450576935965254
+      },
+      "personalitySummary": "aggressive and motivated and impulsive",
+      "personalityTraits": [
+        "Loves exploring and discovering new things",
+        "Eager to work and improve",
+        "Works well with others",
+        "Quick to defend and protect"
+      ],
+      "description": "Test bot for validation",
+      "status": "active",
+      "spawnCount": 1,
+      "lastSpawnedAt": "2025-11-10T22:08:31.413Z",
+      "lastDespawnedAt": null,
+      "runtime": {
+        "lastSpawnedAt": "2025-11-10T22:08:31.413Z",
+        "lastKnownPosition": {
+          "x": 0,
+          "y": 64,
+          "z": 0
+        }
+      },
+      "createdAt": "2025-11-10T22:08:31.413Z",
+      "updatedAt": "2025-11-10T22:08:31.413Z"
+    },
+    {
+      "id": "demo_bot_01",
+      "role": "scout",
+      "npcType": "scout",
+      "appearance": {},
+      "spawnPosition": {
+        "x": 0,
+        "y": 64,
+        "z": 0
+      },
+      "lastKnownPosition": {
+        "x": 0,
+        "y": 64,
+        "z": 0
+      },
+      "metadata": {
+        "taskParameters": {},
+        "behaviorPreset": "default",
+        "createdBy": "admin",
+        "createdByRole": "admin",
+        "personalitySummary": "extremely patient",
+        "personalityTraits": [
+          "Loves exploring and discovering new things",
+          "Rarely gives up on difficult tasks",
+          "Eager to work and improve"
+        ],
+        "learning": {
+          "xp": 0,
+          "tasksCompleted": 0,
+          "tasksFailed": 0,
+          "skills": {
+            "mining": 1,
+            "building": 1,
+            "gathering": 1,
+            "exploring": 1,
+            "guard": 1
+          }
+        },
+        "description": "Demo bot"
+      },
+      "personality": {
+        "curiosity": 0.7373165120828014,
+        "patience": 0.8255646945662902,
+        "motivation": 0.9771075611640385,
+        "empathy": 0.39613893742724704,
+        "aggression": 0.2144164628363856,
+        "creativity": 0.46770312087379495,
+        "loyalty": 0.04349986206663292
+      },
+      "personalitySummary": "extremely patient",
+      "personalityTraits": [
+        "Loves exploring and discovering new things",
+        "Rarely gives up on difficult tasks",
+        "Eager to work and improve"
+      ],
+      "description": "Demo bot",
+      "status": "inactive",
+      "spawnCount": 1,
+      "lastSpawnedAt": "2025-11-10T22:11:34.012Z",
+      "lastDespawnedAt": "2025-11-10T22:11:34.057Z",
+      "runtime": {
+        "lastSpawnedAt": "2025-11-10T22:11:34.012Z",
+        "lastKnownPosition": {
+          "x": 0,
+          "y": 64,
+          "z": 0
+        },
+        "lastDespawnedAt": "2025-11-10T22:11:34.057Z"
+      },
+      "createdAt": "2025-11-10T22:11:34.012Z",
+      "updatedAt": "2025-11-10T22:11:34.012Z"
     }
   ]
 }

@@ -219,7 +219,10 @@ export class NPCFinalizer {
    */
   async _removeFromWorld(npcId) {
     try {
-      if (this.bridge && typeof this.bridge.despawnNPC === 'function') {
+      if (this.bridge && typeof this.bridge.disconnectBot === 'function') {
+        await this.bridge.disconnectBot(npcId);
+        this.log.debug('Mineflayer bot disconnected', { npcId });
+      } else if (this.bridge && typeof this.bridge.despawnNPC === 'function') {
         await this.bridge.despawnNPC(npcId);
         this.log.debug('NPC removed from world', { npcId });
       } else if (this.bridge && typeof this.bridge.sendCommand === 'function') {

@@ -13,6 +13,7 @@ import { notFoundHandler, globalErrorHandler } from "./src/middleware/errorHandl
 import { initializeWebSocketHandlers } from "./src/websocket/handlers.js";
 import { handleLogin, getCurrentUser, authenticate } from "./middleware/auth.js";
 import { initBotRoutes } from "./routes/bot.js";
+import { initMineflayerRoutes } from "./routes/mineflayer.js";
 import { initLLMRoutes } from "./routes/llm.js";
 import { logSecretWarnings } from "./security/secrets.js";
 import { runStartupValidation } from "./src/services/startup.js";
@@ -47,6 +48,7 @@ function initializeAPIRoutes() {
   const progressionRouter = initProgressionRoutes();
 
   let botRouter = null;
+  let mineflayerRouter = null;
   let llmRouter = null;
 
   if (npcSystem.npcEngine) {
@@ -56,6 +58,13 @@ function initializeAPIRoutes() {
     console.log('✅ Bot management routes initialized');
     logger.info('LLM command routes initialized');
     console.log('✅ LLM command routes initialized');
+
+    // Initialize Mineflayer routes if bridge available
+    if (npcSystem.mineflayerBridge) {
+      mineflayerRouter = initMineflayerRoutes(npcSystem, io);
+      logger.info('Mineflayer bot routes initialized');
+      console.log('✅ Mineflayer bot routes initialized');
+    }
   } else {
     logger.warn('Bot and LLM routes not initialized - NPC Engine not ready');
   }
@@ -66,6 +75,9 @@ function initializeAPIRoutes() {
     router.use("/progression", progressionRouter);
     if (botRouter) {
       router.use("/bots", botRouter);
+    }
+    if (mineflayerRouter) {
+      router.use("/mineflayer", mineflayerRouter);
     }
     if (llmRouter) {
       router.use("/llm", llmRouter);
@@ -195,6 +207,17 @@ async function startServer() {
     // Surface any secret configuration warnings
     logSecretWarnings(logger);
 
+    // Expose Prometheus metrics endpoint (before server starts)
+    app.get('/metrics', async (req, res) => {
+      try {
+        const registry = getPrometheusRegistry();
+        res.set('Content-Type', registry.contentType);
+        res.end(await registry.metrics());
+      } catch (err) {
+        res.status(500).send(err.message);
+      }
+    });
+
     // Start HTTP server
     const PORT = process.env.PORT || DEFAULT_PORT;
     httpServer.listen(PORT, () => {
@@ -227,14 +250,3 @@ process.on('uncaughtException', (err) => {
 
 // Start the server
 startServer();
-
-// Expose Prometheus metrics endpoint
-app.get('/metrics', async (req, res) => {
-  try {
-    const registry = getPrometheusRegistry();
-    res.set('Content-Type', registry.contentType);
-    res.end(await registry.metrics());
-  } catch (err) {
-    res.status(500).send(err.message);
-  }
-});

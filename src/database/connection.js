@@ -65,6 +65,9 @@ export function getPool() {
  * Execute a query with automatic error handling
  */
 export async function query(text, params = []) {
+  if (!pool) {
+    throw new Error('Database not initialized. Call initDatabase() first.');
+  }
   const start = Date.now();
   try {
     const result = await pool.query(text, params);

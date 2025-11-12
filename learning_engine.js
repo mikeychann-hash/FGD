@@ -397,16 +397,18 @@ export class LearningEngine {
 
   normalizeRole(role, npcId = "") {
     if (!role || typeof role !== "string" || role.trim().length === 0) {
-      throw new Error(
-        `Invalid role${npcId ? ` for ${npcId}` : ""}: role must be one of ${ALLOWED_ROLES.join(", ")}`
+      console.warn(
+        `Invalid role${npcId ? ` for ${npcId}` : ""}: role must be one of ${ALLOWED_ROLES.join(", ")}. Defaulting to 'builder'.`
       );
+      return 'builder';
     }
 
     const normalized = role.trim().toLowerCase();
     if (!ALLOWED_ROLES.includes(normalized)) {
-      throw new Error(
-        `Invalid role${npcId ? ` for ${npcId}` : ""}: ${role}. Valid roles: ${ALLOWED_ROLES.join(", ")}`
+      console.warn(
+        `Invalid role${npcId ? ` for ${npcId}` : ""}: ${role}. Valid roles: ${ALLOWED_ROLES.join(", ")}. Defaulting to 'builder'.`
       );
+      return 'builder';
     }
 
     return normalized;

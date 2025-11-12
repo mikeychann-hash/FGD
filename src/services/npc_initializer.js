@@ -10,6 +10,12 @@ import { AutonomicCore } from "../../autonomic_core.js";
 import { progressionEngine } from "../../core/progression_engine.js";
 import { ensureNonDefaultSecret } from "../../security/secrets.js";
 import { ROOT_DIR } from "../config/constants.js";
+import {
+  initializeMineflayerBridge,
+  createTaskExecutors,
+  attachMineflayerBridge,
+  bridgeMineflayerEvents
+} from "./mineflayer_initializer.js";
 
 /**
  * NPC System container
@@ -21,7 +27,9 @@ export class NPCSystem {
     this.npcFinalizer = null;
     this.learningEngine = null;
     this.npcEngine = null;
-    this.minecraftBridge = null;
+    this.minecraftBridge = null; // RCON bridge (legacy)
+    this.mineflayerBridge = null; // Native Mineflayer bridge (new)
+    this.taskExecutors = null; // Task executors for Mineflayer
     this.autonomicCore = null;
   }
 
@@ -73,6 +81,48 @@ export class NPCSystem {
   }
 
   /**
+   * Initialize Mineflayer Bridge (native bot control)
+   */
+  async initializeMineflayerBridgeSystem() {
+    try {
+      // Check if Mineflayer is enabled
+      const enableMineflayer = process.env.MINEFLAYER_ENABLED !== 'false';
+      if (!enableMineflayer) {
+        logger.info('Mineflayer bridge disabled via MINEFLAYER_ENABLED=false');
+        return;
+      }
+
+      // Initialize Mineflayer bridge
+      this.mineflayerBridge = await initializeMineflayerBridge({
+        host: process.env.MINECRAFT_HOST || 'localhost',
+        port: process.env.MINECRAFT_PORT || 25565,
+        version: process.env.MINECRAFT_VERSION || '1.20.1'
+      });
+
+      if (!this.mineflayerBridge) {
+        logger.warn('Mineflayer bridge initialization returned null');
+        return;
+      }
+
+      // Create task executors
+      this.taskExecutors = createTaskExecutors(this.mineflayerBridge);
+
+      if (!this.taskExecutors || Object.keys(this.taskExecutors).length === 0) {
+        logger.warn('No task executors created');
+        return;
+      }
+
+      logger.info('Mineflayer bridge system initialized', {
+        executors: Object.keys(this.taskExecutors)
+      });
+
+    } catch (err) {
+      logger.error('Failed to initialize Mineflayer bridge system', { error: err.message });
+      console.error('❌ Failed to initialize Mineflayer bridge system:', err.message);
+    }
+  }
+
+  /**
    * Initialize the NPC Engine with Minecraft Bridge
    */
   async initializeNPCEngine(io, systemState, attachTelemetryCallback, recomputeStatsCallback) {
@@ -80,7 +130,7 @@ export class NPCSystem {
       this.npcEngine = new NPCEngine({
         autoSpawn: false,
         defaultSpawnPosition: { x: 0, y: 64, z: 0 },
-        autoRegisterFromRegistry: true,
+        autoRegisterFromRegistry: false,
         registry: this.npcRegistry,
         learningEngine: this.learningEngine,
         bridge: this.minecraftBridge
@@ -93,6 +143,14 @@ export class NPCSystem {
         });
       }
 
+      // Attach Mineflayer bridge if available
+      if (this.mineflayerBridge && this.taskExecutors) {
+        attachMineflayerBridge(this.npcEngine, this.mineflayerBridge, this.taskExecutors);
+        bridgeMineflayerEvents(this.mineflayerBridge, this.npcEngine, io);
+        logger.info('Mineflayer bridge attached to NPC engine');
+        console.log('✅ Mineflayer bridge attached to NPC engine');
+      }
+
       await this.npcEngine.registryReady;
       await this.npcEngine.learningReady;
 
@@ -100,11 +158,21 @@ export class NPCSystem {
       console.log('✅ NPC Engine initialized');
       console.log(`   Registry: ${this.npcEngine.registry?.registryPath}`);
       console.log(`   Learning: ${this.npcEngine.learningEngine?.path}`);
-      console.log(`   Bridge: ${this.minecraftBridge ? 'Connected' : 'Not configured'}`);
+      console.log(`   RCON Bridge: ${this.minecraftBridge ? 'Connected' : 'Not configured'}`);
+      console.log(`   Mineflayer Bridge: ${this.mineflayerBridge ? 'Connected' : 'Not configured'}`);
 
       const activeNPCs = this.npcEngine.registry?.listActive() || [];
       console.log(`   Active NPCs: ${activeNPCs.length}`);
       systemState.systemStats.activeBots = activeNPCs.length;
+
+      if (this.npcSpawner) {
+        this.npcSpawner.engine = this.npcEngine;
+        this.npcSpawner.bridge = this.npcEngine.mineflayerBridge || this.npcEngine.bridge || this.npcSpawner.bridge;
+      }
+
+      if (this.npcFinalizer) {
+        this.npcFinalizer.bridge = this.npcEngine.mineflayerBridge || this.npcEngine.bridge || this.npcFinalizer.bridge;
+      }
 
       attachTelemetryCallback(this.npcEngine);
       recomputeStatsCallback();
@@ -191,8 +259,11 @@ export class NPCSystem {
       });
       await this.npcFinalizer.load();
 
-      // Initialize Minecraft Bridge (optional)
+      // Initialize Minecraft Bridge (optional - RCON/legacy)
       await this.initializeMinecraftBridge();
+
+      // Initialize Mineflayer Bridge (optional - native bot control)
+      await this.initializeMineflayerBridgeSystem();
 
       // Initialize NPC Engine with all components
       await this.initializeNPCEngine(io, systemState, attachTelemetryCallback, recomputeStatsCallback);

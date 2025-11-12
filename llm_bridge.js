@@ -20,8 +20,8 @@ const PROVIDERS = {
     name: "Grok (xAI)",
     apiUrl: "https://api.x.ai/v1/chat/completions",
     defaultModel: "grok-beta",
-    envKeyName: "GROK_API_KEY",
-    envUrlName: "GROK_API_URL"
+    envKeyName: ["GROK_API_KEY", "XAI_API_KEY"],
+    envUrlName: ["GROK_API_URL", "XAI_API_URL"]
   },
   local: {
     name: "Local Mock",
@@ -113,12 +113,12 @@ async function executeProvider(providerId, request) {
     return "Mock LLM response: I understand you want to build a structure. Please provide more specific details about what you'd like to create.";
   }
 
-  const apiKey = provider.envKeyName ? process.env[provider.envKeyName] : null;
+  const apiKey = provider.envKeyName ? resolveEnvValue(provider.envKeyName) : null;
   if (!apiKey) {
     throw new Error(`${provider.name} API key not configured`);
   }
 
-  const apiUrl = provider.envUrlName ? (process.env[provider.envUrlName] || provider.apiUrl) : provider.apiUrl;
+  const apiUrl = provider.envUrlName ? (resolveEnvValue(provider.envUrlName) || provider.apiUrl) : provider.apiUrl;
 
   let payload;
   try {
@@ -166,6 +166,21 @@ async function executeProvider(providerId, request) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function resolveEnvValue(keys) {
+  if (!keys) {
+    return null;
+  }
+  if (Array.isArray(keys)) {
+    for (const key of keys) {
+      if (key && process.env[key]) {
+        return process.env[key];
+      }
+    }
+    return null;
+  }
+  return process.env[keys] || null;
 }
 
 /**

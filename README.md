@@ -338,7 +338,7 @@ See **[PHASE_INTEGRATION_SUMMARY.md](PHASE_INTEGRATION_SUMMARY.md)** for complet
 | `MINECRAFT_RCON_PORT` | `25575` | Overrides RCON port.【F:server.js†L150-L168】 |
 | `MINECRAFT_RCON_PASSWORD` | _empty_ | Enables bridge initialization when provided.【F:server.js†L150-L188】 |
 | `OPENAI_API_KEY` / `OPENAI_API_URL` | _none_ | Credentials and optional endpoint override for OpenAI requests.【F:llm_bridge.js†L10-L121】 |
-| `GROK_API_KEY` / `GROK_API_URL` | _none_ | Credentials for Grok/xAI support.【F:llm_bridge.js†L10-L121】 |
+| `GROK_API_KEY` / `GROK_API_URL` *(or `XAI_API_KEY` / `XAI_API_URL`)* | _none_ | Credentials for Grok/xAI support; the bridge auto-detects either variable name.【F:llm_bridge.js†L10-L140】 |
 | `LLM_PROVIDER` | `openai` | Selects which provider configuration to use in the LLM bridge.【F:llm_bridge.js†L28-L36】 |
 | `JWT_SECRET` | Random | JWT signing secret for `server.js` authentication middleware.【F:middleware/auth.js†L1-L125】 |
 | `JWT_EXPIRES_IN` | `24h` | Token lifetime.【F:middleware/auth.js†L7-L56】 |

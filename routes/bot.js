@@ -11,6 +11,7 @@ import { MAX_BOTS, WORLD_BOUNDS } from '../constants.js';
  * @returns {number} Number of bots with status "active"
  */
 function countSpawnedBots(npcEngine) {
+  if (!npcEngine?.registry) return 0;
   const allBots = npcEngine.registry.getAll();
   return allBots.filter(bot => bot.status === 'active').length;
 }
@@ -166,8 +167,9 @@ export function initBotRoutes(npcSystem, io) {
             level: Math.floor(learningProfile.xp / 10),
             tasksCompleted: learningProfile.tasksCompleted,
             tasksFailed: learningProfile.tasksFailed,
-            successRate: learningProfile.tasksCompleted /
-              (learningProfile.tasksCompleted + learningProfile.tasksFailed) * 100,
+            successRate: (learningProfile.tasksCompleted + learningProfile.tasksFailed) > 0
+              ? (learningProfile.tasksCompleted / (learningProfile.tasksCompleted + learningProfile.tasksFailed)) * 100
+              : 0,
             skills: learningProfile.skills,
             personality: learningProfile.personality
           };
@@ -459,7 +461,7 @@ export function initBotRoutes(npcSystem, io) {
       const { id } = req.params;
       const { position } = req.body;
 
-      if (!npcEngine.bridge) {
+      if (!npcEngine.mineflayerBridge) {
         return res.status(503).json({
           error: 'Service unavailable',
           message: 'Minecraft bridge not configured'
@@ -617,7 +619,7 @@ export function initBotRoutes(npcSystem, io) {
    */
   router.post('/spawn-all', authenticate, authorize('spawn'), async (req, res) => {
     try {
-      if (!npcEngine.bridge) {
+      if (!npcEngine.mineflayerBridge) {
         return res.status(503).json({
           error: 'Service unavailable',
           message: 'Minecraft bridge not configured'
@@ -717,8 +719,9 @@ export function initBotRoutes(npcSystem, io) {
           level: Math.floor(p.xp / 10),
           tasksCompleted: p.tasksCompleted,
           tasksFailed: p.tasksFailed,
-          successRate: p.tasksCompleted /
-            (p.tasksCompleted + p.tasksFailed) * 100,
+          successRate: (p.tasksCompleted + p.tasksFailed) > 0
+            ? (p.tasksCompleted / (p.tasksCompleted + p.tasksFailed)) * 100
+            : 0,
           skills: p.skills,
           personality: p.personality
         }))

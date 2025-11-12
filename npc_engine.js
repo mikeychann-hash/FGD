@@ -136,6 +136,13 @@ export class NPCEngine extends EventEmitter {
   }
 
   async spawnNPC(id, options = {}) {
+    if (this.mineflayerBridge && typeof this.mineflayerBridge.createBot === "function") {
+      const spawnOptions = {
+        username: options.username || id,
+        version: options.version || this.mineflayerBridge.options?.version
+      };
+      return this.mineflayerBridge.createBot(id, spawnOptions);
+    }
     return this.bridgeManager.spawnNPC(id, options);
   }
 
@@ -465,51 +472,6 @@ export class NPCEngine extends EventEmitter {
     }
   }
 
-  enableModelAutonomy(options = {}) {
-    this.disableModelAutonomy();
-
-    const {
-      instructions = DEFAULT_AUTONOMY_PROMPT,
-      intervalMs = 10000,
-      maxTasks = 3,
-      allowWhenBusy = false,
-      mockResponse = null,
-      temperature = 0.3,
-      sender = "model_autonomy"
-    } = options;
-
-    this.autonomyConfig = {
-      instructions,
-      intervalMs: Math.max(1000, intervalMs),
-      maxTasks,
-      allowWhenBusy,
-      mockResponse,
-      temperature,
-      sender
-    };
-
-    this.autonomyTimer = setInterval(() => {
-      this.runAutonomyCycle().catch(err => {
-        console.error("❌ Autonomy cycle failed:", err.message);
-      });
-    }, this.autonomyConfig.intervalMs);
-
-    // Kick off an immediate cycle so it feels responsive
-    this.runAutonomyCycle({ force: true }).catch(err => {
-      console.error("❌ Initial autonomy cycle failed:", err.message);
-    });
-
-    console.log(
-      `🧠 Model autonomy enabled (interval ${this.autonomyConfig.intervalMs}ms, max ${this.autonomyConfig.maxTasks} tasks).`
-    );
-  }
-
-  disableModelAutonomy() {
-    if (this.autonomyTimer) {
-      clearInterval(this.autonomyTimer);
-      this.autonomyTimer = null;
-    }
-  }
 
   async createNPC(options = {}) {
     if (!this.spawner) {
@@ -747,7 +709,11 @@ export class NPCEngine extends EventEmitter {
       clearTimeout(this.taskTimeouts.get(id));
       this.taskTimeouts.delete(id);
     }
-    if (this.bridge?.despawnEntity) {
+    if (this.mineflayerBridge?.disconnectBot) {
+      Promise.resolve(this.mineflayerBridge.disconnectBot(id)).catch(error => {
+        console.error(`⚠️  Failed to disconnect Mineflayer bot ${id}:`, error.message);
+      });
+    } else if (this.bridge?.despawnEntity) {
       Promise.resolve(this.bridge.despawnEntity({ npcId: id })).catch(error => {
         console.error(`⚠️  Failed to despawn NPC ${id}:`, error.message);
       });

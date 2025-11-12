@@ -5,6 +5,7 @@ import { CognitiveLink } from "./cognitive_link.js";
 import { validateTask } from "./task_schema.js";
 import { planTask } from "./tasks/index.js";
 import fs from "fs/promises";
+import fsSync from "fs";
 import EventEmitter from "events";
 
 /**
@@ -204,23 +205,6 @@ export class TaskBroker extends EventEmitter {
     }
   }
 
-  /**
-   * Validates manifest structure
-   * @private
-   * @param {Object} manifest - Manifest to validate
-   * @throws {Error} If manifest is invalid
-   */
-  validateManifest(manifest) {
-    if (!manifest.nodeName || typeof manifest.nodeName !== "string") {
-      throw new Error("Manifest must have a valid nodeName");
-    }
-    if (!manifest.nodeId || typeof manifest.nodeId !== "string") {
-      throw new Error("Manifest must have a valid nodeId");
-    }
-    if (manifest.peers && !Array.isArray(manifest.peers)) {
-      throw new Error("Manifest peers must be an array");
-    }
-  }
 
   /**
    * Initializes connections to peer nodes

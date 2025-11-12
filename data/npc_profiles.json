@@ -160,5 +160,51 @@
     "tasksCompleted": 0,
     "tasksFailed": 0,
     "createdAt": "2025-11-01T22:59:55.659Z"
+  },
+  "test_bot_01": {
+    "role": "miner",
+    "skills": {
+      "mining": 1,
+      "building": 1,
+      "gathering": 1,
+      "exploring": 1,
+      "guard": 1
+    },
+    "personality": {
+      "curiosity": 0.6618361304718049,
+      "patience": 0.24046964639703317,
+      "motivation": 0.6651247591744801,
+      "empathy": 0.9979683861579292,
+      "aggression": 0.9407734103282611,
+      "creativity": 0.1395622697127703,
+      "loyalty": 0.2450576935965254
+    },
+    "xp": 0,
+    "tasksCompleted": 0,
+    "tasksFailed": 0,
+    "createdAt": "2025-11-10T22:09:59.944Z"
+  },
+  "demo_bot_01": {
+    "role": "scout",
+    "skills": {
+      "mining": 1,
+      "building": 1,
+      "gathering": 1,
+      "exploring": 1,
+      "guard": 1
+    },
+    "personality": {
+      "curiosity": 0.7373165120828014,
+      "patience": 0.8255646945662902,
+      "motivation": 0.9771075611640385,
+      "empathy": 0.39613893742724704,
+      "aggression": 0.2144164628363856,
+      "creativity": 0.46770312087379495,
+      "loyalty": 0.04349986206663292
+    },
+    "xp": 0,
+    "tasksCompleted": 0,
+    "tasksFailed": 0,
+    "createdAt": "2025-11-11T23:18:55.020Z"
   }
 }

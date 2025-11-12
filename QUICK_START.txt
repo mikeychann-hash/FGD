@@ -1,0 +1,185 @@
+╔═════════════════════════════════════════════════════════════════════════════╗
+║                                                                             ║
+║                  FGD MINEFLAYER - QUICK START GUIDE                         ║
+║                     Real Minecraft Bot Control System                       ║
+║                                                                             ║
+╚═════════════════════════════════════════════════════════════════════════════╝
+
+🚀 FASTEST WAY TO START
+═══════════════════════════════════════════════════════════════════════════════
+
+  1. Double-click: start-mineflayer.bat
+
+  2. Wait 15 seconds for both servers to start
+
+  3. Dashboard opens automatically at: http://localhost:3000/admin.html
+
+  That's it! ✅
+
+
+📋 WHAT GETS STARTED
+═══════════════════════════════════════════════════════════════════════════════
+
+  Window 1: 🎮 Minecraft Server (port 25565)
+  Window 2: 🧠 FGD Backend (port 3000)
+  Browser:  Admin Dashboard (auto-opens)
+
+
+🎯 WHAT YOU CAN DO
+═══════════════════════════════════════════════════════════════════════════════
+
+  ✓ Spawn bots that connect to real Minecraft server
+  ✓ Mine blocks and collect actual items
+  ✓ Navigate with real pathfinding
+  ✓ Combat with weapon selection
+  ✓ Craft items with recipes
+  ✓ Manage inventory
+  ✓ All in REAL Minecraft, not simulation!
+
+
+📊 ACCESS POINTS
+═══════════════════════════════════════════════════════════════════════════════
+
+  Admin Dashboard:    http://localhost:3000/admin.html
+  NPC API:            http://localhost:3000/api/npcs
+  Mineflayer API:     http://localhost:3000/api/mineflayer
+  Task Catalog:       http://localhost:3000/api/mineflayer/tasks
+  Health Check:       http://localhost:3000/api/health
+  ⚠ API tips: When the backend runs via start-mineflayer.bat, issue curl
+    commands from Command Prompt/PowerShell (or prefix with `cmd.exe /c`
+    from WSL) so localhost hits the Windows listener.
+
+
+⚙️ AVAILABLE OPTIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+  start-mineflayer.bat              ← Start everything (Minecraft + FGD)
+  start-mineflayer.bat --server-only ← Start FGD only (no Minecraft)
+
+  start-server.bat dev              ← Dev mode (with hot-reload)
+  start-server.bat prod             ← Production mode
+
+  start-all.bat                     ← Alternative full startup
+  quick-start.bat                   ← Simple startup
+
+
+❌ STOP SERVICES
+═══════════════════════════════════════════════════════════════════════════════
+
+  In each terminal window, press: CTRL+C
+
+
+🔄 RESTART
+═══════════════════════════════════════════════════════════════════════════════
+
+  1. Close both terminal windows
+  2. Wait 3-5 seconds
+  3. Double-click start-mineflayer.bat again
+
+
+🆘 TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════════════════
+
+  Port 3000 in use?
+  → Kill existing process or change port in .bat file
+
+  Node.js not found?
+  → Install from https://nodejs.org/
+
+  Java not found?
+  → Install from https://www.oracle.com/java/ (optional)
+  → Or use: start-mineflayer.bat --server-only
+
+  Minecraft JAR missing?
+  → Download from https://papermc.io/
+  → Place in minecraft-servers/ folder
+
+  Server won't start?
+  → Check logs in the terminal window
+  → See STARTUP_GUIDE.md for detailed troubleshooting
+
+
+📚 DOCUMENTATION
+═══════════════════════════════════════════════════════════════════════════════
+
+  STARTUP_GUIDE.md                           ← Complete startup guide
+  INTEGRATION_COMPLETE_SUMMARY.md            ← Integration details
+  MINEFLAYER_NPC_INTEGRATION_SUMMARY.md      ← Technical guide
+  README.md                                  ← Project overview
+
+
+⚡ FIRST TIME SETUP
+═══════════════════════════════════════════════════════════════════════════════
+
+  1. Make sure you have Node.js installed
+     → Test: node --version (should be 14.x or higher)
+
+  2. (Optional) Install Java for Minecraft server
+     → Test: java -version
+
+  3. Run npm install (if not done yet)
+     → Command: npm install
+
+  4. Start with: start-mineflayer.bat
+
+  5. Wait for "STARTUP COMPLETE" message
+
+  6. Dashboard opens automatically ✅
+
+
+💡 TIPS
+═══════════════════════════════════════════════════════════════════════════════
+
+  • Keep both terminal windows open for services to run
+  • Minimize windows if you don't want to see logs
+  • Dashboard refreshes automatically as bots work
+  • Check logs for detailed execution info
+  • Use --server-only if you don't have Minecraft
+
+
+🎮 TEST IT OUT
+═══════════════════════════════════════════════════════════════════════════════
+
+  1. Open dashboard: http://localhost:3000/admin.html
+  2. Select an NPC from the list
+  3. Click "Assign Task"
+  4. Choose: mine, move, combat, or craft
+  5. Watch the bot execute in REAL Minecraft!
+
+
+✅ SUCCESS INDICATORS
+═══════════════════════════════════════════════════════════════════════════════
+
+  Look for these in the terminal:
+
+  ✅ Mineflayer Bridge initialized
+  ✅ Task executors created: mine, move, movement, inventory, combat, craft
+  ✅ Mineflayer bridge attached to NPC engine
+  ✅ NPC Engine initialized
+
+
+📝 NOTES
+═══════════════════════════════════════════════════════════════════════════════
+
+  • Database is optional (PostgreSQL not required)
+  • Server works without it for testing
+  • Enable database later for persistence
+  • All data backed up in data/ folder
+  • Logs saved in logs/ folder
+
+
+🔐 SECURITY
+═══════════════════════════════════════════════════════════════════════════════
+
+  Development defaults are insecure:
+  • Set ADMIN_API_KEY for production
+  • Set LLM_API_KEY for production
+  • Use HTTPS in production
+  • See documentation for details
+
+
+═════════════════════════════════════════════════════════════════════════════════
+
+                    Ready to go? Double-click start-mineflayer.bat!
+
+═════════════════════════════════════════════════════════════════════════════════

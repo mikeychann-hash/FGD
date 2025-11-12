@@ -30,14 +30,15 @@ export async function runStartupValidation({
     throw err;
   }
 
-  // Database initialization
+  // Database initialization (optional - server can run without it)
   if (typeof initializeDatabase === "function") {
     try {
       await initializeDatabase();
       recordStep(results, "database", "pass");
     } catch (err) {
-      recordStep(results, "database", "error", err.message);
-      throw err;
+      logger.warn('Database initialization failed, continuing without database', { error: err.message });
+      recordStep(results, "database", "warn", `Database unavailable: ${err.message}`);
+      // Don't throw - database is optional for Mineflayer-based bot control
     }
   } else {
     recordStep(results, "database", "warn", "initializeDatabase not provided");

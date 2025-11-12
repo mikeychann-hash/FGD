@@ -19,7 +19,7 @@ import { MAX_BOTS, WORLD_BOUNDS } from "./constants.js";
 export class NPCSpawner {
   constructor(options = {}) {
     this.engine = options.engine || null;
-    this.bridge = options.bridge || this.engine?.bridge || null;
+    this.bridge = options.bridge || this.engine?.mineflayerBridge || this.engine?.bridge || null;
     if (options.registry instanceof NPCRegistry) {
       this.registry = options.registry;
     } else if (options.registry === null || options.registry === false) {
@@ -140,7 +140,12 @@ export class NPCSpawner {
 
     this._registerWithEngine(profile, position, options);
 
-    const shouldSpawn = (options.autoSpawn ?? this.autoSpawn) && (this.engine?.bridge || this.bridge);
+    const hasSpawnBridge =
+      this.engine?.mineflayerBridge ||
+      this.engine?.bridge ||
+      this.bridge;
+
+    const shouldSpawn = (options.autoSpawn ?? this.autoSpawn) && hasSpawnBridge;
     let spawnResponse = null;
 
     if (shouldSpawn) {
@@ -310,7 +315,7 @@ export class NPCSpawner {
     }
 
     const results = [];
-    for (const profile of npcs) {
+    for (const profile of toSpawn) {
       const merged = {
         ...profile,
         ...options.overrides,
@@ -419,7 +424,10 @@ export class NPCSpawner {
         // Initialize microcore for embodied bot behavior
         if (context.shouldSpawn && !npcState.runtime?.microcore) {
           try {
-            const bridge = this.engine.bridge || this.bridge;
+            const bridge =
+              this.engine?.mineflayerBridge ||
+              this.engine?.bridge ||
+              this.bridge;
             const microcore = startLoop(npcState, {
               bridge,
               tickRateMs: 200,

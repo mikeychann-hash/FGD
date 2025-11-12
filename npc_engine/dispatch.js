@@ -33,11 +33,7 @@ export class DispatchManager {
     npc.state = "working";
     npc.progress = 0;
     npc.lastUpdate = Date.now();
-    npc.awaitingFeedback = Boolean(
-      this.engine.requireFeedback &&
-        this.engine.bridge &&
-        this.engine.bridge.options?.enableUpdateServer !== false
-    );
+    npc.awaitingFeedback = false;
 
     this.engine.syncMicrocoreTask(npc, normalizedTask);
     const preferenceNote =
@@ -77,8 +73,12 @@ export class DispatchManager {
    */
   dispatchTask(npc, task) {
     const plan = planTask(task, { npc });
+    const hasBridge = Boolean(this.engine.bridge);
+    const executor = this.engine.taskExecutors?.[task.action];
+    const hasExecutor = Boolean(executor);
 
-    if (!this.engine.bridge) {
+    if (!hasBridge && !hasExecutor) {
+      npc.awaitingFeedback = false;
       this.engine.emit("task_dispatched", {
         npcId: npc.id,
         task: cloneTask(task),
@@ -98,6 +98,8 @@ export class DispatchManager {
     }
 
     if (
+      hasBridge &&
+      !hasExecutor &&
       typeof this.engine.bridge.isConnected === "function" &&
       !this.engine.bridge.isConnected()
     ) {
@@ -126,14 +128,65 @@ export class DispatchManager {
 
     (async () => {
       try {
-        const response = await this.engine.bridge.dispatchTask({ ...task, npcId: npc.id });
-        if (response) {
-          this.log.debug('Bridge response received', { npcId: npc.id, response });
+        let response;
+        let transport = hasExecutor ? "mineflayer" : "bridge";
+
+        // Check if Mineflayer task executors are available
+        if (hasExecutor) {
+          const executorName = executor.constructor?.name ?? task.action;
+
+          this.log.debug('Using Mineflayer executor', {
+            npcId: npc.id,
+            action: task.action,
+            executor: executorName
+          });
+
+          try {
+            response = await executor.execute(npc.id, task);
+            transport = "mineflayer";
+
+            this.log.debug('Mineflayer executor completed', {
+              npcId: npc.id,
+              action: task.action,
+              success: response?.success
+            });
+          } catch (executorErr) {
+            this.log.warn('Mineflayer executor failed, falling back to bridge', {
+              npcId: npc.id,
+              action: task.action,
+              error: executorErr.message
+            });
+
+            if (hasBridge) {
+              // Fallback to legacy bridge when available
+              response = await this.engine.bridge.dispatchTask({ ...task, npcId: npc.id });
+              transport = "bridge";
+            } else {
+              throw executorErr;
+            }
+          }
+        } else if (hasBridge) {
+          // Use legacy bridge if no executor available
+          response = await this.engine.bridge.dispatchTask({ ...task, npcId: npc.id });
+          transport = "bridge";
+        } else {
+          throw new Error(`No executor or bridge available for action: ${task.action}`);
         }
+
+        npc.awaitingFeedback = this._shouldAwaitFeedback(transport);
+
+        if (response) {
+          this.log.debug('Task execution response received', {
+            npcId: npc.id,
+            transport,
+            success: response?.success
+          });
+        }
+
         this.engine.emit("task_dispatched", {
           npcId: npc.id,
           task: cloneTask(task),
-          transport: "bridge",
+          transport,
           response,
           plan
         });
@@ -146,7 +199,14 @@ export class DispatchManager {
         if (npc.awaitingFeedback) {
           return;
         }
-        this.completeTask(npc.id, true);
+
+        const success = response?.success !== false;
+        if (success) {
+          this.completeTask(npc.id, true);
+        } else {
+          const error = new Error(response?.error || `Mineflayer executor for ${task.action} reported failure`);
+          await this._handleTaskFailure(npc.id, task, error);
+        }
       } catch (err) {
         this.log.warn('Task dispatch failed', { npcId: npc.id, error: err.message });
         this.engine.emit("task_dispatch_failed", {
@@ -352,6 +412,15 @@ export class DispatchManager {
       // Complete as failed
       this.completeTask(npcId, false);
     }
+  }
+
+  _shouldAwaitFeedback(transport) {
+    return Boolean(
+      transport === "bridge" &&
+      this.engine.requireFeedback &&
+      this.engine.bridge &&
+      this.engine.bridge.options?.enableUpdateServer !== false
+    );
   }
 
   /**

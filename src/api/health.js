@@ -7,11 +7,8 @@ import { logger } from "../../logger.js";
 export function initHealthRoutes(npcSystem, stateManager) {
   const router = express.Router();
 
-  /**
-   * Health check endpoint
-   */
-  router.get("/health", (req, res) => {
-    const health = {
+  function buildHealthPayload() {
+    return {
       status: "healthy",
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
@@ -27,10 +24,27 @@ export function initHealthRoutes(npcSystem, stateManager) {
         unit: "MB"
       }
     };
+  }
 
-    const allHealthy = Object.values(health.components).every(status => status === "healthy");
-    res.status(allHealthy ? 200 : 503).json(health);
+  /**
+   * Health check endpoint (preferred path: /api/health)
+   */
+  router.get("/", (req, res) => {
+    sendHealth(res);
   });
+
+  /**
+   * Legacy health path retained for compatibility (/api/health/health)
+   */
+  router.get("/health", (req, res) => {
+    sendHealth(res);
+  });
+
+  function sendHealth(res) {
+    const payload = buildHealthPayload();
+    const allHealthy = Object.values(payload.components).every(status => status === "healthy");
+    res.status(allHealthy ? 200 : 503).json(payload);
+  }
 
   /**
    * System metrics endpoint

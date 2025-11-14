@@ -1,0 +1,126 @@
+# =============================================================================
+# Docker Ignore File - Exclude from Docker build context
+# =============================================================================
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json*
+yarn.lock
+
+# Environment files (contain secrets!)
+.env
+.env.*
+.env.local
+.env.production
+.env.development
+!.env.example
+
+# Git
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Testing
+test/
+coverage/
+.nyc_output/
+__tests__/
+*.test.js
+*.spec.js
+
+# Documentation
+docs/
+*.md
+!README.md
+LICENSE
+CHANGELOG.md
+
+# Build artifacts
+dist/
+build/
+.cache/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+.tmp
+
+# Docker files (don't need inside container)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+azure-pipelines.yml
+Jenkinsfile
+
+# Misc
+.editorconfig
+.eslintrc*
+.prettierrc*
+.prettierignore
+tsconfig.json
+jest.config.js
+
+# Old/archived files
+old_*/
+*.old
+*.backup
+*.bak
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# FGD-specific
+old_minecraft_servers/
+minecraft-servers/data/
+.fgd_memory.json
+.fgd_memory.lock
+.fgd_memory.tmp
+EXPLORATION_REPORT.md
+ARCHITECTURE_REVIEW.md
+IMPLEMENTATION_PLAN.md
+RISK_MAP.md
+
+# Data directories (should be volumes)
+data/
+postgres-data/
+redis-data/
+minecraft-data/
+
+# =============================================================================
+# Why exclude these files?
+# =============================================================================
+# - node_modules: Will be rebuilt in container
+# - .env files: Contain secrets, pass via environment variables
+# - .git: Not needed in production image (adds 100+ MB)
+# - test/docs: Not needed for runtime
+# - IDE files: Developer-specific, not for production
+# - *.md: Documentation not needed in container
+#
+# Result: Smaller build context = faster builds
+# =============================================================================

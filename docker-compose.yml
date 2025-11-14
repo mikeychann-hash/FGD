@@ -1,41 +1,341 @@
-version: "3.8"
+# =============================================================================
+# FGD (Fully-Grounded Digital) - Docker Compose Configuration
+# Complete stack: Application + PostgreSQL + Redis + Minecraft Server
+# =============================================================================
+
+version: '3.8'
 
 services:
+  # ---------------------------------------------------------------------------
+  # Main Application Service
+  # ---------------------------------------------------------------------------
   app:
-    image: node:20-alpine
-    working_dir: /usr/src/fgd
-    volumes:
-      - ./:/usr/src/fgd
-    command: ["npm", "run", "dev"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fgd-app:latest
+    container_name: fgd-app
+    ports:
+      - "3000:3000"  # Application HTTP port
     environment:
-      PORT: 3000
+      # Server Configuration
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3000}
+
+      # Database Configuration
+      DATABASE_URL: postgresql://${DB_USER:-fgd_user}:${DB_PASSWORD:-fgd_password}@postgres:5432/${DB_NAME:-fgd_production}
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: fgd_aicraft
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      REDIS_URL: redis://redis:6379
-    depends_on:
-      - postgres
-      - redis
-    ports:
-      - "3000:3000"
+      DB_NAME: ${DB_NAME:-fgd_production}
+      DB_USER: ${DB_USER:-fgd_user}
+      DB_PASSWORD: ${DB_PASSWORD:-fgd_password}
 
+      # Redis Configuration
+      REDIS_URL: redis://redis:6379
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # Authentication
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env file}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
+
+      # LLM Configuration
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GROK_API_KEY: ${GROK_API_KEY}
+      XAI_API_KEY: ${XAI_API_KEY}
+
+      # Minecraft Configuration
+      MINECRAFT_SERVER_HOST: ${MINECRAFT_SERVER_HOST:-minecraft}
+      MINECRAFT_SERVER_PORT: ${MINECRAFT_SERVER_PORT:-25565}
+      MINECRAFT_RCON_HOST: ${MINECRAFT_RCON_HOST:-minecraft}
+      MINECRAFT_RCON_PORT: ${MINECRAFT_RCON_PORT:-25575}
+      MINECRAFT_RCON_PASSWORD: ${MINECRAFT_RCON_PASSWORD:-}
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /app/logs
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    volumes:
+      # Persistent logs
+      - ./logs:/app/logs
+      # Persistent data
+      - ./data:/app/data
+      # Optional: Mount config files
+      # - ./config:/app/config:ro
+
+    restart: unless-stopped
+
+    networks:
+      - fgd-network
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/v1/cluster/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
   postgres:
     image: postgres:15-alpine
+    container_name: fgd-postgres
     environment:
-      POSTGRES_DB: fgd_aicraft
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+      POSTGRES_DB: ${DB_NAME:-fgd_production}
+      POSTGRES_USER: ${DB_USER:-fgd_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-fgd_password}
+      # Performance tuning
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+      # Shared buffers (25% of RAM is recommended)
+      POSTGRES_SHARED_BUFFERS: 256MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 1GB
 
+    volumes:
+      # Persistent database data
+      - postgres-data:/var/lib/postgresql/data
+      # Auto-run migration scripts on first startup
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+
+    ports:
+      - "5432:5432"  # Expose for external access (optional)
+
+    restart: unless-stopped
+
+    networks:
+      - fgd-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-fgd_user} -d ${DB_NAME:-fgd_production}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # Redis Cache & Session Store
+  # ---------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redisdata:/data
+    container_name: fgd-redis
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:-}
 
+    volumes:
+      # Persistent Redis data
+      - redis-data:/data
+
+    ports:
+      - "6379:6379"  # Expose for external access (optional)
+
+    restart: unless-stopped
+
+    networks:
+      - fgd-network
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # Minecraft Server (Optional - comment out if not needed)
+  # ---------------------------------------------------------------------------
+  minecraft:
+    image: itzg/minecraft-server:latest
+    container_name: fgd-minecraft
+    environment:
+      # Accept Minecraft EULA
+      EULA: "TRUE"
+
+      # Server Type and Version
+      TYPE: ${MINECRAFT_TYPE:-PAPER}
+      VERSION: ${MINECRAFT_VERSION:-1.21.8}
+
+      # Server Configuration
+      SERVER_NAME: ${MINECRAFT_SERVER_NAME:-FGD NPC Server}
+      MOTD: "FGD - Minecraft NPC Swarm Management"
+      DIFFICULTY: ${MINECRAFT_DIFFICULTY:-normal}
+      MODE: ${MINECRAFT_MODE:-survival}
+      MAX_PLAYERS: ${MINECRAFT_MAX_PLAYERS:-20}
+      VIEW_DISTANCE: ${MINECRAFT_VIEW_DISTANCE:-10}
+
+      # Performance
+      MEMORY: ${MINECRAFT_MEMORY:-2G}
+      USE_AIKAR_FLAGS: "true"
+
+      # RCON (Remote Console)
+      ENABLE_RCON: "true"
+      RCON_PASSWORD: ${MINECRAFT_RCON_PASSWORD:-changeme}
+      RCON_PORT: 25575
+
+      # Whitelist
+      WHITELIST_ENABLED: ${MINECRAFT_WHITELIST:-false}
+      # WHITELIST: "player1,player2"
+
+      # Plugins (for Paper/Spigot)
+      # PLUGINS: "https://example.com/plugin.jar"
+
+    volumes:
+      # Persistent Minecraft world and data
+      - minecraft-data:/data
+
+    ports:
+      - "25565:25565"  # Minecraft server port
+      - "25575:25575"  # RCON port
+
+    restart: unless-stopped
+
+    networks:
+      - fgd-network
+
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # Minecraft takes time to start
+
+    # Resource limits - Minecraft needs resources!
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 3G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
+    # Optional: Disable if you don't need Minecraft server
+    # profiles: ["with-minecraft"]
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  fgd-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# =============================================================================
+# Volumes (Persistent Data)
+# =============================================================================
 volumes:
-  pgdata:
-  redisdata:
+  postgres-data:
+    driver: local
+    name: fgd-postgres-data
+
+  redis-data:
+    driver: local
+    name: fgd-redis-data
+
+  minecraft-data:
+    driver: local
+    name: fgd-minecraft-data
+
+# =============================================================================
+# Usage Instructions
+# =============================================================================
+#
+# Quick Start:
+#   1. Copy .env.example to .env and configure
+#   2. Set JWT_SECRET in .env
+#   3. Run: docker-compose up -d
+#   4. Check logs: docker-compose logs -f app
+#   5. Access: http://localhost:3000
+#
+# Common Commands:
+#   Start all services:       docker-compose up -d
+#   Stop all services:        docker-compose down
+#   View logs:                docker-compose logs -f [service]
+#   Restart a service:        docker-compose restart [service]
+#   Rebuild and start:        docker-compose up -d --build
+#   Remove all data:          docker-compose down -v
+#
+# Service-specific commands:
+#   App logs:                 docker-compose logs -f app
+#   Database backup:          docker-compose exec postgres pg_dump -U fgd_user fgd_production > backup.sql
+#   Redis CLI:                docker-compose exec redis redis-cli
+#   Minecraft console:        docker-compose exec minecraft rcon-cli
+#
+# Production deployment:
+#   1. Set NODE_ENV=production in .env
+#   2. Use strong DB_PASSWORD and REDIS_PASSWORD
+#   3. Set secure JWT_SECRET (at least 32 random characters)
+#   4. Configure firewall (expose only necessary ports)
+#   5. Set up HTTPS reverse proxy (Nginx, Caddy)
+#   6. Enable automated backups
+#   7. Monitor with docker-compose logs and health checks
+#
+# Scaling:
+#   Run multiple app instances:
+#     docker-compose up -d --scale app=3
+#   Then add a load balancer (Nginx, HAProxy, Traefik)
+#
+# Without Minecraft server:
+#   Comment out the "minecraft" service above or run:
+#     docker-compose up -d app postgres redis
+#
+# =============================================================================
+# Environment Variables Required
+# =============================================================================
+#
+# Required:
+#   - JWT_SECRET            (must be set, at least 32 characters)
+#   - OPENAI_API_KEY        (if using OpenAI LLM)
+#   - GROK_API_KEY          (if using Grok LLM)
+#
+# Optional:
+#   - DB_NAME, DB_USER, DB_PASSWORD
+#   - REDIS_PASSWORD
+#   - MINECRAFT_* settings
+#
+# See .env.example for full list
+#
+# =============================================================================

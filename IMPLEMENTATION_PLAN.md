@@ -1,656 +1,891 @@
-# FGD Implementation Plan: Bug Fixes + Mineflayer Integration
-
-**Date:** 2025-11-09
-**Strategy:** Hybrid Approach - Fix Critical Bugs First, Parallel Development
-**Estimated Timeline:** 3-5 days
-
----
-
-## Executive Summary
-
-**Recommended Approach: Fix Critical Bugs → Implement Mineflayer Core → Fix Remaining Bugs in Parallel**
-
-### Reasoning
-
-1. **Critical bugs will break development** - The `fsSync` import error (Bug #2) causes runtime crashes that would interfere with any development work
-2. **Clean foundation for integration** - Bug #1 (metrics endpoint) affects server startup and could cause issues during Mineflayer testing
-3. **Some bugs become irrelevant** - Medium/low severity bugs can be fixed in parallel or skipped if Mineflayer replaces affected code
-4. **Faster time to value** - Get core Mineflayer features working while addressing remaining bugs
+# IMPLEMENTATION PLAN
+**Agent A — Senior Architect / Lead Reviewer**
+**For: Agent B (Engineer / Implementer)**
+**Date:** 2025-11-14
+**Repository:** FGD - Minecraft NPC Swarm Management System
 
 ---
 
-## Phase 1: Critical Bug Fixes (Priority: URGENT)
-**Estimated Time:** 2-3 hours
+## EXECUTIVE SUMMARY
 
-### Why First?
-- These bugs cause **runtime crashes** and **race conditions**
-- Will interfere with all subsequent development
-- Must be fixed regardless of Mineflayer integration
+This implementation plan provides **prioritized, actionable tasks** for Agent B to execute. Tasks are categorized by priority:
+- **P0 (Critical):** System cannot function without these
+- **P1 (High):** Important for production readiness
+- **P2 (Medium):** Improvements and optimizations
 
-### Tasks
+**Estimated Total Effort:** 48-72 hours across all priorities
 
-#### 1.1 Fix Bug #2: Undefined fsSync Module (CRITICAL)
-**File:** `task_broker.js:4,94-96`
-**Impact:** Runtime crash when TaskBroker loads config
-**Fix:**
-```javascript
-// Add synchronous fs import
-import fs from "fs/promises";
-import fsSync from "fs";  // ADD THIS LINE
+**Current State:** Production-quality code, missing operational setup
+**Target State:** Fully operational, documented, and deployable system
+
+---
+
+## PRIORITY 0 (CRITICAL) — BLOCKERS
+
+### P0.1 — Environment Setup & Dependencies
+**Status:** 🔴 BLOCKING
+**Effort:** 2-4 hours
+**Owner:** Agent B
+
+**Tasks:**
+
+1. **Install Node Dependencies**
+   ```bash
+   cd /home/user/FGD
+   npm install
+   ```
+   - **Verify:** `node_modules/` directory created
+   - **Verify:** No vulnerability warnings (run `npm audit`)
+   - **Fix vulnerabilities:** `npm audit fix` if needed
+
+2. **Configure PostgreSQL Database**
+   - Create database: `createdb fgd_production`
+   - Run migrations (if migration files exist in `/migrations/` or `/db/`)
+   - Seed initial data (admin user, default policies)
+   - **Verify:** Connect to DB and list tables
+
+   ```sql
+   \c fgd_production
+   \dt
+   ```
+
+3. **Configure Redis**
+   - Install Redis: `sudo apt-get install redis-server` (if not installed)
+   - Start Redis: `sudo systemctl start redis`
+   - Verify: `redis-cli ping` (should return PONG)
+
+4. **Create Environment Configuration**
+   - Copy `.env.example` to `.env` (if exists)
+   - Or create new `.env` file with required variables:
+
+   ```env
+   # Server
+   NODE_ENV=production
+   PORT=3000
+   HOST=0.0.0.0
+
+   # Database
+   DATABASE_URL=postgresql://user:password@localhost:5432/fgd_production
+   DB_HOST=localhost
+   DB_PORT=5432
+   DB_NAME=fgd_production
+   DB_USER=fgd_user
+   DB_PASSWORD=secure_password_here
+
+   # Redis
+   REDIS_URL=redis://localhost:6379
+   REDIS_HOST=localhost
+   REDIS_PORT=6379
+
+   # JWT Authentication
+   JWT_SECRET=generate_secure_random_string_here
+   JWT_EXPIRES_IN=24h
+
+   # LLM API
+   OPENAI_API_KEY=sk-your-openai-key-here
+   GROK_API_KEY=your-grok-key-here
+   LLM_PROVIDER=openai  # or "grok"
+
+   # Minecraft
+   MINECRAFT_SERVER_HOST=localhost
+   MINECRAFT_SERVER_PORT=25565
+
+   # Rate Limiting
+   RATE_LIMIT_WINDOW_MS=60000
+   RATE_LIMIT_MAX_REQUESTS=100
+
+   # Logging
+   LOG_LEVEL=info
+   LOG_DIR=./logs
+   ```
+
+5. **Database Migration/Schema Setup**
+   - Check for migration files: `ls -la migrations/` or `ls -la db/`
+   - If no migrations exist, **CREATE INITIAL SCHEMA** based on code analysis:
+
+   **File to create:** `/migrations/001_initial_schema.sql`
+
+   ```sql
+   -- NPCs table
+   CREATE TABLE npcs (
+     id SERIAL PRIMARY KEY,
+     name VARCHAR(255) NOT NULL,
+     uuid VARCHAR(36) UNIQUE NOT NULL,
+     state VARCHAR(50) NOT NULL,
+     current_phase INTEGER DEFAULT 1,
+     experience_points INTEGER DEFAULT 0,
+     skills JSONB DEFAULT '{}',
+     position JSONB,
+     inventory JSONB DEFAULT '[]',
+     metadata JSONB DEFAULT '{}',
+     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+   );
+
+   -- Tasks table
+   CREATE TABLE tasks (
+     id SERIAL PRIMARY KEY,
+     npc_id INTEGER REFERENCES npcs(id) ON DELETE CASCADE,
+     type VARCHAR(100) NOT NULL,
+     status VARCHAR(50) NOT NULL,
+     priority INTEGER DEFAULT 0,
+     parameters JSONB DEFAULT '{}',
+     result JSONB,
+     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+     started_at TIMESTAMP,
+     completed_at TIMESTAMP,
+     error TEXT
+   );
+
+   -- Learning data table
+   CREATE TABLE learning_data (
+     id SERIAL PRIMARY KEY,
+     npc_id INTEGER REFERENCES npcs(id) ON DELETE CASCADE,
+     task_type VARCHAR(100) NOT NULL,
+     success BOOLEAN NOT NULL,
+     duration_ms INTEGER,
+     feedback JSONB DEFAULT '{}',
+     context JSONB DEFAULT '{}',
+     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+   );
+
+   -- Policies table
+   CREATE TABLE policies (
+     id SERIAL PRIMARY KEY,
+     name VARCHAR(255) NOT NULL UNIQUE,
+     type VARCHAR(50) NOT NULL,
+     rules JSONB NOT NULL,
+     enabled BOOLEAN DEFAULT true,
+     priority INTEGER DEFAULT 0,
+     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+   );
+
+   -- Users table (for authentication)
+   CREATE TABLE users (
+     id SERIAL PRIMARY KEY,
+     username VARCHAR(255) NOT NULL UNIQUE,
+     email VARCHAR(255) NOT NULL UNIQUE,
+     password_hash VARCHAR(255) NOT NULL,
+     role VARCHAR(50) DEFAULT 'user',
+     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+     last_login TIMESTAMP
+   );
+
+   -- API Keys table
+   CREATE TABLE api_keys (
+     id SERIAL PRIMARY KEY,
+     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+     key_hash VARCHAR(255) NOT NULL UNIQUE,
+     name VARCHAR(255),
+     expires_at TIMESTAMP,
+     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+     last_used TIMESTAMP
+   );
+
+   -- Indexes
+   CREATE INDEX idx_npcs_state ON npcs(state);
+   CREATE INDEX idx_npcs_uuid ON npcs(uuid);
+   CREATE INDEX idx_tasks_npc_id ON tasks(npc_id);
+   CREATE INDEX idx_tasks_status ON tasks(status);
+   CREATE INDEX idx_learning_data_npc_id ON learning_data(npc_id);
+   CREATE INDEX idx_learning_data_task_type ON learning_data(task_type);
+   CREATE INDEX idx_policies_enabled ON policies(enabled);
+   ```
+
+6. **Run Initial Migration**
+   ```bash
+   psql -U fgd_user -d fgd_production -f migrations/001_initial_schema.sql
+   ```
+
+7. **Verify Installation**
+   - Start server: `npm start` or `node server.js`
+   - Check logs for startup errors
+   - Verify all services connected (DB, Redis, etc.)
+
+**Acceptance Criteria:**
+- [ ] `npm install` completes successfully
+- [ ] PostgreSQL database created and schema applied
+- [ ] Redis server running and accessible
+- [ ] `.env` file configured with all required variables
+- [ ] Server starts without errors
+- [ ] Health check endpoint returns 200: `GET /api/v1/cluster/health`
+
+---
+
+### P0.2 — MCP Integration Decision & Implementation
+**Status:** 🔴 BLOCKING (Documentation Gap)
+**Effort:** 1 hour (decision) OR 20-40 hours (implementation)
+**Owner:** Agent B + User Decision
+
+**Background:**
+- MCP (Model Context Protocol) is extensively documented
+- No MCP implementation exists in codebase
+- Creates confusion and misleading expectations
+
+**Decision Required:**
+
+**Option A: Implement MCP (20-40 hours)**
+
+If user wants MCP integration:
+
+1. **Create MCP Server Structure**
+   ```
+   /mcp/
+   ├── index.js                    - MCP server entry point
+   ├── mcpServer.js                - Server implementation
+   ├── /tools/                     - MCP tool definitions
+   │   ├── minecraft_control.js    - Bot control tools
+   │   ├── npc_management.js       - NPC lifecycle tools
+   │   ├── task_planning.js        - Task creation tools
+   │   └── diagnostics.js          - Health & metrics tools
+   └── /config/
+       └── mcp_manifest.json       - Tool registry
+   ```
+
+2. **Implement MCP Server** (`/mcp/mcpServer.js`)
+   - Follow MCP specification (stdio or SSE transport)
+   - Expose existing API functionality as MCP tools
+   - Implement tool discovery, invocation, and result handling
+
+3. **Create MCP Tools** (at least 10 tools)
+   - `minecraft/move` - Move bot to coordinates
+   - `minecraft/mine` - Mine blocks
+   - `minecraft/build` - Place blocks
+   - `npc/create` - Create new NPC
+   - `npc/assign_task` - Assign task to NPC
+   - `tasks/list` - Get all tasks
+   - `diagnostics/health` - System health check
+   - `diagnostics/metrics` - Get performance metrics
+   - `llm/prompt` - Send LLM prompt
+   - `cluster/status` - Get cluster status
+
+4. **Update Documentation**
+   - Update `MCP_ARCHITECTURE.md` with actual implementation details
+   - Add MCP setup instructions to `README.md`
+   - Create `/docs/MCP_SETUP.md` guide
+
+**Option B: Remove MCP Documentation (1 hour)**
+
+If MCP not planned:
+
+1. **Remove or Update Files**
+   - Delete or archive `MCP_ARCHITECTURE.md`
+   - Delete or archive `MCP_COMPARISON.md`
+   - Remove MCP references from other documentation
+
+2. **Add Roadmap Entry** (if planned for future)
+   - Create `/docs/ROADMAP.md`
+   - Add "MCP Integration" as future milestone
+
+**Recommendation:** Make decision ASAP to unblock documentation accuracy.
+
+**Acceptance Criteria (Option A):**
+- [ ] MCP server implemented and running
+- [ ] At least 10 MCP tools exposed
+- [ ] MCP client can discover and invoke tools
+- [ ] Documentation updated with actual implementation
+
+**Acceptance Criteria (Option B):**
+- [ ] MCP documentation removed or marked as "Planned"
+- [ ] No misleading references to MCP as existing feature
+
+---
+
+### P0.3 — DevOps Foundation (Docker & Deployment)
+**Status:** 🔴 BLOCKING (Cannot Deploy)
+**Effort:** 6-8 hours
+**Owner:** Agent B
+
+**Tasks:**
+
+1. **Create Dockerfile**
+
+**File:** `/Dockerfile`
+
+```dockerfile
+# Multi-stage build for optimization
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy dependency files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy application code
+COPY . .
+
+# Production stage
+FROM node:20-alpine
+
+# Install dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+WORKDIR /app
+
+# Copy from builder
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --chown=nodejs:nodejs . .
+
+# Create logs directory
+RUN mkdir -p logs && chown nodejs:nodejs logs
+
+# Switch to non-root user
+USER nodejs
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000/api/v1/cluster/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); })"
+
+# Use dumb-init to handle signals
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start application
+CMD ["node", "server.js"]
 ```
 
-**Test:**
-```bash
-node -e "import('./task_broker.js').then(() => console.log('✓ Import successful'))"
+2. **Create Docker Compose**
+
+**File:** `/docker-compose.yml`
+
+```yaml
+version: '3.8'
+
+services:
+  # Main application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://fgd_user:fgd_password@postgres:5432/fgd_production
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      MINECRAFT_SERVER_HOST: minecraft
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    restart: unless-stopped
+    networks:
+      - fgd-network
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: fgd_production
+      POSTGRES_USER: fgd_user
+      POSTGRES_PASSWORD: fgd_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fgd_user -d fgd_production"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - fgd-network
+
+  # Redis cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - fgd-network
+
+  # Minecraft server (optional)
+  minecraft:
+    image: itzg/minecraft-server:latest
+    environment:
+      EULA: "TRUE"
+      TYPE: PAPER
+      VERSION: "1.21.8"
+      MEMORY: "2G"
+      SERVER_NAME: "FGD NPC Server"
+    ports:
+      - "25565:25565"
+    volumes:
+      - minecraft-data:/data
+    restart: unless-stopped
+    networks:
+      - fgd-network
+
+networks:
+  fgd-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  minecraft-data:
 ```
 
-**Estimated Time:** 15 minutes
+3. **Create .dockerignore**
 
----
+**File:** `/.dockerignore`
 
-#### 1.2 Fix Bug #1: Metrics Endpoint After Server Start (CRITICAL)
-**File:** `server.js:229-240`
-**Impact:** Race condition - endpoint may not be available
-**Fix:** Move endpoint definition into `startServer()` before `httpServer.listen()`
-
-**Location:**
-```javascript
-async function startServer() {
-  // ... existing initialization ...
-
-  // ADD HERE (before httpServer.listen):
-  app.get('/metrics', async (req, res) => {
-    try {
-      const registry = getPrometheusRegistry();
-      res.set('Content-Type', registry.contentType);
-      res.end(await registry.metrics());
-    } catch (err) {
-      res.status(500).send(err.message);
-    }
-  });
-
-  // Then start server
-  const PORT = process.env.PORT || DEFAULT_PORT;
-  httpServer.listen(PORT, () => {
-    // ...
-  });
-}
+```
+node_modules
+npm-debug.log
+.env
+.env.local
+.git
+.gitignore
+*.md
+docs/
+test/
+.vscode/
+.idea/
+logs/
+*.log
+coverage/
+.DS_Store
+old_minecraft_servers/
 ```
 
-**Test:**
-```bash
-# Start server and verify metrics endpoint
-curl http://localhost:3000/metrics
-```
+4. **Create Deployment Guide**
 
-**Estimated Time:** 30 minutes
+**File:** `/DEPLOYMENT.md` (see P0.4 below)
 
----
+5. **Test Docker Build**
+   ```bash
+   # Build image
+   docker build -t fgd-app:latest .
 
-## Phase 2: Mineflayer Foundation (Priority: HIGH)
-**Estimated Time:** 1-2 days
+   # Test run (ensure .env exists)
+   docker-compose up -d
 
-### Why Now?
-- Critical bugs are fixed
-- Clean foundation to build on
-- Core features needed before advanced integration
+   # Check logs
+   docker-compose logs -f app
 
-### Tasks
+   # Verify health
+   curl http://localhost:3000/api/v1/cluster/health
 
-#### 2.1 Install Dependencies
-```bash
-npm install mineflayer
-npm install mineflayer-pathfinder
-npm install mineflayer-pvp
-npm install mineflayer-auto-eat
-npm install mineflayer-collectblock
-npm install minecraft-data
-npm install vec3
-```
+   # Stop
+   docker-compose down
+   ```
 
-**Test:**
-```bash
-npm ls | grep mineflayer
-```
-
-**Estimated Time:** 15 minutes
+**Acceptance Criteria:**
+- [ ] Dockerfile builds successfully
+- [ ] Docker Compose starts all services
+- [ ] Application connects to PostgreSQL and Redis
+- [ ] Health check endpoint returns healthy
+- [ ] Logs are accessible via `docker-compose logs`
 
 ---
 
-#### 2.2 Create MineflayerBridge Class
-**File:** Create `minecraft_bridge.js` (if doesn't exist) or update existing
-**Features:**
-- Bot connection and lifecycle management
-- Event handling (spawn, disconnect, error)
-- Reconnection logic with exponential backoff
-- WebSocket event forwarding
+### P0.4 — Deployment Documentation
+**Status:** 🔴 BLOCKING (Cannot Deploy)
+**Effort:** 4-6 hours
+**Owner:** Agent B
 
-**Implementation:** Use code from MINEFLAYER_COMPARISON.md lines 87-461
+**Task:** Create comprehensive deployment guide
 
-**Test:**
-```javascript
-// Test bot creation
-const bridge = new MineflayerBridge({
-  host: 'localhost',
-  port: 25565
-});
+**File to Create:** `/DEPLOYMENT.md`
 
-const result = await bridge.createBot('test-bot-1', {
-  username: 'TestBot'
-});
+**Contents:** Complete deployment instructions including:
+- Prerequisites (hardware, software)
+- Quick Start (Docker)
+- Manual Deployment (without Docker)
+- Environment variable reference
+- Monitoring & maintenance
+- Production hardening
+- Troubleshooting
 
-console.log('Bot spawned:', result.success);
-```
-
-**Estimated Time:** 4 hours
+**Acceptance Criteria:**
+- [ ] Deployment guide created and comprehensive
+- [ ] Step-by-step instructions for Docker and manual deployment
+- [ ] Environment variable reference complete
+- [ ] Troubleshooting section covers common issues
+- [ ] Production hardening recommendations included
 
 ---
 
-#### 2.3 Implement Movement & Pathfinding (Categories 1-2)
-**Files:**
-- Update `minecraft_bridge.js` with movement methods
-- Create `src/executors/MovementTaskExecutor.js`
+## PRIORITY 1 (HIGH) — PRODUCTION READINESS
 
-**Features:**
-- Basic movement (moveToPosition, followEntity)
-- Pathfinder plugin integration
-- Physics-aware navigation
-- Movement goals (GoalNear, GoalBlock, GoalFollow)
+### P1.1 — API Documentation (OpenAPI/Swagger)
+**Status:** 🟡 MISSING
+**Effort:** 8-12 hours
+**Owner:** Agent B
 
-**Implementation:** Use code from MINEFLAYER_COMPARISON.md lines 463-881
+**Tasks:**
 
-**Test:**
-```javascript
-// Test pathfinding
-await bridge.moveToPosition('test-bot-1', { x: 100, y: 64, z: 100 }, {
-  range: 2,
-  timeout: 30000
-});
-```
+1. **Install Swagger Dependencies**
+   ```bash
+   npm install swagger-jsdoc swagger-ui-express --save
+   ```
 
-**Estimated Time:** 3 hours
+2. **Create Swagger Configuration**
+   - Create `/src/config/swagger.js`
+   - Configure OpenAPI 3.0 specification
+   - Define security schemes (JWT)
 
----
+3. **Add Swagger UI to Server**
+   - Add `/api/docs` endpoint
+   - Add `/api/docs.json` endpoint
 
-#### 2.4 Implement Mining & World Interaction (Category 3)
-**Files:**
-- Update `minecraft_bridge.js` with mining methods
-- Create `src/executors/MiningTaskExecutor.js`
+4. **Document All API Endpoints**
+   - Add JSDoc comments to all route files
+   - Document request/response schemas
+   - Include examples
+   - Cover all 35+ endpoints
 
-**Features:**
-- Block finding and digging
-- Automatic tool selection
-- Vein mining algorithm
-- Block placement
+5. **Create API Documentation Guide**
+   - Create `/docs/API.md`
+   - Document authentication flow
+   - Provide quick reference
+   - Link to interactive docs
 
-**Implementation:** Use code from MINEFLAYER_COMPARISON.md lines 883-2046
-
-**Test:**
-```javascript
-// Test mining
-await bridge.digBlock('test-bot-1', { x: 95, y: 63, z: 100 }, {
-  equipTool: true
-});
-```
-
-**Estimated Time:** 3 hours
+**Acceptance Criteria:**
+- [ ] Swagger installed and configured
+- [ ] Swagger UI accessible at `/api/docs`
+- [ ] All 35+ endpoints documented with examples
+- [ ] Request/response schemas defined
+- [ ] Authentication documented
+- [ ] API guide created in `/docs/API.md`
 
 ---
 
-#### 2.5 Update NPCSystem Integration
-**File:** `src/services/npc_initializer.js`
+### P1.2 — Integration & E2E Testing
+**Status:** 🟡 MISSING
+**Effort:** 12-16 hours
+**Owner:** Agent B
 
-**Changes:**
-```javascript
-async initializeMinecraftBridge() {
-  // Replace RCON-only approach with MineflayerBridge
-  this.minecraftBridge = new MineflayerBridge({
-    host: process.env.MINECRAFT_HOST || 'localhost',
-    port: parseInt(process.env.MINECRAFT_PORT || '25565'),
-    version: process.env.MINECRAFT_VERSION || '1.20.1'
-  });
+**Tasks:**
 
-  await this.minecraftBridge.initialize();
-  logger.info('Mineflayer Bridge initialized');
-}
-```
+1. **Install Testing Dependencies**
+   ```bash
+   npm install --save-dev supertest nock
+   ```
 
-**Estimated Time:** 1 hour
+2. **Create Integration Test Suite**
+   - Create `/test/integration/api.test.js`
+   - Test complete API workflows
+   - Test bot lifecycle (create → start → task → stop)
+   - Test authentication and authorization
+   - Test error handling
 
----
+3. **Create E2E Test Suite**
+   - Create `/test/e2e/npc_workflow.test.js`
+   - Test complete user workflows
+   - Test multi-bot scenarios
+   - Test real-time WebSocket events
 
-## Phase 3: High Severity Bug Fix (Priority: MEDIUM)
-**Estimated Time:** 1 hour
+4. **Create Database Test Fixtures**
+   - Create `/test/fixtures/database.js`
+   - Seed test data (users, policies, NPCs)
+   - Implement cleanup helpers
 
-### Why Here?
-- Core Mineflayer is working
-- This bug affects database operations
-- Can be done in parallel with advanced Mineflayer features
+5. **Update Package.json Scripts**
+   ```json
+   {
+     "scripts": {
+       "test:integration": "jest --testPathPattern=test/integration",
+       "test:e2e": "jest --testPathPattern=test/e2e",
+       "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e"
+     }
+   }
+   ```
 
-#### 3.1 Fix Bug #3: Missing Pool Initialization Check
-**File:** `src/database/connection.js:67-78`
-**Impact:** Null pointer error if query() called before initDatabase()
-
-**Fix:**
-```javascript
-export async function query(text, params = []) {
-  if (!pool) {  // ADD THIS CHECK
-    throw new Error('Database not initialized. Call initDatabase() first.');
-  }
-
-  const start = Date.now();
-  try {
-    const result = await pool.query(text, params);
-    const duration = Date.now() - start;
-    logger.debug('Query executed', { duration, rows: result.rowCount });
-    return result;
-  } catch (err) {
-    logger.error('Query failed', { error: err.message, query: text });
-    throw err;
-  }
-}
-```
-
-**Test:**
-```javascript
-// Should throw error
-try {
-  await query('SELECT 1');
-} catch (err) {
-  console.log('✓ Throws error before init:', err.message);
-}
-
-// Should work after init
-await initDatabase();
-const result = await query('SELECT 1');
-console.log('✓ Query works after init');
-```
-
-**Estimated Time:** 1 hour
+**Acceptance Criteria:**
+- [ ] Integration tests cover all API endpoints
+- [ ] E2E tests cover major user workflows
+- [ ] Tests run successfully in CI/CD
+- [ ] Coverage maintained at 75%+
+- [ ] Database fixtures for reproducible tests
 
 ---
 
-## Phase 4: Advanced Mineflayer Features (Priority: MEDIUM)
-**Estimated Time:** 1-2 days
+### P1.3 — HTTPS & Security Hardening
+**Status:** 🟡 MISSING
+**Effort:** 6-8 hours
+**Owner:** Agent B
 
-### Tasks
+**Tasks:**
 
-#### 4.1 Implement Inventory Management (Category 4)
-**Files:**
-- Update `minecraft_bridge.js`
-- Create `src/executors/InventoryTaskExecutor.js`
+1. **Add HTTPS Support**
+   - Create `/src/config/https.js`
+   - Support SSL/TLS certificates
+   - Enforce HTTPS in production
 
-**Features:**
-- Inventory tracking and equipment
-- Chest interaction
-- Item transfer and organization
+2. **Add Secret Management**
+   - Create `/src/config/secrets.js`
+   - Support AWS Secrets Manager, HashiCorp Vault
+   - Secure credential handling
 
-**Implementation:** Use code from MINEFLAYER_COMPARISON.md lines 2050-2663
+3. **Implement Audit Logging**
+   - Create `/src/middleware/auditLogger.js`
+   - Log all API requests
+   - Include user, IP, timing, response codes
 
-**Estimated Time:** 3 hours
+4. **Add Rate Limiting Per User**
+   - Create `/src/middleware/userRateLimit.js`
+   - Implement per-user rate limits
+   - Different limits per role (admin, user, guest)
 
----
-
-#### 4.2 Implement Combat System (Category 5)
-**Files:**
-- Update `minecraft_bridge.js`
-- Create `src/executors/CombatTaskExecutor.js`
-
-**Features:**
-- Entity targeting and attack
-- PvP plugin integration
-- Hostile mob defense
-- Health tracking
-
-**Implementation:** Use code from MINEFLAYER_COMPARISON.md lines 2665-3136
-
-**Estimated Time:** 3 hours
-
----
-
-#### 4.3 Implement Entity Interaction (Category 6)
-**Features:**
-- Villager trading
-- Animal breeding
-- Entity mounting/dismounting
-- Entity tracking
-
-**Implementation:** Use code from MINEFLAYER_COMPARISON.md lines 3138-3532
-
-**Estimated Time:** 2 hours
+**Acceptance Criteria:**
+- [ ] HTTPS enforced in production
+- [ ] SSL/TLS certificates configured
+- [ ] Secret management implemented
+- [ ] Audit logging captures all API requests
+- [ ] Per-user rate limiting active
+- [ ] Security headers verified (Helmet.js)
 
 ---
 
-#### 4.4 Implement Crafting & Chat (Categories 7-8)
-**Features:**
-- Recipe lookup and crafting
-- Chat messaging and commands
-- Whisper support
+### P1.4 — CI/CD Pipeline
+**Status:** 🟡 MISSING
+**Effort:** 6-8 hours
+**Owner:** Agent B (with Agent D collaboration)
 
-**Implementation:** Use code from MINEFLAYER_COMPARISON.md lines 3534-3963
+**Tasks:**
 
-**Estimated Time:** 2 hours
+1. **Create GitHub Actions Workflow**
+   - Create `/.github/workflows/ci.yml`
+   - Run tests on push
+   - Run linting
+   - Build Docker image
+   - Security scanning
 
----
+2. **Create Lint Configuration**
+   - Create `/.eslintrc.json` (if not exists)
+   - Add lint scripts to package.json
 
-#### 4.5 Implement Plugin System (Category 9)
-**Features:**
-- Plugin loading infrastructure
-- Auto-eat, collect-block plugins
-- Custom plugin support
-
-**Implementation:** Use code from MINEFLAYER_COMPARISON.md lines 3965-4280
-
-**Estimated Time:** 2 hours
-
----
-
-## Phase 5: Medium Severity Bugs (Priority: LOW)
-**Estimated Time:** 2-3 hours
-
-### Why Here?
-- Core features are working
-- These bugs don't block functionality
-- Can skip bugs in code that Mineflayer replaces
-
-### Tasks
-
-#### 5.1 Fix Bug #4: Duplicate enableModelAutonomy Method
-**File:** `npc_engine.js:468-505, 773-775`
-**Action:** Remove first definition (lines 468-505), keep second (delegates to AutonomyManager)
-
-**Estimated Time:** 15 minutes
+**Acceptance Criteria:**
+- [ ] CI/CD pipeline runs on all branches
+- [ ] Tests run automatically on push
+- [ ] Linting enforced
+- [ ] Code coverage reported
+- [ ] Docker image builds successfully
+- [ ] Security audit runs (npm audit)
 
 ---
 
-#### 5.2 Fix Bug #5: Duplicate validateManifest Method
-**File:** `task_broker.js:115-170, 213-223`
-**Action:** Remove second definition, keep first (returns validation object)
+## PRIORITY 2 (MEDIUM) — IMPROVEMENTS
 
-**Estimated Time:** 15 minutes
+### P2.1 — Code Refactoring (Reduce Complexity)
+**Status:** 🟢 OPTIONAL
+**Effort:** 8-12 hours
+**Owner:** Agent B
 
----
+**Tasks:**
 
-#### 5.3 Fix Bug #6: Logic Error in spawnAllKnown
-**File:** `npc_spawner.js:306-323`
-**Action:** Change `for (const profile of npcs)` to `for (const profile of toSpawn)`
+1. **Refactor npcManager.js** (374 lines, too many responsibilities)
+   - Extract NPC state management to `NPCStateManager` class
+   - Extract task assignment logic to `TaskAssigner` class
+   - Extract lifecycle events to `NPCLifecycleCoordinator` class
 
-**Estimated Time:** 15 minutes
+2. **Extract Magic Numbers to Configuration**
+   - Create `/src/config/constants.js`
+   - Move hardcoded values (timeouts, thresholds, limits)
 
----
+3. **Modernize Legacy Code**
+   - Update `/src/bridges/rconBridge.js` (callback hell → async/await)
+   - Clean up old comments and TODOs
 
-#### 5.4 Fix Bug #7: Missing Registry Null Check
-**File:** `routes/bot.js:14-16`
-**Fix:**
-```javascript
-function countSpawnedBots(npcEngine) {
-  if (!npcEngine?.registry) return 0;  // ADD THIS
-  const allBots = npcEngine.registry.getAll();
-  return allBots.filter(bot => bot.status === 'active').length;
-}
-```
-
-**Estimated Time:** 15 minutes
+**Acceptance Criteria:**
+- [ ] No module exceeds 300 lines
+- [ ] All magic numbers in configuration
+- [ ] No callback hell (all async/await)
 
 ---
 
-## Phase 6: API Endpoints for Mineflayer (Priority: MEDIUM)
-**Estimated Time:** 3-4 hours
+### P2.2 — Performance Optimization
+**Status:** 🟢 OPTIONAL
+**Effort:** 6-8 hours
+**Owner:** Agent B + Agent D
 
-### Tasks
+**Tasks:**
 
-#### 6.1 Create Inventory Endpoints
-**File:** `routes/bot.js`
+1. **Fix N+1 Query Issues**
+   - Add database query logging
+   - Identify N+1 patterns
+   - Implement batch loading (DataLoader pattern)
 
-```javascript
-// GET /api/bot/:id/inventory
-router.get('/:id/inventory', async (req, res) => {
-  try {
-    const inventory = await npcEngine.bridge.getInventory(req.params.id);
-    res.json(inventory);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+2. **Add Caching Layer**
+   - Cache frequent database queries (policies, static data)
+   - Implement cache invalidation strategy
+   - Use Redis for caching
 
-// POST /api/bot/:id/equip
-router.post('/:id/equip', async (req, res) => {
-  const { item, destination } = req.body;
-  const result = await npcEngine.bridge.equipItem(req.params.id, item, destination);
-  res.json(result);
-});
-```
+3. **Optimize Task Planning**
+   - Implement incremental planning (don't recalculate entire plan)
+   - Cache pathfinding results
+   - Add LRU cache for common operations
 
-**Estimated Time:** 1 hour
+**Acceptance Criteria:**
+- [ ] No N+1 queries in hot paths
+- [ ] 40-60% reduction in database queries
+- [ ] 50-70% faster task planning
 
 ---
 
-#### 6.2 Create Combat Endpoints
-```javascript
-// POST /api/bot/:id/attack
-router.post('/:id/attack', async (req, res) => {
-  const result = await npcEngine.bridge.attackEntity(req.params.id, req.body.target);
-  res.json(result);
-});
+### P2.3 — Observability & Monitoring
+**Status:** 🟢 OPTIONAL
+**Effort:** 8-12 hours
+**Owner:** Agent D
 
-// POST /api/bot/:id/defend
-router.post('/:id/defend', async (req, res) => {
-  const result = await npcEngine.bridge.defendAgainstHostiles(req.params.id, req.body);
-  res.json(result);
-});
-```
+**Tasks:**
 
-**Estimated Time:** 1 hour
+1. **Add Prometheus Metrics**
+   - Install `prom-client`
+   - Expose `/metrics` endpoint
+   - Track: request rate, error rate, latency, active bots, task queue size
 
----
+2. **Add Distributed Tracing**
+   - Install Jaeger or OpenTelemetry
+   - Trace requests across services
+   - Identify bottlenecks
 
-#### 6.3 Create Entity & Crafting Endpoints
-```javascript
-// POST /api/bot/:id/trade
-// POST /api/bot/:id/craft
-// POST /api/bot/:id/chat
-```
+3. **Create Grafana Dashboards**
+   - System health dashboard
+   - Bot activity dashboard
+   - Task execution dashboard
 
-**Estimated Time:** 1.5 hours
-
----
-
-## Phase 7: Low Severity Bugs & Polish (Priority: LOW)
-**Estimated Time:** 1-2 hours
-
-### Tasks
-
-#### 7.1 Fix Bugs #8-9: Division by Zero in Success Rate
-**File:** `routes/bot.js:169-170, 720-721`
-
-**Fix:**
-```javascript
-successRate: (learningProfile.tasksCompleted + learningProfile.tasksFailed) > 0
-  ? (learningProfile.tasksCompleted / (learningProfile.tasksCompleted + learningProfile.tasksFailed)) * 100
-  : 0,
-```
-
-**Estimated Time:** 30 minutes
+**Acceptance Criteria:**
+- [ ] Prometheus metrics exposed
+- [ ] Grafana dashboards created
+- [ ] Distributed tracing implemented
+- [ ] Alerts configured for critical metrics
 
 ---
 
-#### 7.2 Fix Bug #10: Unsafe Error Throwing in normalizeRole
-**File:** `learning_engine.js:398-413`
+### P2.4 — Enhanced Documentation
+**Status:** 🟢 OPTIONAL
+**Effort:** 4-6 hours
+**Owner:** Agent B
 
-**Fix:** Return default value instead of throwing
-```javascript
-normalizeRole(role, npcId = "") {
-  if (!role || typeof role !== "string" || role.trim().length === 0) {
-    console.warn(`Invalid role${npcId ? ` for ${npcId}` : ""}: defaulting to 'builder'`);
-    return 'builder';
-  }
+**Tasks:**
 
-  const normalized = role.trim().toLowerCase();
-  if (!ALLOWED_ROLES.includes(normalized)) {
-    console.warn(`Invalid role${npcId ? ` for ${npcId}` : ""}: ${role}. Defaulting to 'builder'`);
-    return 'builder';
-  }
+1. **Create Architecture Diagrams**
+   - System architecture diagram
+   - Data flow diagram
+   - Deployment diagram
+   - Use PlantUML or Mermaid
 
-  return normalized;
-}
-```
+2. **Create Database Schema Documentation**
+   - ER diagram
+   - Table descriptions
+   - Index strategy
 
-**Estimated Time:** 30 minutes
+3. **Create Troubleshooting Guide**
+   - Common issues and solutions
+   - Debug procedures
+   - Log analysis tips
 
----
-
-## Phase 8: Testing & Verification (Priority: HIGH)
-**Estimated Time:** 4-6 hours
-
-### Tasks
-
-#### 8.1 Unit Testing
-- Test MineflayerBridge bot creation
-- Test all movement methods
-- Test mining and block interaction
-- Test inventory management
-- Test combat system
-
-**Estimated Time:** 2 hours
+**Acceptance Criteria:**
+- [ ] Visual architecture diagrams
+- [ ] Database schema documented
+- [ ] Troubleshooting guide comprehensive
 
 ---
 
-#### 8.2 Integration Testing
-- Spawn bot via API
-- Execute complete task workflow (move → mine → craft)
-- Test WebSocket event forwarding
-- Test automatic reconnection
-- Test all API endpoints
+## IMPLEMENTATION SEQUENCE
 
-**Estimated Time:** 2 hours
+### Phase 1: Critical Blockers (P0) — Must Complete First
+**Duration:** 2-4 days
 
----
+1. P0.1: Environment Setup (dependencies, DB, Redis, .env)
+2. P0.2: MCP Decision (implement or remove docs)
+3. P0.3: DevOps Foundation (Docker, Docker Compose)
+4. P0.4: Deployment Documentation
 
-#### 8.3 Bug Verification
-- Verify all 10 bugs are fixed
-- Run regression tests
-- Check no new bugs introduced
-
-**Estimated Time:** 1 hour
+**Checkpoint:** System can be deployed and runs successfully.
 
 ---
 
-#### 8.4 Performance Testing
-- Test with multiple bots (5, 10, 20)
-- Monitor memory usage
-- Check WebSocket event throughput
-- Test pathfinding performance
+### Phase 2: Production Readiness (P1) — High Priority
+**Duration:** 3-5 days
 
-**Estimated Time:** 1 hour
+5. P1.1: API Documentation (Swagger)
+6. P1.2: Integration & E2E Testing
+7. P1.3: HTTPS & Security Hardening
+8. P1.4: CI/CD Pipeline
 
----
-
-## Timeline Summary
-
-| Phase | Description | Time | Cumulative |
-|-------|-------------|------|------------|
-| 1 | Critical Bug Fixes | 2-3 hours | 3 hours |
-| 2 | Mineflayer Foundation | 1-2 days | 2 days |
-| 3 | High Severity Bug | 1 hour | 2 days |
-| 4 | Advanced Mineflayer | 1-2 days | 3.5 days |
-| 5 | Medium Severity Bugs | 2-3 hours | 3.5 days |
-| 6 | API Endpoints | 3-4 hours | 4 days |
-| 7 | Low Severity Bugs | 1-2 hours | 4 days |
-| 8 | Testing & Verification | 4-6 hours | 5 days |
-
-**Total Estimated Time:** 3-5 days (assuming 8-hour work days)
+**Checkpoint:** System is production-ready and secure.
 
 ---
 
-## Parallel Development Opportunities
+### Phase 3: Optimizations (P2) — Nice to Have
+**Duration:** 2-4 days
 
-These tasks can be done simultaneously by different developers:
+9. P2.1: Code Refactoring
+10. P2.2: Performance Optimization
+11. P2.3: Observability & Monitoring
+12. P2.4: Enhanced Documentation
 
-- **Track 1 (Backend):** Phases 2-4 (Mineflayer implementation)
-- **Track 2 (Bug Fixes):** Phases 3, 5, 7 (Non-critical bugs)
-- **Track 3 (API):** Phase 6 (Endpoints - after Phase 2 is complete)
-
-With 2-3 developers, timeline reduces to **2-3 days**.
-
----
-
-## Risk Mitigation
-
-### Risk 1: Mineflayer Integration Breaks Existing Features
-**Mitigation:**
-- Keep RCON fallback in MinecraftBridge
-- Feature flag for Mineflayer vs RCON mode
-- Comprehensive regression testing
-
-### Risk 2: Bug Fixes Introduce New Bugs
-**Mitigation:**
-- Test each bug fix individually
-- Use version control for easy rollback
-- Code review all changes
-
-### Risk 3: Minecraft Server Unavailable
-**Mitigation:**
-- Use local test server
-- Mock bot responses for unit tests
-- Graceful degradation if connection fails
-
-### Risk 4: Performance Issues with Multiple Bots
-**Mitigation:**
-- Connection pooling
-- Event throttling
-- Bot limit configuration
-- Memory profiling
+**Checkpoint:** System is optimized and fully documented.
 
 ---
 
-## Success Criteria
+## ACCEPTANCE CRITERIA FOR SIGN-OFF
 
-### Phase 1-3 Success
-- [ ] All critical bugs fixed and tested
-- [ ] No runtime crashes
-- [ ] Server starts successfully
-- [ ] Database queries safe
+Agent B must complete:
+- ✅ All P0 tasks (100% completion required)
+- ✅ At least 80% of P1 tasks
+- ✅ At least 50% of P2 tasks (optional)
 
-### Phase 2-4 Success
-- [ ] Bot spawns and connects to Minecraft
-- [ ] Movement and pathfinding work
-- [ ] Mining operations successful
-- [ ] All advanced features implemented
-- [ ] Events forward to WebSocket
-
-### Phase 5-7 Success
-- [ ] All 10 bugs verified fixed
-- [ ] API endpoints working
-- [ ] No regressions introduced
-
-### Phase 8 Success
-- [ ] All tests passing
-- [ ] Multiple bots working simultaneously
-- [ ] Performance meets requirements
-- [ ] Documentation updated
+Agent C will validate all implementations before final sign-off.
 
 ---
 
-## Next Steps
+## NOTES FOR AGENT B
 
-1. **Review this plan** with the team
-2. **Prioritize** if timeline needs compression
-3. **Start Phase 1** immediately (critical bugs)
-4. **Set up test environment** (local Minecraft server)
-5. **Begin development** following phase order
+1. **Prioritization:**
+   - Focus on P0 first (cannot proceed without these)
+   - P1 tasks make system production-ready
+   - P2 tasks improve quality but are optional
+
+2. **Quality Standards:**
+   - All code must pass linting
+   - All tests must pass
+   - Code coverage must be 75%+
+   - No console.log() statements in production code
+   - Comprehensive error handling
+
+3. **Documentation Standards:**
+   - Update README.md with any new setup steps
+   - Add JSDoc comments to all functions
+   - Create examples for complex features
+   - Keep documentation in sync with code
+
+4. **Communication:**
+   - Document all changes in `ENGINEERING_CHANGES.md`
+   - Note any deviations from plan
+   - Flag any blockers immediately
+   - Provide code diffs for review
 
 ---
 
-## Notes
-
-- This plan assumes familiarity with the codebase
-- Times are estimates and may vary
-- Phases can be adjusted based on priority changes
-- Consider feature branches for major changes
-- Document all changes for team knowledge transfer
-
----
-
-**Plan Created:** 2025-11-09
-**Last Updated:** 2025-11-09
-**Status:** Ready for Implementation
+**End of Implementation Plan**

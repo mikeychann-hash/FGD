@@ -19,10 +19,36 @@ if %errorlevel% neq 0 (
 
 REM --- Define paths ---
 set SERVER_DIR=%~dp0
-set MC_JAR=C:\Users\Admin\Desktop\FGD-main\minecraft-servers\paper-1.21.8-60.jar
 set NODE_SCRIPT=%SERVER_DIR%server.js
 set LOG_DIR=%SERVER_DIR%logs
 set LOG_FILE=%LOG_DIR%\startup-%DATE:/=-%-%TIME::=-%.log
+set MC_DIR=%SERVER_DIR%minecraft-servers
+
+REM --- Auto-detect Paper JAR or use environment variable ---
+if defined MINECRAFT_JAR (
+    set MC_JAR=%MINECRAFT_JAR%
+    echo [INFO] Using MINECRAFT_JAR from environment: %MC_JAR%
+) else (
+    REM Find the first paper-*.jar file in minecraft-servers directory
+    for %%f in ("%MC_DIR%\paper-*.jar") do (
+        if not defined MC_JAR set MC_JAR=%%f
+    )
+
+    if not defined MC_JAR (
+        echo [ERROR] No Paper JAR found in %MC_DIR%
+        echo [ERROR] Please download Paper server or set MINECRAFT_JAR environment variable
+        echo [INFO] Download from: https://papermc.io/downloads/paper
+        echo.
+        echo [INFO] Or run the setup script:
+        echo   cd minecraft-servers
+        echo   setup-paper-geyser.bat
+        echo.
+        pause
+        exit /b 1
+    )
+
+    echo [INFO] Auto-detected Paper JAR: %MC_JAR%
+)
 
 REM --- Create logs directory ---
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"

@@ -18,9 +18,30 @@ if %errorlevel% neq 0 (
 
 REM --- Define paths ---
 set BASE_DIR=%~dp0
-set MC_JAR=C:\Users\Admin\Desktop\FGD-main\minecraft-servers\paper-1.21.8-60.jar
 set NODE_SCRIPT=%BASE_DIR%server.js
 set LOG_DIR=%BASE_DIR%logs
+set MC_DIR=%BASE_DIR%minecraft-servers
+
+REM --- Auto-detect Paper JAR or use environment variable ---
+if defined MINECRAFT_JAR (
+    set MC_JAR=%MINECRAFT_JAR%
+    echo [INFO] Using MINECRAFT_JAR from environment: %MC_JAR%
+) else (
+    REM Find the first paper-*.jar file in minecraft-servers directory
+    for %%f in ("%MC_DIR%\paper-*.jar") do (
+        if not defined MC_JAR set MC_JAR=%%f
+    )
+
+    if not defined MC_JAR (
+        echo [ERROR] No Paper JAR found in %MC_DIR%
+        echo [ERROR] Please download Paper server or set MINECRAFT_JAR environment variable
+        echo [INFO] Download from: https://papermc.io/downloads/paper
+        pause
+        exit /b 1
+    )
+
+    echo [INFO] Auto-detected Paper JAR: %MC_JAR%
+)
 
 REM --- Ensure logs directory exists ---
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"

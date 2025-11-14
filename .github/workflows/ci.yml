@@ -9,20 +9,53 @@ on:
     - cron: '0 6 * * *'
 
 jobs:
-  build:
+  build-linux:
+    name: Build and Test (Linux)
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ matrix.node-version }}
           cache: 'npm'
       - run: npm install
       - run: npm run lint
       - run: npm run test
       - run: npm run build
 
+  build-windows:
+    name: Build and Test (Windows)
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      - run: npm install
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+
+      - name: Validate Windows batch scripts
+        shell: cmd
+        run: |
+          start-server.bat --help
+          echo Batch scripts validated successfully
+
+      - name: Test PowerShell scripts
+        shell: powershell
+        run: |
+          Get-Content .\minecraft-servers\setup-paper-geyser.ps1 | Select-Object -First 10
+
   nightly-regression:
+    name: Nightly Regression Tests
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     steps:

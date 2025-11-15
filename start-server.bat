@@ -170,8 +170,26 @@ if not exist "data" (
     call :print_success "Data directory exists"
 )
 
-REM Port check (simplified for Windows)
-call :print_info "Port %PORT% will be used (Windows doesn't have built-in port check)"
+REM Port check (Windows using netstat)
+call :print_info "Checking port %PORT%..."
+netstat -ano | findstr ":%PORT%" >nul 2>&1
+if %errorlevel% equ 0 (
+    call :print_warning "Port %PORT% is already in use!"
+    echo.
+    echo   Another process is using port %PORT%. Options:
+    echo   1. Stop the other process
+    echo   2. Use a different port with --port option
+    echo.
+    set /p "CONTINUE=Continue anyway? (y/N): "
+    if /i not "!CONTINUE!"=="y" (
+        echo.
+        call :print_info "Aborted by user"
+        pause
+        exit /b 1
+    )
+) else (
+    call :print_success "Port %PORT% is available"
+)
 
 echo.
 call :print_header "Environment Setup"

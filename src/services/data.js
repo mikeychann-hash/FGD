@@ -1,7 +1,7 @@
-import fs from "fs/promises";
-import { watch } from "fs";
-import path from "path";
-import { DATA_PATH, DATA_DIR, DEFAULT_FUSION_DATA } from "../config/constants.js";
+import fs from 'fs/promises';
+import { watch } from 'fs';
+import path from 'path';
+import { DATA_PATH, DATA_DIR, DEFAULT_FUSION_DATA } from '../config/constants.js';
 
 // Cache for fusion data
 let cachedData = null;
@@ -14,9 +14,9 @@ let lastModified = null;
 export async function ensureDataDirectory() {
   try {
     await fs.mkdir(path.dirname(DATA_PATH), { recursive: true });
-    console.log("✅ Data directory verified");
+    console.log('✅ Data directory verified');
   } catch (err) {
-    console.error("❌ Failed to create data directory:", err);
+    console.error('❌ Failed to create data directory:', err);
     throw err;
   }
 }
@@ -36,7 +36,7 @@ export async function loadFusionData() {
     }
 
     // Read and parse the file
-    const rawData = await fs.readFile(DATA_PATH, "utf-8");
+    const rawData = await fs.readFile(DATA_PATH, 'utf-8');
     const data = JSON.parse(rawData);
 
     // Update cache
@@ -45,7 +45,7 @@ export async function loadFusionData() {
 
     return data;
   } catch (err) {
-    if (err.code === "ENOENT") {
+    if (err.code === 'ENOENT') {
       // File doesn't exist, return default data
       return DEFAULT_FUSION_DATA;
     }
@@ -60,15 +60,15 @@ export async function loadFusionData() {
 export function setupFileWatcher() {
   try {
     watch(DATA_PATH, (eventType) => {
-      if (eventType === "change" || eventType === "rename") {
-        console.log("📝 Data file changed, invalidating cache");
+      if (eventType === 'change' || eventType === 'rename') {
+        console.log('📝 Data file changed, invalidating cache');
         cachedData = null;
         lastModified = null;
       }
     });
-    console.log("👁️  File watcher active for fusion data");
+    console.log('👁️  File watcher active for fusion data');
   } catch (err) {
-    console.warn("⚠️  Could not set up file watcher:", err.message);
+    console.warn('⚠️  Could not set up file watcher:', err.message);
   }
 }
 
@@ -93,14 +93,14 @@ export async function loadSystemData() {
         cluster: parsedMetrics,
         cpu: parsedMetrics.cpu ?? 0,
         memory: parsedMetrics.memory ?? 0,
-        timestamp: parsedMetrics.timestamp || new Date().toISOString()
+        timestamp: parsedMetrics.timestamp || new Date().toISOString(),
       },
       fusionData: JSON.parse(fusionData),
       systemStats: JSON.parse(statsData),
-      logs: Array.isArray(parsedLogs) ? parsedLogs.slice(-100) : []
+      logs: Array.isArray(parsedLogs) ? parsedLogs.slice(-100) : [],
     };
   } catch (err) {
-    console.warn("⚠️ Failed to load some data files:", err.message);
+    console.warn('⚠️ Failed to load some data files:', err.message);
     return null;
   }
 }

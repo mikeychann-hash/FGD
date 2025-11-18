@@ -1,4 +1,4 @@
-import { DEFAULT_SYSTEM_STATE } from "../config/constants.js";
+import { DEFAULT_SYSTEM_STATE } from '../config/constants.js';
 
 /**
  * System state manager
@@ -17,7 +17,7 @@ export class SystemStateManager {
     const logEntry = {
       time: entry.time || now.toTimeString().split(' ')[0],
       level: entry.level || 'info',
-      message: entry.message || ''
+      message: entry.message || '',
     };
 
     this.state.logs.push(logEntry);
@@ -34,7 +34,7 @@ export class SystemStateManager {
    */
   recomputeSystemStats(npcEngine) {
     const nodes = Array.isArray(this.state.nodes) ? this.state.nodes : [];
-    const healthyNodes = nodes.filter(node => node && node.status === 'healthy');
+    const healthyNodes = nodes.filter((node) => node && node.status === 'healthy');
 
     const sumCpu = healthyNodes.reduce((sum, node) => sum + (Number(node.cpu) || 0), 0);
     const sumMemory = healthyNodes.reduce((sum, node) => sum + (Number(node.memory) || 0), 0);
@@ -43,7 +43,8 @@ export class SystemStateManager {
     const avgCpu = healthyNodes.length ? Math.round(sumCpu / healthyNodes.length) : 0;
     const avgMemory = healthyNodes.length ? Math.round(sumMemory / healthyNodes.length) : 0;
 
-    const activeBots = npcEngine?.npcs instanceof Map ? npcEngine.npcs.size : this.state.systemStats.activeBots || 0;
+    const activeBots =
+      npcEngine?.npcs instanceof Map ? npcEngine.npcs.size : this.state.systemStats.activeBots || 0;
 
     this.state.systemStats = {
       ...this.state.systemStats,
@@ -53,7 +54,7 @@ export class SystemStateManager {
       avgMemory,
       activeTasks: sumTasks,
       activeBots,
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
     };
 
     this.io.emit('stats:update', this.state.systemStats);
@@ -72,8 +73,8 @@ export class SystemStateManager {
       ...incomingMetrics,
       performance: {
         ...(this.state.metrics.performance || {}),
-        ...(incomingMetrics.performance || {})
-      }
+        ...(incomingMetrics.performance || {}),
+      },
     };
     this.state.fusionData = loadedData.fusionData;
     this.state.systemStats = { ...loadedData.systemStats };
@@ -114,7 +115,7 @@ export class SystemStateManager {
     const next = {
       ...current,
       ...updates,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
     this.state.metrics.performance = next;
     this.io.emit('metrics:performance', next);

@@ -38,14 +38,14 @@ export class WorkerPool extends EventEmitter {
   async createWorker() {
     const workerId = this.workerIdCounter++;
     const worker = new Worker(this.workerScript, {
-      workerData: { workerId }
+      workerData: { workerId },
     });
 
     const workerInfo = {
       id: workerId,
       worker,
       busy: false,
-      tasksCompleted: 0
+      tasksCompleted: 0,
     };
 
     worker.on('message', (result) => {
@@ -82,7 +82,7 @@ export class WorkerPool extends EventEmitter {
     if (result.error) {
       logger.error('Worker task failed', {
         workerId: workerInfo.id,
-        error: result.error
+        error: result.error,
       });
       this.emit('taskError', result);
     } else {
@@ -111,7 +111,7 @@ export class WorkerPool extends EventEmitter {
     }
 
     // Create replacement worker
-    this.createWorker().catch(err => {
+    this.createWorker().catch((err) => {
       logger.error('Failed to create replacement worker', { error: err.message });
     });
 
@@ -129,7 +129,7 @@ export class WorkerPool extends EventEmitter {
 
     // Create replacement worker if needed
     if (this.workers.length < this.maxWorkers) {
-      this.createWorker().catch(err => {
+      this.createWorker().catch((err) => {
         logger.error('Failed to create replacement worker', { error: err.message });
       });
     }
@@ -145,7 +145,7 @@ export class WorkerPool extends EventEmitter {
         priority,
         resolve,
         reject,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
 
       // Add to queue
@@ -206,15 +206,15 @@ export class WorkerPool extends EventEmitter {
     return {
       totalWorkers: this.workers.length,
       availableWorkers: this.availableWorkers.length,
-      busyWorkers: this.workers.filter(w => w.busy).length,
+      busyWorkers: this.workers.filter((w) => w.busy).length,
       queuedTasks: this.taskQueue.length,
       activeTasks: this.activeTasksCount,
       totalTasksProcessed: this.totalTasksProcessed,
-      workerStats: this.workers.map(w => ({
+      workerStats: this.workers.map((w) => ({
         id: w.id,
         busy: w.busy,
-        tasksCompleted: w.tasksCompleted
-      }))
+        tasksCompleted: w.tasksCompleted,
+      })),
     };
   }
 

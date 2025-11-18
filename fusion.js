@@ -139,36 +139,37 @@
       return;
     }
 
-    // Destroy existing chart instance to prevent memory leaks
+    // Update existing chart in place instead of destroying/recreating
     if (chartInstance) {
-      chartInstance.destroy();
-    }
-
-    // Create new chart instance
-    chartInstance = new Chart(ctx, {
-      type: 'doughnut',
-      data: {
-        labels: ['Skills', 'Dialogues', 'Outcomes'],
-        datasets: [{
-          data: [metrics.skills, metrics.dialogues, metrics.outcomes],
-          backgroundColor: [
-            CONFIG.CHART_COLORS.skills,
-            CONFIG.CHART_COLORS.dialogues,
-            CONFIG.CHART_COLORS.outcomes
-          ],
-          borderWidth: CONFIG.CHART_BORDER_WIDTH,
-          borderColor: CONFIG.CHART_BORDER_COLOR,
-          hoverOffset: CONFIG.CHART_HOVER_OFFSET
-        }]
-      },
-      options: {
-        plugins: {
-          legend: {
-            position: 'bottom'
+      chartInstance.data.datasets[0].data = [metrics.skills, metrics.dialogues, metrics.outcomes];
+      chartInstance.update('none');  // No animation for performance
+    } else {
+      // Create new chart instance on first render
+      chartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Skills', 'Dialogues', 'Outcomes'],
+          datasets: [{
+            data: [metrics.skills, metrics.dialogues, metrics.outcomes],
+            backgroundColor: [
+              CONFIG.CHART_COLORS.skills,
+              CONFIG.CHART_COLORS.dialogues,
+              CONFIG.CHART_COLORS.outcomes
+            ],
+            borderWidth: CONFIG.CHART_BORDER_WIDTH,
+            borderColor: CONFIG.CHART_BORDER_COLOR,
+            hoverOffset: CONFIG.CHART_HOVER_OFFSET
+          }]
+        },
+        options: {
+          plugins: {
+            legend: {
+              position: 'bottom'
+            }
           }
         }
-      }
-    });
+      });
+    }
   }
 
   /**

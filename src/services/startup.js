@@ -1,10 +1,10 @@
-import { logger } from "../../logger.js";
+import { logger } from '../../logger.js';
 
-const STARTUP_SEQUENCE = ["telemetry", "database", "npc_engine", "minecraft_bridge"];
+const STARTUP_SEQUENCE = ['telemetry', 'database', 'npc_engine', 'minecraft_bridge'];
 
 function recordStep(results, name, status, details = null) {
   results.push({ name, status, details, timestamp: new Date().toISOString() });
-  const logMethod = status === "error" ? "error" : status === "warn" ? "warn" : "info";
+  const logMethod = status === 'error' ? 'error' : status === 'warn' ? 'warn' : 'info';
   logger[logMethod]?.(`Startup step ${name} => ${status}`, details ? { details } : {});
 }
 
@@ -12,10 +12,10 @@ export async function runStartupValidation({
   stateManager,
   npcSystem,
   initializeDatabase,
-  initializeNpcSystem
+  initializeNpcSystem,
 }) {
   if (!stateManager || !npcSystem) {
-    throw new Error("Startup validation requires stateManager and npcSystem");
+    throw new Error('Startup validation requires stateManager and npcSystem');
   }
 
   const results = [];
@@ -23,37 +23,44 @@ export async function runStartupValidation({
   // Telemetry validation (already started prior to invocation)
   try {
     const metrics = stateManager.getState()?.metrics || {};
-    const telemetryHealthy = typeof metrics === "object";
-    recordStep(results, "telemetry", telemetryHealthy ? "pass" : "warn", telemetryHealthy ? null : "Metrics snapshot unavailable");
+    const telemetryHealthy = typeof metrics === 'object';
+    recordStep(
+      results,
+      'telemetry',
+      telemetryHealthy ? 'pass' : 'warn',
+      telemetryHealthy ? null : 'Metrics snapshot unavailable'
+    );
   } catch (err) {
-    recordStep(results, "telemetry", "error", err.message);
+    recordStep(results, 'telemetry', 'error', err.message);
     throw err;
   }
 
   // Database initialization (optional - server can run without it)
-  if (typeof initializeDatabase === "function") {
+  if (typeof initializeDatabase === 'function') {
     try {
       await initializeDatabase();
-      recordStep(results, "database", "pass");
+      recordStep(results, 'database', 'pass');
     } catch (err) {
-      logger.warn('Database initialization failed, continuing without database', { error: err.message });
-      recordStep(results, "database", "warn", `Database unavailable: ${err.message}`);
+      logger.warn('Database initialization failed, continuing without database', {
+        error: err.message,
+      });
+      recordStep(results, 'database', 'warn', `Database unavailable: ${err.message}`);
       // Don't throw - database is optional for Mineflayer-based bot control
     }
   } else {
-    recordStep(results, "database", "warn", "initializeDatabase not provided");
+    recordStep(results, 'database', 'warn', 'initializeDatabase not provided');
   }
 
   // NPC engine initialization (includes bridge wiring)
-  if (typeof initializeNpcSystem !== "function") {
-    throw new Error("initializeNpcSystem callback is required");
+  if (typeof initializeNpcSystem !== 'function') {
+    throw new Error('initializeNpcSystem callback is required');
   }
 
   try {
     await initializeNpcSystem();
-    recordStep(results, "npc_engine", "pass");
+    recordStep(results, 'npc_engine', 'pass');
   } catch (err) {
-    recordStep(results, "npc_engine", "error", err.message);
+    recordStep(results, 'npc_engine', 'error', err.message);
     throw err;
   }
 
@@ -61,19 +68,24 @@ export async function runStartupValidation({
   if (npcSystem.minecraftBridge) {
     try {
       const bridge = npcSystem.minecraftBridge;
-      const connected = typeof bridge.isConnected === "function" ? bridge.isConnected() : false;
-      if (!connected && typeof bridge.ensureConnected === "function") {
+      const connected = typeof bridge.isConnected === 'function' ? bridge.isConnected() : false;
+      if (!connected && typeof bridge.ensureConnected === 'function') {
         await bridge.ensureConnected();
       }
-      recordStep(results, "minecraft_bridge", bridge.isConnected() ? "pass" : "warn", bridge.isConnected() ? null : "Bridge configured but not connected");
+      recordStep(
+        results,
+        'minecraft_bridge',
+        bridge.isConnected() ? 'pass' : 'warn',
+        bridge.isConnected() ? null : 'Bridge configured but not connected'
+      );
     } catch (err) {
-      recordStep(results, "minecraft_bridge", "warn", err.message);
+      recordStep(results, 'minecraft_bridge', 'warn', err.message);
     }
   } else {
-    recordStep(results, "minecraft_bridge", "warn", "Bridge not configured");
+    recordStep(results, 'minecraft_bridge', 'warn', 'Bridge not configured');
   }
 
-  logger.info("Startup validation completed", { sequence: STARTUP_SEQUENCE, results });
+  logger.info('Startup validation completed', { sequence: STARTUP_SEQUENCE, results });
   return results;
 }
 

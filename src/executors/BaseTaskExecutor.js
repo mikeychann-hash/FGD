@@ -44,7 +44,7 @@ export class BaseTaskExecutor {
 
     return {
       valid: errors.length === 0,
-      errors
+      errors,
     };
   }
 
@@ -70,7 +70,7 @@ export class BaseTaskExecutor {
   _logAction(botId, action, details = {}) {
     logger.debug(`[${this.taskName}] ${action}`, {
       botId,
-      ...details
+      ...details,
     });
   }
 
@@ -85,7 +85,7 @@ export class BaseTaskExecutor {
     logger.debug(`[${this.taskName}] Progress: ${percentage}%`, {
       botId,
       progress: percentage,
-      ...details
+      ...details,
     });
   }
 
@@ -100,13 +100,13 @@ export class BaseTaskExecutor {
     logger.error(`[${this.taskName}] ${context} failed`, {
       botId,
       error: error.message,
-      stack: error.stack
+      stack: error.stack,
     });
 
     return {
       success: false,
       error: error.message,
-      context
+      context,
     };
   }
 
@@ -136,7 +136,7 @@ export class BaseTaskExecutor {
 
     const maxSlots = 36; // Standard inventory
     const usedSlots = state.inventoryItems.length;
-    return (maxSlots - usedSlots) >= requiredSlots;
+    return maxSlots - usedSlots >= requiredSlots;
   }
 
   /**
@@ -151,7 +151,7 @@ export class BaseTaskExecutor {
       promise,
       new Promise((_, reject) => {
         setTimeout(() => reject(new Error(message)), timeout);
-      })
+      }),
     ]);
   }
 
@@ -172,7 +172,7 @@ export class BaseTaskExecutor {
         lastError = err;
         if (attempt < maxRetries - 1) {
           const delay = initialDelay * Math.pow(2, attempt);
-          await new Promise(resolve => setTimeout(resolve, delay));
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
     }

@@ -36,7 +36,13 @@ export class MineTaskExecutor extends BaseTaskExecutor {
         throw new Error(`Invalid task: ${validation.errors.join(', ')}`);
       }
 
-      const { blockType, count = 1, range = 32, veinMine = false, equipTool = true } = task.params || {};
+      const {
+        blockType,
+        count = 1,
+        range = 32,
+        veinMine = false,
+        equipTool = true,
+      } = task.params || {};
 
       if (!blockType) {
         throw new Error('blockType is required for mining task');
@@ -59,7 +65,7 @@ export class MineTaskExecutor extends BaseTaskExecutor {
         const foundBlocks = this.bridge.findBlocks(botId, {
           blockType,
           maxDistance: range,
-          count: veinMine ? 10 : 1
+          count: veinMine ? 10 : 1,
         });
 
         if (!foundBlocks.length) {
@@ -91,7 +97,6 @@ export class MineTaskExecutor extends BaseTaskExecutor {
             totalMined++;
             this._logProgress(botId, totalMined / count, { mined: totalMined, target: count });
           }
-
         } catch (err) {
           logger.warn('Failed to mine block', { botId, error: err.message });
           // Continue with next block instead of failing entire task
@@ -104,12 +109,11 @@ export class MineTaskExecutor extends BaseTaskExecutor {
         requested: count,
         blockType,
         blocks,
-        inventory: this.bridge.getInventory(botId)
+        inventory: this.bridge.getInventory(botId),
       };
 
       this._logAction(botId, 'Mining task completed', result);
       return result;
-
     } catch (err) {
       return this._handleError(botId, err, 'Mining task');
     }

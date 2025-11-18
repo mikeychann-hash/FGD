@@ -1,5 +1,5 @@
-import express from "express";
-import { logger } from "../../logger.js";
+import express from 'express';
+import { logger } from '../../logger.js';
 
 /**
  * Initialize NPC CRUD routes
@@ -10,7 +10,7 @@ export function initNPCRoutes(npcSystem) {
   /**
    * List all NPCs
    */
-  router.get("/", async (req, res) => {
+  router.get('/', async (req, res) => {
     try {
       if (!npcSystem.npcRegistry) {
         return res.status(503).json({ error: 'NPC system not initialized' });
@@ -21,7 +21,7 @@ export function initNPCRoutes(npcSystem) {
 
       // Filter by status if provided
       if (status) {
-        npcs = npcs.filter(npc => npc.status === status);
+        npcs = npcs.filter((npc) => npc.status === status);
       }
 
       // Pagination
@@ -32,7 +32,7 @@ export function initNPCRoutes(npcSystem) {
         npcs,
         total,
         limit: Number(limit),
-        offset: Number(offset)
+        offset: Number(offset),
       });
     } catch (err) {
       logger.error('Failed to list NPCs', { error: err.message });
@@ -43,7 +43,7 @@ export function initNPCRoutes(npcSystem) {
   /**
    * Get single NPC by ID
    */
-  router.get("/:id", async (req, res) => {
+  router.get('/:id', async (req, res) => {
     try {
       if (!npcSystem.npcRegistry) {
         return res.status(503).json({ error: 'NPC system not initialized' });
@@ -73,7 +73,7 @@ export function initNPCRoutes(npcSystem) {
   /**
    * Create new NPC
    */
-  router.post("/", async (req, res) => {
+  router.post('/', async (req, res) => {
     try {
       if (!npcSystem.npcSpawner) {
         return res.status(503).json({ error: 'NPC system not initialized' });
@@ -93,7 +93,7 @@ export function initNPCRoutes(npcSystem) {
         appearance,
         personality,
         position,
-        autoSpawn
+        autoSpawn,
       });
 
       logger.info('NPC created via API', { npcId: result.id });
@@ -107,7 +107,7 @@ export function initNPCRoutes(npcSystem) {
   /**
    * Update NPC
    */
-  router.put("/:id", async (req, res) => {
+  router.put('/:id', async (req, res) => {
     try {
       if (!npcSystem.npcRegistry) {
         return res.status(503).json({ error: 'NPC system not initialized' });
@@ -126,7 +126,7 @@ export function initNPCRoutes(npcSystem) {
         appearance,
         personality,
         metadata,
-        description
+        description,
       });
 
       logger.info('NPC updated via API', { npcId: req.params.id });
@@ -140,7 +140,7 @@ export function initNPCRoutes(npcSystem) {
   /**
    * Delete/Finalize NPC
    */
-  router.delete("/:id", async (req, res) => {
+  router.delete('/:id', async (req, res) => {
     try {
       if (!npcSystem.npcFinalizer) {
         return res.status(503).json({ error: 'NPC system not initialized' });
@@ -151,7 +151,7 @@ export function initNPCRoutes(npcSystem) {
       const result = await npcSystem.npcFinalizer.finalizeNPC(req.params.id, {
         reason: 'api_request',
         preserveInRegistry: preserve === 'true',
-        removeFromWorld: removeFromWorld !== 'false'
+        removeFromWorld: removeFromWorld !== 'false',
       });
 
       logger.info('NPC finalized via API', { npcId: req.params.id });
@@ -165,7 +165,7 @@ export function initNPCRoutes(npcSystem) {
   /**
    * Get NPC archive
    */
-  router.get("/archive/all", async (req, res) => {
+  router.get('/archive/all', async (req, res) => {
     try {
       if (!npcSystem.npcFinalizer) {
         return res.status(503).json({ error: 'NPC system not initialized' });
@@ -182,7 +182,7 @@ export function initNPCRoutes(npcSystem) {
   /**
    * Get dead letter queue
    */
-  router.get("/deadletter/queue", (req, res) => {
+  router.get('/deadletter/queue', (req, res) => {
     try {
       if (!npcSystem.npcSpawner) {
         return res.status(503).json({ error: 'NPC system not initialized' });
@@ -199,7 +199,7 @@ export function initNPCRoutes(npcSystem) {
   /**
    * Retry dead letter queue
    */
-  router.post("/deadletter/retry", async (req, res) => {
+  router.post('/deadletter/retry', async (req, res) => {
     try {
       if (!npcSystem.npcSpawner) {
         return res.status(503).json({ error: 'NPC system not initialized' });

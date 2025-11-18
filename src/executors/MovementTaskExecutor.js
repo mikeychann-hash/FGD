@@ -35,7 +35,13 @@ export class MovementTaskExecutor extends BaseTaskExecutor {
         throw new Error(`Invalid task: ${validation.errors.join(', ')}`);
       }
 
-      const { target, range = 1, timeout = 60000, followEntity = false, entityId } = task.params || {};
+      const {
+        target,
+        range = 1,
+        timeout = 60000,
+        followEntity = false,
+        entityId,
+      } = task.params || {};
 
       if (followEntity && !entityId) {
         throw new Error('entityId is required when followEntity is true');
@@ -45,7 +51,7 @@ export class MovementTaskExecutor extends BaseTaskExecutor {
         target,
         range,
         followEntity,
-        entityId
+        entityId,
       });
 
       const startPos = this.bridge.getPosition(botId);
@@ -57,7 +63,11 @@ export class MovementTaskExecutor extends BaseTaskExecutor {
 
       if (followEntity) {
         result = await this._withTimeout(
-          this.bridge.followEntity(botId, { x: target.x, y: target.y, z: target.z }, { range, timeout }),
+          this.bridge.followEntity(
+            botId,
+            { x: target.x, y: target.y, z: target.z },
+            { range, timeout }
+          ),
           timeout,
           'Entity following timed out'
         );
@@ -71,7 +81,7 @@ export class MovementTaskExecutor extends BaseTaskExecutor {
 
       const endPos = this.bridge.getPosition(botId);
       const distanceTraveled = this._distance(startPos, endPos);
-      const reachedTarget = this._distance(endPos, target) <= (range + 1);
+      const reachedTarget = this._distance(endPos, target) <= range + 1;
 
       const taskResult = {
         success: reachedTarget,
@@ -79,12 +89,11 @@ export class MovementTaskExecutor extends BaseTaskExecutor {
         target,
         distanceTraveled,
         reached: reachedTarget,
-        distance: this._distance(endPos, target)
+        distance: this._distance(endPos, target),
       };
 
       this._logAction(botId, 'Movement task completed', taskResult);
       return taskResult;
-
     } catch (err) {
       return this._handleError(botId, err, 'Movement task');
     }
@@ -99,7 +108,11 @@ export class MovementTaskExecutor extends BaseTaskExecutor {
 
     if (!task?.params?.target) {
       validation.errors.push('params.target is required');
-    } else if (!task.params.target.x || task.params.target.y === undefined || !task.params.target.z) {
+    } else if (
+      !task.params.target.x ||
+      task.params.target.y === undefined ||
+      !task.params.target.z
+    ) {
       validation.errors.push('target must have x, y, z coordinates');
     }
 

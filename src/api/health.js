@@ -1,5 +1,5 @@
-import express from "express";
-import { logger } from "../../logger.js";
+import express from 'express';
+import { logger } from '../../logger.js';
 
 /**
  * Initialize health check and metrics routes
@@ -9,47 +9,47 @@ export function initHealthRoutes(npcSystem, stateManager) {
 
   function buildHealthPayload() {
     return {
-      status: "healthy",
+      status: 'healthy',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       components: {
-        npcRegistry: npcSystem.npcRegistry ? "healthy" : "not_initialized",
-        npcSpawner: npcSystem.npcSpawner ? "healthy" : "not_initialized",
-        npcFinalizer: npcSystem.npcFinalizer ? "healthy" : "not_initialized",
-        learningEngine: npcSystem.learningEngine ? "healthy" : "not_initialized"
+        npcRegistry: npcSystem.npcRegistry ? 'healthy' : 'not_initialized',
+        npcSpawner: npcSystem.npcSpawner ? 'healthy' : 'not_initialized',
+        npcFinalizer: npcSystem.npcFinalizer ? 'healthy' : 'not_initialized',
+        learningEngine: npcSystem.learningEngine ? 'healthy' : 'not_initialized',
       },
       memory: {
         used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
         total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
-        unit: "MB"
-      }
+        unit: 'MB',
+      },
     };
   }
 
   /**
    * Health check endpoint (preferred path: /api/health)
    */
-  router.get("/", (req, res) => {
+  router.get('/', (req, res) => {
     sendHealth(res);
   });
 
   /**
    * Legacy health path retained for compatibility (/api/health/health)
    */
-  router.get("/health", (req, res) => {
+  router.get('/health', (req, res) => {
     sendHealth(res);
   });
 
   function sendHealth(res) {
     const payload = buildHealthPayload();
-    const allHealthy = Object.values(payload.components).every(status => status === "healthy");
+    const allHealthy = Object.values(payload.components).every((status) => status === 'healthy');
     res.status(allHealthy ? 200 : 503).json(payload);
   }
 
   /**
    * System metrics endpoint
    */
-  router.get("/metrics/system", async (req, res) => {
+  router.get('/metrics/system', async (req, res) => {
     try {
       const systemState = stateManager.getState();
       const metrics = {
@@ -58,12 +58,16 @@ export function initHealthRoutes(npcSystem, stateManager) {
           total: npcSystem.npcRegistry ? npcSystem.npcRegistry.getAll().length : 0,
           active: npcSystem.npcRegistry ? npcSystem.npcRegistry.listActive().length : 0,
           archived: npcSystem.npcFinalizer ? (await npcSystem.npcFinalizer.getArchive()).length : 0,
-          deadLetterQueue: npcSystem.npcSpawner ? npcSystem.npcSpawner.getDeadLetterQueue().length : 0
+          deadLetterQueue: npcSystem.npcSpawner
+            ? npcSystem.npcSpawner.getDeadLetterQueue().length
+            : 0,
         },
         learning: {
-          profiles: npcSystem.learningEngine ? Object.keys(npcSystem.learningEngine.profiles).length : 0
+          profiles: npcSystem.learningEngine
+            ? Object.keys(npcSystem.learningEngine.profiles).length
+            : 0,
         },
-        system: systemState.metrics
+        system: systemState.metrics,
       };
 
       res.json(metrics);
@@ -76,7 +80,7 @@ export function initHealthRoutes(npcSystem, stateManager) {
   /**
    * Get autonomic core status
    */
-  router.get("/autonomic", (req, res) => {
+  router.get('/autonomic', (req, res) => {
     try {
       if (!npcSystem.autonomicCore) {
         return res.status(503).json({ error: 'Autonomic core not initialized' });

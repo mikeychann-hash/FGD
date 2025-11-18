@@ -2,7 +2,9 @@ const PLACEHOLDER_VALUES = new Set([
   "admin123",
   "admin-key-change-me",
   "llm-key-change-me",
-  "fgd_rcon_password_change_me"
+  "fgd_rcon_password_change_me",
+  "folks123",  // Hardcoded admin API key
+  "postgres"   // Hardcoded database password
 ]);
 
 const recordedWarnings = new Set();

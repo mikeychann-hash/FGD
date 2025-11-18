@@ -22,8 +22,8 @@ export async function initRedis() {
             return new Error('Redis connection failed');
           }
           return Math.min(retries * 100, 3000);
-        }
-      }
+        },
+      },
     });
 
     // Pub/Sub clients
@@ -44,11 +44,7 @@ export async function initRedis() {
     });
 
     // Connect all clients
-    await Promise.all([
-      redisClient.connect(),
-      redisPubClient.connect(),
-      redisSubClient.connect()
-    ]);
+    await Promise.all([redisClient.connect(), redisPubClient.connect(), redisSubClient.connect()]);
 
     logger.info('Redis connected successfully');
     console.log('✅ Redis connected');
@@ -151,7 +147,7 @@ export class CacheManager {
    */
   async exists(key) {
     try {
-      return await redisClient.exists(key) === 1;
+      return (await redisClient.exists(key)) === 1;
     } catch (err) {
       logger.error('Cache exists error', { key, error: err.message });
       return false;

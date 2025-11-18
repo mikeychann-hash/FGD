@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "updatedAt": "2025-11-18T01:01:38.915Z",
+  "npcs": [
+    {
+      "id": "test_miner_01",
+      "role": "miner",
+      "npcType": "miner",
+      "appearance": {
+        "skin": "default"
+      },
+      "spawnPosition": {
+        "x": 100,
+        "y": 64,
+        "z": 200
+      },
+      "lastKnownPosition": {
+        "x": 100,
+        "y": 64,
+        "z": 200
+      },
+      "metadata": {
+        "personalitySummary": "creative and impulsive",
+        "personalityTraits": [
+          "Eager to work and improve",
+          "Works well with others",
+          "Quick to defend and protect",
+          "Thinks outside the box",
+          "Extremely loyal and dependable",
+          "⚠️ May rush through tasks"
+        ]
+      },
+      "personality": {
+        "curiosity": 0.01985228757088242,
+        "patience": 0.004500591678902266,
+        "motivation": 0.9231855190812398,
+        "empathy": 0.752422225232096,
+        "aggression": 0.4758083084523532,
+        "creativity": 0.9772521571672055,
+        "loyalty": 0.9448434645358035
+      },
+      "personalitySummary": "creative and impulsive",
+      "personalityTraits": [
+        "Eager to work and improve",
+        "Works well with others",
+        "Quick to defend and protect",
+        "Thinks outside the box",
+        "Extremely loyal and dependable",
+        "⚠️ May rush through tasks"
+      ],
+      "description": null,
+      "status": "inactive",
+      "spawnCount": 1,
+      "lastSpawnedAt": "2025-11-18T01:01:38.914Z",
+      "lastDespawnedAt": "2025-11-18T01:01:38.915Z",
+      "runtime": {
+        "lastSpawnedAt": "2025-11-18T01:01:38.914Z",
+        "lastKnownPosition": {
+          "x": 100,
+          "y": 64,
+          "z": 200
+        },
+        "lastDespawnedAt": "2025-11-18T01:01:38.915Z"
+      },
+      "createdAt": "2025-11-18T01:01:38.911Z",
+      "updatedAt": "2025-11-18T01:01:38.911Z"
+    }
+  ]
+}

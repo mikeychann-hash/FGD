@@ -27,7 +27,14 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
     try {
       this._verifyTask(task, 'combat');
 
-      const { subAction = 'attack', entityType, range = 16, timeout = 30000, autoWeapon = true, maxDamage = 5 } = task.params || {};
+      const {
+        subAction = 'attack',
+        entityType,
+        range = 16,
+        timeout = 30000,
+        autoWeapon = true,
+        maxDamage = 5,
+      } = task.params || {};
 
       return await this._withTimeout(timeout, async () => {
         const bot = this.bridge.bots.get(botId);
@@ -46,7 +53,7 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
             success: false,
             error: 'Bot health too low for combat',
             health: botState.health,
-            maxDamage
+            maxDamage,
           };
         }
 
@@ -69,7 +76,7 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
       return {
         success: false,
         error: err.message,
-        action: 'combat'
+        action: 'combat',
       };
     }
   }
@@ -87,7 +94,7 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
           success: false,
           error: `No ${entityType || 'enemy'} found within ${range} blocks`,
           entityType,
-          range
+          range,
         };
       }
 
@@ -114,12 +121,14 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
         // Move closer if needed (2 block approach distance)
         const distance = bot.entity.position.distanceTo(currentTarget.position);
         if (distance > 3) {
-          await bot.pathfinder.goto(new (await import('mineflayer-pathfinder')).goals.GoalNear(
-            currentTarget.position.x,
-            currentTarget.position.y,
-            currentTarget.position.z,
-            2
-          ));
+          await bot.pathfinder.goto(
+            new (await import('mineflayer-pathfinder')).goals.GoalNear(
+              currentTarget.position.x,
+              currentTarget.position.y,
+              currentTarget.position.z,
+              2
+            )
+          );
         }
 
         // Attack
@@ -142,14 +151,14 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
         targetDead,
         targetHealth: finalTarget?.health || 0,
         botHealth: bot.health,
-        botFood: bot.food
+        botFood: bot.food,
       };
     } catch (err) {
       logger.error('Attack failed', { botId, error: err.message });
       return {
         success: false,
         error: err.message,
-        action: 'combat:attack'
+        action: 'combat:attack',
       };
     }
   }
@@ -166,7 +175,7 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
           success: false,
           error: `No ${entityType || 'entity'} found within ${range} blocks`,
           entityType,
-          range
+          range,
         };
       }
 
@@ -183,22 +192,22 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
           position: {
             x: target.position.x,
             y: target.position.y,
-            z: target.position.z
+            z: target.position.z,
           },
-          distance: Math.round(distance * 100) / 100
+          distance: Math.round(distance * 100) / 100,
         },
         botPosition: {
           x: bot.entity.position.x,
           y: bot.entity.position.y,
-          z: bot.entity.position.z
-        }
+          z: bot.entity.position.z,
+        },
       };
     } catch (err) {
       logger.error('Target action failed', { botId, error: err.message });
       return {
         success: false,
         error: err.message,
-        action: 'combat:target'
+        action: 'combat:target',
       };
     }
   }
@@ -218,7 +227,7 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
         return {
           success: true,
           action: 'combat:evade',
-          message: 'No threats detected'
+          message: 'No threats detected',
         };
       }
 
@@ -238,8 +247,8 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
       // Attempt to reach safe position
       await Promise.race([
         bot.pathfinder.goto(evadeGoal),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Evade timeout')), timeout))
-      ]).catch(err => {
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Evade timeout')), timeout)),
+      ]).catch((err) => {
         if (err.message !== 'Evade timeout') throw err;
       });
 
@@ -253,14 +262,14 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
         finalDistance: Math.round(finalDistance * 100) / 100,
         evadeTime,
         botHealth: bot.health,
-        escaped: finalDistance > 15
+        escaped: finalDistance > 15,
       };
     } catch (err) {
       logger.error('Evade action failed', { botId, error: err.message });
       return {
         success: false,
         error: err.message,
-        action: 'combat:evade'
+        action: 'combat:evade',
       };
     }
   }
@@ -292,7 +301,7 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
           threats.push({
             name: entity.name,
             distance: bot.entity.position.distanceTo(entity.position),
-            health: entity.health
+            health: entity.health,
           });
         }
       }
@@ -302,19 +311,19 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
         action: 'combat:defend',
         prepared: {
           weaponEquipped: !!weapon,
-          armorEquipped: Object.values(armor).some(a => a !== null),
+          armorEquipped: Object.values(armor).some((a) => a !== null),
           threatCount: threats.length,
-          threats: threats.slice(0, 5) // Top 5 nearest threats
+          threats: threats.slice(0, 5), // Top 5 nearest threats
         },
         botHealth: bot.health,
-        botFood: bot.food
+        botFood: bot.food,
       };
     } catch (err) {
       logger.error('Defend action failed', { botId, error: err.message });
       return {
         success: false,
         error: err.message,
-        action: 'combat:defend'
+        action: 'combat:defend',
       };
     }
   }
@@ -354,15 +363,15 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
    */
   _selectBestWeapon(bot) {
     const weapons = {
-      'diamond_sword': 7,
-      'iron_sword': 6,
-      'stone_sword': 5,
-      'golden_sword': 4,
-      'wooden_sword': 3,
-      'diamond_axe': 7,
-      'iron_axe': 6,
-      'diamond_pickaxe': 5,
-      'diamond_shovel': 4
+      diamond_sword: 7,
+      iron_sword: 6,
+      stone_sword: 5,
+      golden_sword: 4,
+      wooden_sword: 3,
+      diamond_axe: 7,
+      iron_axe: 6,
+      diamond_pickaxe: 5,
+      diamond_shovel: 4,
     };
 
     let bestWeapon = null;
@@ -386,23 +395,23 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
   _selectBestArmor(bot) {
     const armorSlots = ['head', 'chest', 'legs', 'feet'];
     const armorRatings = {
-      'diamond_helmet': 5,
-      'iron_helmet': 4,
-      'golden_helmet': 3,
-      'leather_helmet': 1,
-      'diamond_chestplate': 5,
-      'iron_chestplate': 4,
-      'diamond_leggings': 5,
-      'iron_leggings': 4,
-      'diamond_boots': 5,
-      'iron_boots': 4
+      diamond_helmet: 5,
+      iron_helmet: 4,
+      golden_helmet: 3,
+      leather_helmet: 1,
+      diamond_chestplate: 5,
+      iron_chestplate: 4,
+      diamond_leggings: 5,
+      iron_leggings: 4,
+      diamond_boots: 5,
+      iron_boots: 4,
     };
 
     const selected = {
       head: null,
       chest: null,
       legs: null,
-      feet: null
+      feet: null,
     };
 
     const items = bot.inventory.items();
@@ -426,7 +435,7 @@ export class CombatTaskExecutor extends BaseTaskExecutor {
    * @private
    */
   _delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**

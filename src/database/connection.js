@@ -6,13 +6,23 @@ let pool = null;
 
 /**
  * Database configuration
+ * SECURITY: DB_PASSWORD must be set via environment variable - no defaults allowed
  */
+const DB_PASSWORD = process.env.DB_PASSWORD;
+
+// Validate DB_PASSWORD is set (should be caught by startup validation)
+if (!DB_PASSWORD || DB_PASSWORD.trim() === '') {
+  throw new Error(
+    'CRITICAL: DB_PASSWORD environment variable must be set. Cannot connect to database without password.'
+  );
+}
+
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '5432'),
   database: process.env.DB_NAME || 'fgd_aicraft',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'postgres',
+  password: DB_PASSWORD,
   max: parseInt(process.env.DB_POOL_MAX || '20'),
   idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT || '30000'),
   connectionTimeoutMillis: parseInt(process.env.DB_CONNECTION_TIMEOUT || '2000'),
@@ -33,7 +43,7 @@ export async function initDatabase() {
     logger.info('Database connected successfully', {
       host: dbConfig.host,
       database: dbConfig.database,
-      time: result.rows[0].now
+      time: result.rows[0].now,
     });
     console.log('✅ PostgreSQL connected');
 

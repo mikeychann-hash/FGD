@@ -1,21 +1,21 @@
-import path from "path";
-import { logger } from "../../logger.js";
-import { NPCRegistry } from "../../npc_registry.js";
-import { NPCSpawner } from "../../npc_spawner.js";
-import { NPCFinalizer } from "../../npc_finalizer.js";
-import { LearningEngine } from "../../learning_engine.js";
-import { NPCEngine } from "../../npc_engine.js";
-import { MinecraftBridge } from "../../minecraft_bridge.js";
-import { AutonomicCore } from "../../autonomic_core.js";
-import { progressionEngine } from "../../core/progression_engine.js";
-import { ensureNonDefaultSecret } from "../../security/secrets.js";
-import { ROOT_DIR } from "../config/constants.js";
+import path from 'path';
+import { logger } from '../../logger.js';
+import { NPCRegistry } from '../../npc_registry.js';
+import { NPCSpawner } from '../../npc_spawner.js';
+import { NPCFinalizer } from '../../npc_finalizer.js';
+import { LearningEngine } from '../../learning_engine.js';
+import { NPCEngine } from '../../npc_engine.js';
+import { MinecraftBridge } from '../../minecraft_bridge.js';
+import { AutonomicCore } from '../../autonomic_core.js';
+import { progressionEngine } from '../../core/progression_engine.js';
+import { ensureNonDefaultSecret } from '../../security/secrets.js';
+import { ROOT_DIR } from '../config/constants.js';
 import {
   initializeMineflayerBridge,
   createTaskExecutors,
   attachMineflayerBridge,
-  bridgeMineflayerEvents
-} from "./mineflayer_initializer.js";
+  bridgeMineflayerEvents,
+} from './mineflayer_initializer.js';
 
 /**
  * NPC System container
@@ -46,7 +46,7 @@ export class NPCSystem {
         value: rawPassword,
         fallback: 'fgd_rcon_password_change_me',
         envVar: 'MINECRAFT_RCON_PASSWORD',
-        allowEmpty: true
+        allowEmpty: true,
       });
 
       // Only initialize if password is set (indicates intent to use RCON)
@@ -55,7 +55,7 @@ export class NPCSystem {
           host,
           port,
           password,
-          connectOnCreate: false // Don't auto-connect yet
+          connectOnCreate: false, // Don't auto-connect yet
         });
 
         logger.info('Minecraft Bridge configured', { host, port });
@@ -96,7 +96,7 @@ export class NPCSystem {
       this.mineflayerBridge = await initializeMineflayerBridge({
         host: process.env.MINECRAFT_HOST || 'localhost',
         port: process.env.MINECRAFT_PORT || 25565,
-        version: process.env.MINECRAFT_VERSION || '1.20.1'
+        version: process.env.MINECRAFT_VERSION || '1.20.1',
       });
 
       if (!this.mineflayerBridge) {
@@ -113,9 +113,8 @@ export class NPCSystem {
       }
 
       logger.info('Mineflayer bridge system initialized', {
-        executors: Object.keys(this.taskExecutors)
+        executors: Object.keys(this.taskExecutors),
       });
-
     } catch (err) {
       logger.error('Failed to initialize Mineflayer bridge system', { error: err.message });
       console.error('❌ Failed to initialize Mineflayer bridge system:', err.message);
@@ -133,7 +132,7 @@ export class NPCSystem {
         autoRegisterFromRegistry: false,
         registry: this.npcRegistry,
         learningEngine: this.learningEngine,
-        bridge: this.minecraftBridge
+        bridge: this.minecraftBridge,
       });
 
       // Set up telemetry channel for real-time updates
@@ -159,7 +158,9 @@ export class NPCSystem {
       console.log(`   Registry: ${this.npcEngine.registry?.registryPath}`);
       console.log(`   Learning: ${this.npcEngine.learningEngine?.path}`);
       console.log(`   RCON Bridge: ${this.minecraftBridge ? 'Connected' : 'Not configured'}`);
-      console.log(`   Mineflayer Bridge: ${this.mineflayerBridge ? 'Connected' : 'Not configured'}`);
+      console.log(
+        `   Mineflayer Bridge: ${this.mineflayerBridge ? 'Connected' : 'Not configured'}`
+      );
 
       const activeNPCs = this.npcEngine.registry?.listActive() || [];
       console.log(`   Active NPCs: ${activeNPCs.length}`);
@@ -167,11 +168,13 @@ export class NPCSystem {
 
       if (this.npcSpawner) {
         this.npcSpawner.engine = this.npcEngine;
-        this.npcSpawner.bridge = this.npcEngine.mineflayerBridge || this.npcEngine.bridge || this.npcSpawner.bridge;
+        this.npcSpawner.bridge =
+          this.npcEngine.mineflayerBridge || this.npcEngine.bridge || this.npcSpawner.bridge;
       }
 
       if (this.npcFinalizer) {
-        this.npcFinalizer.bridge = this.npcEngine.mineflayerBridge || this.npcEngine.bridge || this.npcFinalizer.bridge;
+        this.npcFinalizer.bridge =
+          this.npcEngine.mineflayerBridge || this.npcEngine.bridge || this.npcFinalizer.bridge;
       }
 
       attachTelemetryCallback(this.npcEngine);
@@ -196,24 +199,24 @@ export class NPCSystem {
       }
 
       // Listen for phase changes and propagate to all systems
-      progressionEngine.on("phaseChanged", (data) => {
+      progressionEngine.on('phaseChanged', (data) => {
         console.log(`🌍 [Server] Phase changed to ${data.phase}: ${data.guide.name}`);
 
         // Update NPC engine phase
-        if (this.npcEngine && typeof this.npcEngine.setPhase === "function") {
+        if (this.npcEngine && typeof this.npcEngine.setPhase === 'function') {
           this.npcEngine.setPhase(data.phase);
         }
 
         // Broadcast via WebSocket
-        io.emit("progression:phaseChanged", data);
+        io.emit('progression:phaseChanged', data);
       });
 
-      progressionEngine.on("progressUpdate", (data) => {
-        io.emit("progression:progressUpdate", data);
+      progressionEngine.on('progressUpdate', (data) => {
+        io.emit('progression:progressUpdate', data);
       });
 
-      progressionEngine.on("metricUpdate", (data) => {
-        io.emit("progression:metricUpdate", data);
+      progressionEngine.on('metricUpdate', (data) => {
+        io.emit('progression:metricUpdate', data);
       });
 
       console.log('✅ Autonomic Core and Progression Engine initialized');
@@ -237,7 +240,7 @@ export class NPCSystem {
 
       // Initialize NPC registry
       this.npcRegistry = new NPCRegistry({
-        registryPath: path.join(ROOT_DIR, 'data', 'npc_registry.json')
+        registryPath: path.join(ROOT_DIR, 'data', 'npc_registry.json'),
       });
       await this.npcRegistry.load();
 
@@ -247,7 +250,7 @@ export class NPCSystem {
       this.npcSpawner = new NPCSpawner({
         registry: this.npcRegistry,
         learningEngine: this.learningEngine,
-        autoSpawn: false // Don't auto-spawn via spawner
+        autoSpawn: false, // Don't auto-spawn via spawner
       });
       await this.npcSpawner.initialize();
 
@@ -255,7 +258,7 @@ export class NPCSystem {
       this.npcFinalizer = new NPCFinalizer({
         archivePath: path.join(ROOT_DIR, 'data', 'npc_archive.json'),
         registry: this.npcRegistry,
-        learningEngine: this.learningEngine
+        learningEngine: this.learningEngine,
       });
       await this.npcFinalizer.load();
 
@@ -266,7 +269,12 @@ export class NPCSystem {
       await this.initializeMineflayerBridgeSystem();
 
       // Initialize NPC Engine with all components
-      await this.initializeNPCEngine(io, systemState, attachTelemetryCallback, recomputeStatsCallback);
+      await this.initializeNPCEngine(
+        io,
+        systemState,
+        attachTelemetryCallback,
+        recomputeStatsCallback
+      );
 
       // Initialize Autonomic Core with Progression Engine
       await this.initializeAutonomicCore(io);

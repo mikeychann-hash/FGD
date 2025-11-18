@@ -5,9 +5,9 @@ import { logger } from '../../logger.js';
  * Circuit Breaker State
  */
 const State = {
-  CLOSED: 'CLOSED',     // Normal operation
-  OPEN: 'OPEN',         // Failing, reject requests
-  HALF_OPEN: 'HALF_OPEN' // Testing if service recovered
+  CLOSED: 'CLOSED', // Normal operation
+  OPEN: 'OPEN', // Failing, reject requests
+  HALF_OPEN: 'HALF_OPEN', // Testing if service recovered
 };
 
 /**
@@ -40,13 +40,13 @@ export class CircuitBreaker extends EventEmitter {
       failedCalls: 0,
       rejectedCalls: 0,
       timeouts: 0,
-      stateChanges: []
+      stateChanges: [],
     };
 
     logger.info('Circuit breaker initialized', {
       name: this.name,
       failureThreshold: this.failureThreshold,
-      timeout: this.timeout
+      timeout: this.timeout,
     });
   }
 
@@ -61,7 +61,7 @@ export class CircuitBreaker extends EventEmitter {
       if (Date.now() < this.nextAttemptTime) {
         this.stats.rejectedCalls++;
         logger.warn('Circuit breaker is OPEN - request rejected', {
-          name: this.name
+          name: this.name,
         });
         throw new Error(`Circuit breaker ${this.name} is OPEN`);
       }
@@ -95,11 +95,11 @@ export class CircuitBreaker extends EventEmitter {
       }, this.timeout);
 
       Promise.resolve(fn(...args))
-        .then(result => {
+        .then((result) => {
           clearTimeout(timeoutId);
           resolve(result);
         })
-        .catch(err => {
+        .catch((err) => {
           clearTimeout(timeoutId);
           reject(err);
         });
@@ -134,7 +134,7 @@ export class CircuitBreaker extends EventEmitter {
     logger.error('Circuit breaker recorded failure', {
       name: this.name,
       failureCount: this.failureCount,
-      error: err.message
+      error: err.message,
     });
 
     if (this.state === State.HALF_OPEN) {
@@ -159,20 +159,20 @@ export class CircuitBreaker extends EventEmitter {
       this.stats.stateChanges.push({
         from: oldState,
         to: newState,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       });
 
       logger.warn('Circuit breaker state changed', {
         name: this.name,
         from: oldState,
-        to: newState
+        to: newState,
       });
 
       this.emit('stateChange', {
         name: this.name,
         oldState,
         newState,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       // Keep last 100 state changes
@@ -190,7 +190,7 @@ export class CircuitBreaker extends EventEmitter {
 
     logger.info('Circuit breaker will retry in', {
       name: this.name,
-      retryAfter: this.resetTimeout
+      retryAfter: this.resetTimeout,
     });
   }
 
@@ -229,7 +229,7 @@ export class CircuitBreaker extends EventEmitter {
       lastFailureTime: this.lastFailureTime,
       nextAttemptTime: this.nextAttemptTime,
       isOpen: this.state === State.OPEN,
-      stats: this.stats
+      stats: this.stats,
     };
   }
 
@@ -290,7 +290,7 @@ export class CircuitBreakerManager {
       total: this.breakers.size,
       healthy: 0,
       degraded: 0,
-      failed: 0
+      failed: 0,
     };
 
     for (const breaker of this.breakers.values()) {

@@ -1,9 +1,9 @@
-import fs from "fs/promises";
-import { watch } from "fs";
-import path from "path";
-import os from "os";
-import { DATA_DIR } from "../config/constants.js";
-import { logger } from "../../logger.js";
+import fs from 'fs/promises';
+import { watch } from 'fs';
+import path from 'path';
+import os from 'os';
+import { DATA_DIR } from '../config/constants.js';
+import { logger } from '../../logger.js';
 
 const telemetryWatchers = [];
 const telemetryIntervals = [];
@@ -87,13 +87,17 @@ function createHostMetricsSampler(systemState, io, recomputeStatsCallback) {
     const totalDiff = current.total - previous.total;
     previous = current;
 
-    const cpuPercent = totalDiff > 0
-      ? Math.max(0, Math.min(100, Math.round(100 - (idleDiff / totalDiff) * 100)))
-      : 0;
+    const cpuPercent =
+      totalDiff > 0
+        ? Math.max(0, Math.min(100, Math.round(100 - (idleDiff / totalDiff) * 100)))
+        : 0;
 
     const totalMemory = os.totalmem();
     const freeMemory = os.freemem();
-    const memoryPercent = Math.max(0, Math.min(100, Math.round(((totalMemory - freeMemory) / totalMemory) * 100)));
+    const memoryPercent = Math.max(
+      0,
+      Math.min(100, Math.round(((totalMemory - freeMemory) / totalMemory) * 100))
+    );
 
     const hostMetrics = {
       cpuPercent,
@@ -101,7 +105,7 @@ function createHostMetricsSampler(systemState, io, recomputeStatsCallback) {
       loadAverage: os.loadavg?.()[0] ?? null,
       totalMemoryBytes: totalMemory,
       freeMemoryBytes: freeMemory,
-      processMemoryMb: Math.round(process.memoryUsage().rss / (1024 * 1024))
+      processMemoryMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
     };
 
     systemState.metrics = {
@@ -109,7 +113,7 @@ function createHostMetricsSampler(systemState, io, recomputeStatsCallback) {
       cpu: cpuPercent,
       memory: memoryPercent,
       timestamp: new Date().toISOString(),
-      host: hostMetrics
+      host: hostMetrics,
     };
 
     io.emit('metrics:update', systemState.metrics);
@@ -121,7 +125,7 @@ function createHostMetricsSampler(systemState, io, recomputeStatsCallback) {
  * Start the telemetry pipeline
  */
 export function startTelemetryPipeline(systemState, io, recomputeStatsCallback) {
-  watchTelemetryFile('cluster_status.json', payload => {
+  watchTelemetryFile('cluster_status.json', (payload) => {
     if (Array.isArray(payload?.nodes)) {
       systemState.nodes = payload.nodes;
       recomputeStatsCallback();
@@ -129,25 +133,25 @@ export function startTelemetryPipeline(systemState, io, recomputeStatsCallback) 
     }
   });
 
-  watchTelemetryFile('metrics.json', payload => {
+  watchTelemetryFile('metrics.json', (payload) => {
     if (payload && typeof payload === 'object') {
       systemState.metrics = {
         ...systemState.metrics,
         cluster: payload,
-        clusterTimestamp: payload.timestamp || new Date().toISOString()
+        clusterTimestamp: payload.timestamp || new Date().toISOString(),
       };
       io.emit('metrics:update', systemState.metrics);
     }
   });
 
-  watchTelemetryFile('system_stats.json', payload => {
+  watchTelemetryFile('system_stats.json', (payload) => {
     if (payload && typeof payload === 'object') {
       systemState.systemStats = { ...systemState.systemStats, ...payload };
       io.emit('stats:update', systemState.systemStats);
     }
   });
 
-  watchTelemetryFile('system_logs.json', payload => {
+  watchTelemetryFile('system_logs.json', (payload) => {
     const logs = Array.isArray(payload?.logs) ? payload.logs.slice(-100) : [];
     systemState.logs = logs;
     io.emit('logs:update', systemState.logs);
@@ -162,8 +166,8 @@ export function startTelemetryPipeline(systemState, io, recomputeStatsCallback) 
  * Cleanup telemetry watchers and intervals
  */
 export function cleanupTelemetry() {
-  telemetryIntervals.forEach(interval => clearInterval(interval));
-  telemetryWatchers.forEach(watcher => {
+  telemetryIntervals.forEach((interval) => clearInterval(interval));
+  telemetryWatchers.forEach((watcher) => {
     if (typeof watcher.close === 'function') {
       watcher.close();
     }
@@ -173,7 +177,13 @@ export function cleanupTelemetry() {
 /**
  * Attach NPC engine telemetry listeners
  */
-export function attachNpcEngineTelemetry(npcEngine, systemState, io, recomputeStatsCallback, appendLogCallback) {
+export function attachNpcEngineTelemetry(
+  npcEngine,
+  systemState,
+  io,
+  recomputeStatsCallback,
+  appendLogCallback
+) {
   if (!npcEngine || typeof npcEngine.on !== 'function') {
     return;
   }
@@ -187,26 +197,27 @@ export function attachNpcEngineTelemetry(npcEngine, systemState, io, recomputeSt
   npcEngine.on('npc_unregistered', updateStats);
   npcEngine.on('npc_status', updateStats);
 
-  npcEngine.on('npc_task_completed', payload => {
+  npcEngine.on('npc_task_completed', (payload) => {
     appendLogCallback({
       level: 'success',
-      message: `Task completed by ${payload?.npcId || payload?.id || 'unknown'}`
+      message: `Task completed by ${payload?.npcId || payload?.id || 'unknown'}`,
     });
     updateStats();
   });
 
-  npcEngine.on('npc_error', payload => {
-    const details = payload?.payload?.message || payload?.error || payload?.message || 'Unknown error';
+  npcEngine.on('npc_error', (payload) => {
+    const details =
+      payload?.payload?.message || payload?.error || payload?.message || 'Unknown error';
     appendLogCallback({
       level: 'error',
-      message: `NPC ${payload?.npcId || payload?.id || 'unknown'} error: ${details}`
+      message: `NPC ${payload?.npcId || payload?.id || 'unknown'} error: ${details}`,
     });
   });
 
-  npcEngine.on('npc_scan', payload => {
+  npcEngine.on('npc_scan', (payload) => {
     appendLogCallback({
       level: 'info',
-      message: `Scan received from ${payload?.npcId || payload?.botId || 'unknown'}`
+      message: `Scan received from ${payload?.npcId || payload?.botId || 'unknown'}`,
     });
   });
 }

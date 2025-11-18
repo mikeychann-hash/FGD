@@ -22,10 +22,10 @@ export class MineflayerPolicyService {
       maxConcurrentTasks: 100,
       maxTasksPerBot: 8,
       rateLimit: {
-        requestsPerMinute: 600,  // 10 per second
-        requestsPerHour: 36000
+        requestsPerMinute: 600, // 10 per second
+        requestsPerHour: 36000,
       },
-      ...options
+      ...options,
     };
 
     this.adapter = null;
@@ -46,21 +46,18 @@ export class MineflayerPolicyService {
       // Create the core router
       this.coreRouter = new MineflayerRouter(this.adapter, {
         logAllTasks: true,
-        requireApprovalForDangerous: true
+        requireApprovalForDangerous: true,
       });
 
       // Wrap with policy enforcement
       if (this.options.enablePolicyEnforcement) {
-        this.enhancedRouter = new EnhancedMineflayerRouter(
-          this.coreRouter,
-          {
-            global: {
-              maxConcurrentTasks: this.options.maxConcurrentTasks,
-              maxTasksPerBot: this.options.maxTasksPerBot,
-              rateLimit: this.options.rateLimit
-            }
-          }
-        );
+        this.enhancedRouter = new EnhancedMineflayerRouter(this.coreRouter, {
+          global: {
+            maxConcurrentTasks: this.options.maxConcurrentTasks,
+            maxTasksPerBot: this.options.maxTasksPerBot,
+            rateLimit: this.options.rateLimit,
+          },
+        });
       } else {
         this.enhancedRouter = this.coreRouter;
       }
@@ -70,14 +67,13 @@ export class MineflayerPolicyService {
       logger.info('Mineflayer policy service initialized', {
         policyEnforcement: this.options.enablePolicyEnforcement,
         maxConcurrentTasks: this.options.maxConcurrentTasks,
-        maxTasksPerBot: this.options.maxTasksPerBot
+        maxTasksPerBot: this.options.maxTasksPerBot,
       });
 
       return true;
-
     } catch (err) {
       logger.error('Failed to initialize Mineflayer policy service', {
-        error: err.message
+        error: err.message,
       });
 
       return false;
@@ -95,7 +91,7 @@ export class MineflayerPolicyService {
     if (!this.initialized) {
       return {
         success: false,
-        error: 'Mineflayer policy service not initialized'
+        error: 'Mineflayer policy service not initialized',
       };
     }
 
@@ -119,7 +115,7 @@ export class MineflayerPolicyService {
     if (!this.initialized || !this.enhancedRouter || this.enhancedRouter === this.coreRouter) {
       return {
         success: false,
-        error: 'Policy enforcement not available'
+        error: 'Policy enforcement not available',
       };
     }
 
@@ -137,7 +133,7 @@ export class MineflayerPolicyService {
     if (!this.initialized || !this.enhancedRouter || this.enhancedRouter === this.coreRouter) {
       return {
         success: false,
-        error: 'Policy enforcement not available'
+        error: 'Policy enforcement not available',
       };
     }
 
@@ -156,7 +152,7 @@ export class MineflayerPolicyService {
     if (!this.initialized || !this.enhancedRouter || this.enhancedRouter === this.coreRouter) {
       return {
         success: false,
-        error: 'Policy enforcement not available'
+        error: 'Policy enforcement not available',
       };
     }
 
@@ -185,7 +181,7 @@ export class MineflayerPolicyService {
     if (!this.initialized || !this.enhancedRouter || this.enhancedRouter === this.coreRouter) {
       return {
         initialized: false,
-        error: 'Policy enforcement not available'
+        error: 'Policy enforcement not available',
       };
     }
 
@@ -240,7 +236,7 @@ export class MineflayerPolicyService {
       initialized: this.initialized,
       adapterHealth: this.adapter?.health() || { healthy: false },
       routerStats: this.getStats(),
-      policyStatus: this.getPolicyStatus()
+      policyStatus: this.getPolicyStatus(),
     };
   }
 }

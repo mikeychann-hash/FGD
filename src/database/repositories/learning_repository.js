@@ -18,10 +18,7 @@ export class LearningRepository {
     if (cached) return cached;
 
     try {
-      const result = await query(
-        'SELECT * FROM learning_profiles WHERE npc_id = $1',
-        [npcId]
-      );
+      const result = await query('SELECT * FROM learning_profiles WHERE npc_id = $1', [npcId]);
       const profile = result.rows[0] || null;
 
       if (profile) {
@@ -41,12 +38,20 @@ export class LearningRepository {
   async upsert(npcId, profileData) {
     try {
       const {
-        role, experiencePoints, level, taskHistory,
-        skillImprovements, behavioralPatterns, successRate,
-        totalTasks, successfulTasks, failedTasks
+        role,
+        experiencePoints,
+        level,
+        taskHistory,
+        skillImprovements,
+        behavioralPatterns,
+        successRate,
+        totalTasks,
+        successfulTasks,
+        failedTasks,
       } = profileData;
 
-      const result = await query(`
+      const result = await query(
+        `
         INSERT INTO learning_profiles (
           npc_id, role, experience_points, level, task_history,
           skill_improvements, behavioral_patterns, success_rate,
@@ -65,18 +70,21 @@ export class LearningRepository {
           failed_tasks = EXCLUDED.failed_tasks,
           updated_at = NOW()
         RETURNING *
-      `, [
-        npcId, role,
-        experiencePoints || 0,
-        level || 1,
-        JSON.stringify(taskHistory || []),
-        JSON.stringify(skillImprovements || {}),
-        JSON.stringify(behavioralPatterns || {}),
-        successRate || 0,
-        totalTasks || 0,
-        successfulTasks || 0,
-        failedTasks || 0
-      ]);
+      `,
+        [
+          npcId,
+          role,
+          experiencePoints || 0,
+          level || 1,
+          JSON.stringify(taskHistory || []),
+          JSON.stringify(skillImprovements || {}),
+          JSON.stringify(behavioralPatterns || {}),
+          successRate || 0,
+          totalTasks || 0,
+          successfulTasks || 0,
+          failedTasks || 0,
+        ]
+      );
 
       const profile = result.rows[0];
 
@@ -96,13 +104,16 @@ export class LearningRepository {
    */
   async incrementExperience(npcId, points) {
     try {
-      const result = await query(`
+      const result = await query(
+        `
         UPDATE learning_profiles
         SET experience_points = experience_points + $2,
             updated_at = NOW()
         WHERE npc_id = $1
         RETURNING *
-      `, [npcId, points]);
+      `,
+        [npcId, points]
+      );
 
       await cache.del(`learning:${npcId}`);
       return result.rows[0];
@@ -127,7 +138,7 @@ export class LearningRepository {
       taskHistory.push({
         ...taskData,
         success,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       });
 
       // Keep last 100 tasks
@@ -140,7 +151,8 @@ export class LearningRepository {
       const failedTasks = (profile.failed_tasks || 0) + (success ? 0 : 1);
       const successRate = (successfulTasks / totalTasks) * 100;
 
-      const result = await query(`
+      const result = await query(
+        `
         UPDATE learning_profiles
         SET task_history = $2,
             total_tasks = $3,
@@ -150,14 +162,9 @@ export class LearningRepository {
             updated_at = NOW()
         WHERE npc_id = $1
         RETURNING *
-      `, [
-        npcId,
-        JSON.stringify(taskHistory),
-        totalTasks,
-        successfulTasks,
-        failedTasks,
-        successRate
-      ]);
+      `,
+        [npcId, JSON.stringify(taskHistory), totalTasks, successfulTasks, failedTasks, successRate]
+      );
 
       await cache.del(`learning:${npcId}`);
       return result.rows[0];
@@ -185,10 +192,9 @@ export class LearningRepository {
    */
   async delete(npcId) {
     try {
-      const result = await query(
-        'DELETE FROM learning_profiles WHERE npc_id = $1 RETURNING *',
-        [npcId]
-      );
+      const result = await query('DELETE FROM learning_profiles WHERE npc_id = $1 RETURNING *', [
+        npcId,
+      ]);
 
       await cache.del(`learning:${npcId}`);
       logger.info('Learning profile deleted', { npcId });

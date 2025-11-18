@@ -15,6 +15,8 @@
 import EventEmitter from 'events';
 import mineflayer from 'mineflayer';
 import pathfinderPlugin from 'mineflayer-pathfinder';
+import autoEat from 'mineflayer-auto-eat';
+import pvp from 'mineflayer-pvp';
 import { logger } from './logger.js';
 
 const { pathfinder, Movements, goals } = pathfinderPlugin;
@@ -75,8 +77,21 @@ export class MineflayerBridge extends EventEmitter {
       // Load pathfinder plugin
       bot.loadPlugin(pathfinder);
 
+      // Load auto-eat plugin for survival (automatic eating when hungry)
+      bot.loadPlugin(autoEat);
+
+      // Load PvP plugin for enhanced combat capabilities
+      bot.loadPlugin(pvp);
+
       // Wait for spawn event with timeout
       await this._waitForEvent(bot, 'spawn', 30000, `Bot ${botId} spawn timeout`);
+
+      // Configure auto-eat plugin (start eating automatically when hungry)
+      bot.autoEat.options = {
+        priority: 'foodPoints',
+        startAt: 14,
+        bannedFood: []
+      };
 
       // Store bot instance
       this.bots.set(botId, bot);

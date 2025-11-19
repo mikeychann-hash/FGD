@@ -88,26 +88,39 @@ export class NPCRepository {
   async create(npcData) {
     try {
       const {
-        id, role, npcType, status, appearance, personality,
-        spawnPosition, metadata, description
+        id,
+        role,
+        npcType,
+        status,
+        appearance,
+        personality,
+        spawnPosition,
+        metadata,
+        description,
       } = npcData;
 
-      const result = await query(`
+      const result = await query(
+        `
         INSERT INTO npcs (
           id, role, npc_type, status, appearance, personality,
           spawn_position, last_known_position, metadata, description,
           created_at, updated_at, last_active_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW(), NOW())
         RETURNING *
-      `, [
-        id, role, npcType || role, status || 'idle',
-        JSON.stringify(appearance || {}),
-        JSON.stringify(personality || {}),
-        JSON.stringify(spawnPosition || {}),
-        JSON.stringify(spawnPosition || {}),
-        JSON.stringify(metadata || {}),
-        description || null
-      ]);
+      `,
+        [
+          id,
+          role,
+          npcType || role,
+          status || 'idle',
+          JSON.stringify(appearance || {}),
+          JSON.stringify(personality || {}),
+          JSON.stringify(spawnPosition || {}),
+          JSON.stringify(spawnPosition || {}),
+          JSON.stringify(metadata || {}),
+          description || null,
+        ]
+      );
 
       const npc = result.rows[0];
 
@@ -133,16 +146,20 @@ export class NPCRepository {
       let paramIndex = 2;
 
       const allowedFields = [
-        'role', 'status', 'appearance', 'personality',
-        'last_known_position', 'metadata', 'description'
+        'role',
+        'status',
+        'appearance',
+        'personality',
+        'last_known_position',
+        'metadata',
+        'description',
       ];
 
       for (const field of allowedFields) {
         if (updates[field] !== undefined) {
           const dbField = field.replace(/([A-Z])/g, '_$1').toLowerCase();
-          const value = typeof updates[field] === 'object'
-            ? JSON.stringify(updates[field])
-            : updates[field];
+          const value =
+            typeof updates[field] === 'object' ? JSON.stringify(updates[field]) : updates[field];
           updateFields.push(`${dbField} = $${paramIndex}`);
           params.push(value);
           paramIndex++;
@@ -209,12 +226,15 @@ export class NPCRepository {
    */
   async updatePosition(id, position) {
     try {
-      const result = await query(`
+      const result = await query(
+        `
         UPDATE npcs
         SET last_known_position = $2, updated_at = NOW(), last_active_at = NOW()
         WHERE id = $1
         RETURNING *
-      `, [id, JSON.stringify(position)]);
+      `,
+        [id, JSON.stringify(position)]
+      );
 
       // Invalidate cache
       await cache.del(`npc:${id}`);
@@ -233,11 +253,14 @@ export class NPCRepository {
     try {
       const client = await transaction(async (client) => {
         for (const { id, position } of updates) {
-          await client.query(`
+          await client.query(
+            `
             UPDATE npcs
             SET last_known_position = $2, updated_at = NOW(), last_active_at = NOW()
             WHERE id = $1
-          `, [id, JSON.stringify(position)]);
+          `,
+            [id, JSON.stringify(position)]
+          );
         }
       });
 

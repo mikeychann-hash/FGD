@@ -32,7 +32,7 @@ function aStar(start, goal, obstacles) {
     }
 
     // Remove current from openSet
-    const index = openSet.findIndex(n => keyFor(n) === keyFor(current));
+    const index = openSet.findIndex((n) => keyFor(n) === keyFor(current));
     openSet.splice(index, 1);
 
     // Check neighbors
@@ -50,7 +50,7 @@ function aStar(start, goal, obstacles) {
         gScore.set(neighborKey, tentativeGScore);
         fScore.set(neighborKey, tentativeGScore + heuristic(neighbor, goal));
 
-        if (!openSet.find(n => keyFor(n) === neighborKey)) {
+        if (!openSet.find((n) => keyFor(n) === neighborKey)) {
           openSet.push(neighbor);
         }
       }
@@ -80,14 +80,12 @@ function getNeighbors(pos) {
     { x: pos.x, y: pos.y + 1, z: pos.z },
     { x: pos.x, y: pos.y - 1, z: pos.z },
     { x: pos.x, y: pos.y, z: pos.z + 1 },
-    { x: pos.x, y: pos.y, z: pos.z - 1 }
+    { x: pos.x, y: pos.y, z: pos.z - 1 },
   ];
 }
 
 function isObstacle(pos, obstacles) {
-  return obstacles.some(obs =>
-    obs.x === pos.x && obs.y === pos.y && obs.z === pos.z
-  );
+  return obstacles.some((obs) => obs.x === pos.x && obs.y === pos.y && obs.z === pos.z);
 }
 
 function reconstructPath(cameFrom, current) {
@@ -107,7 +105,7 @@ function reconstructPath(cameFrom, current) {
  * Calculate optimal mining strategy
  */
 function calculateMiningStrategy(resources, botPosition, efficiency) {
-  const scored = resources.map(resource => {
+  const scored = resources.map((resource) => {
     const distance = heuristic(botPosition, resource.position);
     const value = resource.value || 1;
     const score = (value * efficiency) / (distance + 1);
@@ -115,7 +113,7 @@ function calculateMiningStrategy(resources, botPosition, efficiency) {
     return {
       ...resource,
       distance,
-      score
+      score,
     };
   });
 
@@ -134,11 +132,7 @@ function processTask(task) {
       return aStar(task.start, task.goal, task.obstacles || []);
 
     case 'miningStrategy':
-      return calculateMiningStrategy(
-        task.resources,
-        task.botPosition,
-        task.efficiency || 1.0
-      );
+      return calculateMiningStrategy(task.resources, task.botPosition, task.efficiency || 1.0);
 
     case 'calculation':
       // Generic heavy calculation
@@ -169,14 +163,14 @@ parentPort.on('message', async (task) => {
       data: result,
       taskId: task.id,
       duration,
-      workerId
+      workerId,
     });
   } catch (error) {
     parentPort.postMessage({
       success: false,
       error: error.message,
       taskId: task.id,
-      workerId
+      workerId,
     });
   }
 });

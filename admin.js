@@ -32,7 +32,36 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("loginForm").addEventListener("submit", handleLoginSubmit);
   document.getElementById("createBotForm").addEventListener("submit", handleCreateBot);
+
+  // Initialize personality sliders
+  initPersonalitySliders();
 });
+
+// Initialize personality trait sliders with event listeners
+function initPersonalitySliders() {
+  const traits = ["curiosity", "patience", "motivation", "empathy", "aggression", "creativity", "loyalty"];
+
+  traits.forEach(trait => {
+    const slider = document.getElementById(trait);
+    const valueDisplay = document.getElementById(`${trait}Val`);
+
+    if (slider && valueDisplay) {
+      // Set initial value
+      updateSliderValue(slider, valueDisplay);
+
+      // Add event listener for changes
+      slider.addEventListener("input", () => {
+        updateSliderValue(slider, valueDisplay);
+      });
+    }
+  });
+}
+
+// Update slider value display (convert 0-100 to 0.0-1.0)
+function updateSliderValue(slider, valueDisplay) {
+  const normalizedValue = (parseInt(slider.value) / 100).toFixed(2);
+  valueDisplay.textContent = normalizedValue;
+}
 
 async function login(key) {
   try {
@@ -159,10 +188,22 @@ async function handleCreateBot(e) {
   const name = document.getElementById("botName").value || `bot_${Date.now()}`;
   const role = document.getElementById("botRole").value;
   const desc = document.getElementById("botDescription").value;
+
+  // Collect personality traits
+  const personality = {
+    curiosity: parseFloat((parseInt(document.getElementById("curiosity").value) / 100).toFixed(2)),
+    patience: parseFloat((parseInt(document.getElementById("patience").value) / 100).toFixed(2)),
+    motivation: parseFloat((parseInt(document.getElementById("motivation").value) / 100).toFixed(2)),
+    empathy: parseFloat((parseInt(document.getElementById("empathy").value) / 100).toFixed(2)),
+    aggression: parseFloat((parseInt(document.getElementById("aggression").value) / 100).toFixed(2)),
+    creativity: parseFloat((parseInt(document.getElementById("creativity").value) / 100).toFixed(2)),
+    loyalty: parseFloat((parseInt(document.getElementById("loyalty").value) / 100).toFixed(2))
+  };
+
   try {
     await apiCall("/api/bots", {
       method: "POST",
-      body: JSON.stringify({ name, role, description: desc }),
+      body: JSON.stringify({ name, role, description: desc, personality }),
     });
     showNotification(`Spawned ${name}`, "success");
     await loadBots();
@@ -239,3 +280,56 @@ function showNotification(msg, type="info") {
   document.body.appendChild(n);
   setTimeout(() => n.remove(), 4000);
 }
+
+// Execute natural language command through LLM
+async function executeCommand() {
+  const input = document.getElementById("commandInput");
+  const command = input?.value.trim();
+
+  if (!command) {
+    showNotification("Please enter a command", "error");
+    return;
+  }
+
+  logConsole(`Executing: ${command}`, "info");
+
+  try {
+    const result = await apiCall("/api/llm/command", {
+      method: "POST",
+      body: JSON.stringify({ command })
+    });
+
+    // Log the response
+    if (result.response) {
+      logConsole(`Response: ${result.response}`, "success");
+    }
+
+    // Log any actions taken
+    if (result.actions && result.actions.length > 0) {
+      result.actions.forEach(action => {
+        logConsole(`Action: ${action.type} - ${action.result || "completed"}`, "success");
+      });
+    }
+
+    // Show success notification
+    showNotification("Command executed successfully", "success");
+
+    // Clear input
+    input.value = "";
+
+    // Refresh bot list if command might have changed bot state
+    if (command.toLowerCase().includes("spawn") ||
+        command.toLowerCase().includes("delete") ||
+        command.toLowerCase().includes("remove") ||
+        command.toLowerCase().includes("kill")) {
+      setTimeout(() => loadBots(), 500);
+    }
+
+  } catch (err) {
+    logConsole(`Error: ${err.message}`, "error");
+    showNotification(`Command failed: ${err.message}`, "error");
+  }
+}
+
+// Make executeCommand available globally
+window.executeCommand = executeCommand;

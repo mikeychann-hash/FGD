@@ -7,7 +7,11 @@
 
 import express from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
-import { executeMineflayerTask, spawnBotViaMinecraft, despawnBotViaMinecraft } from '../src/services/mineflayer_initializer.js';
+import {
+  executeMineflayerTask,
+  spawnBotViaMinecraft,
+  despawnBotViaMinecraft,
+} from '../src/services/mineflayer_initializer.js';
 import { TASK_ROUTING_TABLE } from '../adapters/mineflayer/router.js';
 import { logger } from '../logger.js';
 
@@ -43,7 +47,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer bridge not available'
+          error: 'Mineflayer bridge not available',
         });
       }
 
@@ -52,7 +56,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!botId) {
         return res.status(400).json({
           success: false,
-          error: 'botId is required'
+          error: 'botId is required',
         });
       }
 
@@ -60,7 +64,7 @@ export function initMineflayerRoutes(npcSystem, io) {
 
       const result = await spawnBotViaMinecraft(mineflayerBridge, botId, {
         username: username || botId,
-        version
+        version,
       });
 
       // Update NPC engine registry if available
@@ -73,9 +77,9 @@ export function initMineflayerRoutes(npcSystem, io) {
             position: result.position,
             runtime: {
               health: result.health,
-              food: result.food
+              food: result.food,
             },
-            lastUpdate: new Date().toISOString()
+            lastUpdate: new Date().toISOString(),
           });
         }
       }
@@ -85,14 +89,13 @@ export function initMineflayerRoutes(npcSystem, io) {
         botId: result.botId,
         position: result.position,
         health: result.health,
-        food: result.food
+        food: result.food,
       });
-
     } catch (err) {
       logger.error('Failed to spawn bot', { error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -106,7 +109,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer bridge not available'
+          error: 'Mineflayer bridge not available',
         });
       }
 
@@ -122,12 +125,11 @@ export function initMineflayerRoutes(npcSystem, io) {
       }
 
       res.json(result);
-
     } catch (err) {
       logger.error('Failed to despawn bot', { error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -144,19 +146,19 @@ export function initMineflayerRoutes(npcSystem, io) {
         description: config.description,
         dangerousAction: Boolean(config.dangerousAction),
         requiresBot: Boolean(config.requiresBot),
-        requiresLocation: Boolean(config.requiresLocation)
+        requiresLocation: Boolean(config.requiresLocation),
       }));
 
       res.json({
         success: true,
         count: taskTypes.length,
-        taskTypes
+        taskTypes,
       });
     } catch (err) {
       logger.error('Failed to list Mineflayer tasks', { error: err.message });
       res.status(500).json({
         success: false,
-        error: 'Failed to list Mineflayer tasks'
+        error: 'Failed to list Mineflayer tasks',
       });
     }
   });
@@ -170,7 +172,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer bridge not available'
+          error: 'Mineflayer bridge not available',
         });
       }
 
@@ -180,20 +182,19 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!state) {
         return res.status(404).json({
           success: false,
-          error: `Bot ${botId} not found`
+          error: `Bot ${botId} not found`,
         });
       }
 
       res.json({
         success: true,
-        bot: state
+        bot: state,
       });
-
     } catch (err) {
       logger.error('Failed to get bot state', { error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -208,7 +209,7 @@ export function initMineflayerRoutes(npcSystem, io) {
         return res.status(503).json({
           success: false,
           error: 'Mineflayer bridge not available',
-          bots: []
+          bots: [],
         });
       }
 
@@ -217,15 +218,14 @@ export function initMineflayerRoutes(npcSystem, io) {
       res.json({
         success: true,
         count: bots.length,
-        bots
+        bots,
       });
-
     } catch (err) {
       logger.error('Failed to list bots', { error: err.message });
       res.status(500).json({
         success: false,
         error: err.message,
-        bots: []
+        bots: [],
       });
     }
   });
@@ -243,7 +243,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge || !taskExecutors) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer task executors not available'
+          error: 'Mineflayer task executors not available',
         });
       }
 
@@ -253,7 +253,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!task || !task.action) {
         return res.status(400).json({
           success: false,
-          error: 'Task with action field is required'
+          error: 'Task with action field is required',
         });
       }
 
@@ -264,14 +264,13 @@ export function initMineflayerRoutes(npcSystem, io) {
       res.json({
         success: result.success,
         task: task.action,
-        result
+        result,
       });
-
     } catch (err) {
       logger.error('Failed to execute task', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -285,7 +284,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge || !taskExecutors) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer bridge not available'
+          error: 'Mineflayer bridge not available',
         });
       }
 
@@ -295,7 +294,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (x === undefined || y === undefined || z === undefined) {
         return res.status(400).json({
           success: false,
-          error: 'Position (x, y, z) is required'
+          error: 'Position (x, y, z) is required',
         });
       }
 
@@ -304,8 +303,8 @@ export function initMineflayerRoutes(npcSystem, io) {
         params: {
           target: { x, y, z },
           range: range || 1,
-          timeout: timeout || 60000
-        }
+          timeout: timeout || 60000,
+        },
       };
 
       const result = await executeMineflayerTask(botId, task, taskExecutors);
@@ -314,14 +313,13 @@ export function initMineflayerRoutes(npcSystem, io) {
         success: result.success,
         task: 'move',
         position: result.position,
-        reached: result.reached
+        reached: result.reached,
       });
-
     } catch (err) {
       logger.error('Failed to move bot', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -335,7 +333,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge || !taskExecutors) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer bridge not available'
+          error: 'Mineflayer bridge not available',
         });
       }
 
@@ -345,7 +343,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!blockType) {
         return res.status(400).json({
           success: false,
-          error: 'blockType is required'
+          error: 'blockType is required',
         });
       }
 
@@ -356,8 +354,8 @@ export function initMineflayerRoutes(npcSystem, io) {
           count: count || 1,
           range: range || 32,
           veinMine: veinMine || false,
-          equipTool: true
-        }
+          equipTool: true,
+        },
       };
 
       const result = await executeMineflayerTask(botId, task, taskExecutors);
@@ -367,14 +365,13 @@ export function initMineflayerRoutes(npcSystem, io) {
         task: 'mine',
         mined: result.mined,
         blockType: result.blockType,
-        inventory: result.inventory
+        inventory: result.inventory,
       });
-
     } catch (err) {
       logger.error('Failed to mine', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -388,7 +385,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer bridge not available'
+          error: 'Mineflayer bridge not available',
         });
       }
 
@@ -402,15 +399,14 @@ export function initMineflayerRoutes(npcSystem, io) {
         itemCount: inventory.length,
         slots: {
           used: inventory.length,
-          total: 36
-        }
+          total: 36,
+        },
       });
-
     } catch (err) {
       logger.error('Failed to get inventory', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -424,7 +420,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge || !taskExecutors) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer bridge not available'
+          error: 'Mineflayer bridge not available',
         });
       }
 
@@ -432,7 +428,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       const task = {
         action: 'inventory',
         subAction: 'equip',
-        params: req.body
+        params: req.body,
       };
 
       const result = await executeMineflayerTask(botId, task, taskExecutors);
@@ -441,14 +437,13 @@ export function initMineflayerRoutes(npcSystem, io) {
         success: result.success,
         task: 'equip',
         item: result.item,
-        destination: result.destination
+        destination: result.destination,
       });
-
     } catch (err) {
       logger.error('Failed to equip item', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -462,7 +457,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer bridge not available'
+          error: 'Mineflayer bridge not available',
         });
       }
 
@@ -472,7 +467,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!message) {
         return res.status(400).json({
           success: false,
-          error: 'message is required'
+          error: 'message is required',
         });
       }
 
@@ -481,14 +476,13 @@ export function initMineflayerRoutes(npcSystem, io) {
       res.json({
         success: result.success,
         botId,
-        message
+        message,
       });
-
     } catch (err) {
       logger.error('Failed to send chat', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -506,14 +500,14 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge || !taskExecutors) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer combat system not available'
+          error: 'Mineflayer combat system not available',
         });
       }
 
       const { botId } = req.params;
       const task = {
         action: 'combat',
-        params: req.body
+        params: req.body,
       };
 
       logger.info('Executing combat task', { botId, subAction: task.params.subAction });
@@ -523,14 +517,16 @@ export function initMineflayerRoutes(npcSystem, io) {
       res.json({
         success: result.success,
         task: 'combat',
-        result
+        result,
       });
-
     } catch (err) {
-      logger.error('Failed to execute combat task', { botId: req.params.botId, error: err.message });
+      logger.error('Failed to execute combat task', {
+        botId: req.params.botId,
+        error: err.message,
+      });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -544,7 +540,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge || !taskExecutors) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer combat system not available'
+          error: 'Mineflayer combat system not available',
         });
       }
 
@@ -558,8 +554,8 @@ export function initMineflayerRoutes(npcSystem, io) {
           entityType,
           range,
           timeout,
-          autoWeapon
-        }
+          autoWeapon,
+        },
       };
 
       const result = await executeMineflayerTask(botId, task, taskExecutors);
@@ -567,14 +563,13 @@ export function initMineflayerRoutes(npcSystem, io) {
       res.json({
         success: result.success,
         task: 'combat:attack',
-        result
+        result,
       });
-
     } catch (err) {
       logger.error('Failed to attack', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -592,14 +587,14 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge || !taskExecutors) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer crafting system not available'
+          error: 'Mineflayer crafting system not available',
         });
       }
 
       const { botId } = req.params;
       const task = {
         action: 'craft',
-        params: req.body
+        params: req.body,
       };
 
       logger.info('Executing craft task', { botId, recipe: task.params.recipe });
@@ -609,14 +604,13 @@ export function initMineflayerRoutes(npcSystem, io) {
       res.json({
         success: result.success,
         task: 'craft',
-        result
+        result,
       });
-
     } catch (err) {
       logger.error('Failed to execute craft task', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -630,7 +624,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge || !taskExecutors) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer crafting system not available'
+          error: 'Mineflayer crafting system not available',
         });
       }
 
@@ -640,7 +634,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!recipe) {
         return res.status(400).json({
           success: false,
-          error: 'recipe is required'
+          error: 'recipe is required',
         });
       }
 
@@ -648,8 +642,8 @@ export function initMineflayerRoutes(npcSystem, io) {
         action: 'craft',
         params: {
           subAction: 'lookup',
-          recipe
-        }
+          recipe,
+        },
       };
 
       const result = await executeMineflayerTask(botId, task, taskExecutors);
@@ -657,14 +651,13 @@ export function initMineflayerRoutes(npcSystem, io) {
       res.json({
         success: result.success,
         task: 'craft:lookup',
-        result
+        result,
       });
-
     } catch (err) {
       logger.error('Failed to lookup recipe', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -678,7 +671,7 @@ export function initMineflayerRoutes(npcSystem, io) {
       if (!mineflayerBridge || !taskExecutors) {
         return res.status(503).json({
           success: false,
-          error: 'Mineflayer crafting system not available'
+          error: 'Mineflayer crafting system not available',
         });
       }
 
@@ -687,8 +680,8 @@ export function initMineflayerRoutes(npcSystem, io) {
       const task = {
         action: 'craft',
         params: {
-          subAction: 'analyze'
-        }
+          subAction: 'analyze',
+        },
       };
 
       const result = await executeMineflayerTask(botId, task, taskExecutors);
@@ -696,14 +689,13 @@ export function initMineflayerRoutes(npcSystem, io) {
       res.json({
         success: result.success,
         task: 'craft:analyze',
-        result
+        result,
       });
-
     } catch (err) {
       logger.error('Failed to analyze crafting', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });

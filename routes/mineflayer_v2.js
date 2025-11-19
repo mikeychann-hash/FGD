@@ -41,13 +41,13 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
       const status = policyService.getPolicyStatus();
       res.json({
         success: true,
-        policy: status
+        policy: status,
       });
     } catch (err) {
       logger.error('Failed to get policy status', { error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -62,13 +62,13 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
       res.json({
         success: true,
         count: approvals.length,
-        approvals
+        approvals,
       });
     } catch (err) {
       logger.error('Failed to get approvals', { error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -88,19 +88,19 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
         res.json({
           success: true,
           message: 'Task approved and executed',
-          result
+          result,
         });
       } else {
         res.status(400).json({
           success: false,
-          error: result.error || 'Approval failed'
+          error: result.error || 'Approval failed',
         });
       }
     } catch (err) {
       logger.error('Failed to approve task', { error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -121,19 +121,19 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
         res.json({
           success: true,
           message: 'Task rejected',
-          result
+          result,
         });
       } else {
         res.status(400).json({
           success: false,
-          error: result.error || 'Rejection failed'
+          error: result.error || 'Rejection failed',
         });
       }
     } catch (err) {
       logger.error('Failed to reject task', { error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -155,7 +155,7 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
       if (!task || !task.type) {
         return res.status(400).json({
           success: false,
-          error: 'Task with type field is required'
+          error: 'Task with type field is required',
         });
       }
 
@@ -169,14 +169,14 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
         botId,
         taskType: task.type,
         userId: user.id,
-        role
+        role,
       });
 
       // Execute with policy enforcement
       const result = await policyService.executeTask(fullTask, {
         userId: user.id,
         role,
-        botId
+        botId,
       });
 
       if (result.success) {
@@ -185,33 +185,33 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
           taskType: task.type,
           botId,
           result,
-          warnings: result.warnings
+          warnings: result.warnings,
         });
       } else {
         // Check if approval is needed
-        if (result.policyDetails?.errors?.some(e => e.includes('Dangerous'))) {
+        if (result.policyDetails?.errors?.some((e) => e.includes('Dangerous'))) {
           return res.status(403).json({
             success: false,
             code: 'APPROVAL_REQUIRED',
             error: result.error,
-            approvalToken: result.policyDetails?.approvalToken
+            approvalToken: result.policyDetails?.approvalToken,
           });
         }
 
         res.status(400).json({
           success: false,
           error: result.error,
-          policyDetails: result.policyDetails
+          policyDetails: result.policyDetails,
         });
       }
     } catch (err) {
       logger.error('Failed to execute task', {
         botId: req.params.botId,
-        error: err.message
+        error: err.message,
       });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -229,7 +229,7 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
       if (x === undefined || y === undefined || z === undefined) {
         return res.status(400).json({
           success: false,
-          error: 'Position (x, y, z) is required'
+          error: 'Position (x, y, z) is required',
         });
       }
 
@@ -238,27 +238,27 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
         type: 'move_to',
         parameters: {
           target: { x, y, z },
-          range
-        }
+          range,
+        },
       };
 
       const result = await policyService.executeTask(task, {
         userId: user.id,
         role: user.role || 'viewer',
-        botId
+        botId,
       });
 
       res.json({
         success: result.success,
         task: 'move_to',
         position: { x, y, z },
-        result
+        result,
       });
     } catch (err) {
       logger.error('Failed to move bot', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -276,33 +276,33 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
       if (!message) {
         return res.status(400).json({
           success: false,
-          error: 'message is required'
+          error: 'message is required',
         });
       }
 
       const task = {
         botId,
         type: 'chat',
-        parameters: { message }
+        parameters: { message },
       };
 
       const result = await policyService.executeTask(task, {
         userId: user.id,
         role: user.role || 'viewer',
-        botId
+        botId,
       });
 
       res.json({
         success: result.success,
         task: 'chat',
         message,
-        result
+        result,
       });
     } catch (err) {
       logger.error('Failed to send chat', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -320,7 +320,7 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
       if (!blockType) {
         return res.status(400).json({
           success: false,
-          error: 'blockType is required'
+          error: 'blockType is required',
         });
       }
 
@@ -328,30 +328,30 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
         botId,
         type: 'mine_block',
         parameters: {
-          target: { x: 0, y: 0, z: 0 },  // Will be determined by bot
+          target: { x: 0, y: 0, z: 0 }, // Will be determined by bot
           blockType,
           count,
-          range
-        }
+          range,
+        },
       };
 
       const result = await policyService.executeTask(task, {
         userId: user.id,
         role: user.role || 'viewer',
-        botId
+        botId,
       });
 
       res.json({
         success: result.success,
         task: 'mine_block',
         blockType,
-        result
+        result,
       });
     } catch (err) {
       logger.error('Failed to mine', { botId: req.params.botId, error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -365,13 +365,13 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
       const health = policyService.health();
       res.json({
         success: true,
-        health
+        health,
       });
     } catch (err) {
       logger.error('Failed to get health', { error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -385,13 +385,13 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
       const stats = policyService.getStats();
       res.json({
         success: true,
-        stats
+        stats,
       });
     } catch (err) {
       logger.error('Failed to get stats', { error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });
@@ -405,13 +405,13 @@ export function initMineflayerRoutesV2(npcSystem, policyService, io) {
       policyService.resetStats();
       res.json({
         success: true,
-        message: 'Statistics reset'
+        message: 'Statistics reset',
       });
     } catch (err) {
       logger.error('Failed to reset stats', { error: err.message });
       res.status(500).json({
         success: false,
-        error: err.message
+        error: err.message,
       });
     }
   });

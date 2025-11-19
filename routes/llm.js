@@ -16,33 +16,36 @@ class LLMCommandParser {
     // Command patterns
     this.patterns = [
       {
-        regex: /(?:spawn|create|summon)\s+(?:a\s+)?(?:bot|npc)\s+(?:named\s+)?([a-z0-9_-]+)(?:\s+as\s+(?:a\s+)?([a-z]+))?/i,
-        handler: this.handleSpawn.bind(this)
+        regex:
+          /(?:spawn|create|summon)\s+(?:a\s+)?(?:bot|npc)\s+(?:named\s+)?([a-z0-9_-]+)(?:\s+as\s+(?:a\s+)?([a-z]+))?/i,
+        handler: this.handleSpawn.bind(this),
       },
       {
         regex: /(?:delete|remove|despawn)\s+(?:bot|npc)\s+([a-z0-9_-]+)/i,
-        handler: this.handleDelete.bind(this)
+        handler: this.handleDelete.bind(this),
       },
       {
         regex: /(?:list|show|get)\s+(?:all\s+)?(?:bots|npcs)/i,
-        handler: this.handleList.bind(this)
+        handler: this.handleList.bind(this),
       },
       {
-        regex: /(?:assign|give|send)\s+([a-z0-9_-]+)\s+(?:a\s+)?(?:task|command|order)\s+(?:to\s+)?(.+)/i,
-        handler: this.handleAssignTask.bind(this)
+        regex:
+          /(?:assign|give|send)\s+([a-z0-9_-]+)\s+(?:a\s+)?(?:task|command|order)\s+(?:to\s+)?(.+)/i,
+        handler: this.handleAssignTask.bind(this),
       },
       {
         regex: /(?:get|show|display)\s+(?:status|info|details)\s+(?:for|of|about)\s+([a-z0-9_-]+)/i,
-        handler: this.handleStatus.bind(this)
+        handler: this.handleStatus.bind(this),
       },
       {
-        regex: /(?:teleport|move|send)\s+([a-z0-9_-]+)\s+(?:to\s+)?(?:position\s+)?(?:\(?)?(-?\d+)[,\s]+(-?\d+)[,\s]+(-?\d+)/i,
-        handler: this.handleTeleport.bind(this)
+        regex:
+          /(?:teleport|move|send)\s+([a-z0-9_-]+)\s+(?:to\s+)?(?:position\s+)?(?:\(?)?(-?\d+)[,\s]+(-?\d+)[,\s]+(-?\d+)/i,
+        handler: this.handleTeleport.bind(this),
       },
       {
         regex: /spawn\s+all\s+(?:bots|npcs)/i,
-        handler: this.handleSpawnAll.bind(this)
-      }
+        handler: this.handleSpawnAll.bind(this),
+      },
     ];
   }
 
@@ -65,7 +68,7 @@ class LLMCommandParser {
           return {
             success: false,
             error: error.message,
-            suggestion: 'Check your command syntax and try again'
+            suggestion: 'Check your command syntax and try again',
           };
         }
       }
@@ -78,7 +81,7 @@ class LLMCommandParser {
         return {
           success: true,
           message: 'Command interpreted and executed',
-          result
+          result,
         };
       }
     } catch (error) {
@@ -96,8 +99,8 @@ class LLMCommandParser {
         'get status for bot_01',
         'move bot_01 to 100 64 200',
         'spawn all bots',
-        'delete bot bot_01'
-      ]
+        'delete bot bot_01',
+      ],
     };
   }
 
@@ -112,9 +115,9 @@ class LLMCommandParser {
       metadata: {
         createdBy: user.username,
         createdByRole: user.role,
-        createdVia: 'llm'
+        createdVia: 'llm',
       },
-      autoSpawn: false
+      autoSpawn: false,
     });
 
     return {
@@ -123,8 +126,8 @@ class LLMCommandParser {
       bot: {
         id: bot.id,
         role: bot.role,
-        personality: bot.personalitySummary
-      }
+        personality: bot.personalitySummary,
+      },
     };
   }
 
@@ -135,7 +138,7 @@ class LLMCommandParser {
     if (!bot) {
       return {
         success: false,
-        error: `Bot ${botId} not found`
+        error: `Bot ${botId} not found`,
       };
     }
 
@@ -146,7 +149,7 @@ class LLMCommandParser {
 
     return {
       success: true,
-      message: `Bot ${botId} deleted`
+      message: `Bot ${botId} deleted`,
     };
   }
 
@@ -156,12 +159,12 @@ class LLMCommandParser {
     return {
       success: true,
       message: `Found ${bots.length} active bots`,
-      bots: bots.map(bot => ({
+      bots: bots.map((bot) => ({
         id: bot.id,
         role: bot.role,
         status: bot.status,
-        description: bot.description
-      }))
+        description: bot.description,
+      })),
     };
   }
 
@@ -173,7 +176,7 @@ class LLMCommandParser {
     if (!npc) {
       return {
         success: false,
-        error: `Bot ${botId} not found or not active`
+        error: `Bot ${botId} not found or not active`,
       };
     }
 
@@ -183,7 +186,7 @@ class LLMCommandParser {
     return {
       success: true,
       message: `Task assigned to ${botId}`,
-      task
+      task,
     };
   }
 
@@ -194,7 +197,7 @@ class LLMCommandParser {
     if (!bot) {
       return {
         success: false,
-        error: `Bot ${botId} not found`
+        error: `Bot ${botId} not found`,
       };
     }
 
@@ -206,7 +209,7 @@ class LLMCommandParser {
           xp: profile.xp,
           level: Math.floor(profile.xp / 10),
           tasksCompleted: profile.tasksCompleted,
-          tasksFailed: profile.tasksFailed
+          tasksFailed: profile.tasksFailed,
         };
       }
     }
@@ -219,8 +222,8 @@ class LLMCommandParser {
         status: bot.status,
         personality: bot.personalitySummary,
         position: bot.lastKnownPosition || bot.spawnPosition,
-        learning
-      }
+        learning,
+      },
     };
   }
 
@@ -234,7 +237,7 @@ class LLMCommandParser {
     if (!bot) {
       return {
         success: false,
-        error: `Bot ${botId} not found`
+        error: `Bot ${botId} not found`,
       };
     }
 
@@ -242,7 +245,7 @@ class LLMCommandParser {
     await this.engine.registry.upsert({
       ...bot,
       spawnPosition: position,
-      lastKnownPosition: position
+      lastKnownPosition: position,
     });
 
     // If bot is active, spawn at new position
@@ -253,7 +256,7 @@ class LLMCommandParser {
     return {
       success: true,
       message: `Bot ${botId} moved to (${x}, ${y}, ${z})`,
-      position
+      position,
     };
   }
 
@@ -261,7 +264,7 @@ class LLMCommandParser {
     if (!this.engine.bridge) {
       return {
         success: false,
-        error: 'Minecraft bridge not configured'
+        error: 'Minecraft bridge not configured',
       };
     }
 
@@ -270,7 +273,7 @@ class LLMCommandParser {
     return {
       success: true,
       message: `Spawned ${results.length} bots`,
-      count: results.length
+      count: results.length,
     };
   }
 }
@@ -294,7 +297,7 @@ export function initLLMRoutes(npcEngine, io) {
       if (!command || typeof command !== 'string') {
         return res.status(400).json({
           error: 'Bad request',
-          message: 'Command must be a non-empty string'
+          message: 'Command must be a non-empty string',
         });
       }
 
@@ -309,7 +312,7 @@ export function initLLMRoutes(npcEngine, io) {
           result,
           executedBy: req.user.username,
           context,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
 
@@ -322,7 +325,7 @@ export function initLLMRoutes(npcEngine, io) {
       console.error('Error executing LLM command:', error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -338,7 +341,7 @@ export function initLLMRoutes(npcEngine, io) {
       if (!Array.isArray(commands)) {
         return res.status(400).json({
           error: 'Bad request',
-          message: 'Commands must be an array'
+          message: 'Commands must be an array',
         });
       }
 
@@ -349,7 +352,7 @@ export function initLLMRoutes(npcEngine, io) {
         const result = await parser.parse(command, req.user);
         results.push({
           command,
-          result
+          result,
         });
 
         // Stop on first error if requested
@@ -364,20 +367,20 @@ export function initLLMRoutes(npcEngine, io) {
           count: commands.length,
           results,
           executedBy: req.user.username,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
 
       res.json({
         success: true,
         count: commands.length,
-        results
+        results,
       });
     } catch (error) {
       console.error('Error executing LLM batch:', error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -393,65 +396,44 @@ export function initLLMRoutes(npcEngine, io) {
         {
           pattern: 'spawn bot <name> as <role>',
           description: 'Create and spawn a new bot',
-          examples: [
-            'spawn bot miner_01 as miner',
-            'create npc guard_alpha as guard'
-          ]
+          examples: ['spawn bot miner_01 as miner', 'create npc guard_alpha as guard'],
         },
         {
           pattern: 'list all bots',
           description: 'List all active bots',
-          examples: [
-            'list all bots',
-            'show all npcs'
-          ]
+          examples: ['list all bots', 'show all npcs'],
         },
         {
           pattern: 'assign <bot> task <description>',
           description: 'Assign a task to a bot',
-          examples: [
-            'assign miner_01 task mine iron ore',
-            'give builder_01 task build a tower'
-          ]
+          examples: ['assign miner_01 task mine iron ore', 'give builder_01 task build a tower'],
         },
         {
           pattern: 'get status for <bot>',
           description: 'Get detailed bot status',
-          examples: [
-            'get status for miner_01',
-            'show info about guard_01'
-          ]
+          examples: ['get status for miner_01', 'show info about guard_01'],
         },
         {
           pattern: 'move <bot> to <x> <y> <z>',
           description: 'Teleport a bot to coordinates',
-          examples: [
-            'move miner_01 to 100 64 200',
-            'teleport guard_01 to -50 70 150'
-          ]
+          examples: ['move miner_01 to 100 64 200', 'teleport guard_01 to -50 70 150'],
         },
         {
           pattern: 'spawn all bots',
           description: 'Spawn all registered bots',
-          examples: [
-            'spawn all bots',
-            'summon all npcs'
-          ]
+          examples: ['spawn all bots', 'summon all npcs'],
         },
         {
           pattern: 'delete bot <name>',
           description: 'Remove a bot',
-          examples: [
-            'delete bot miner_01',
-            'remove npc old_bot'
-          ]
-        }
+          examples: ['delete bot miner_01', 'remove npc old_bot'],
+        },
       ],
       notes: [
         'Commands are case-insensitive',
         'Bot names should use lowercase and underscores',
-        'Available roles: miner, builder, scout, guard, gatherer'
-      ]
+        'Available roles: miner, builder, scout, guard, gatherer',
+      ],
     });
   });
 

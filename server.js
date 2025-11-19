@@ -10,17 +10,31 @@ import { initNPCRoutes } from "./src/api/npcs.js";
 import { initProgressionRoutes } from "./src/api/progression.js";
 import { initHealthRoutes } from "./src/api/health.js";
 import { notFoundHandler, globalErrorHandler } from "./src/middleware/errorHandlers.js";
+import { apiLimiter, authLimiter } from "./src/middleware/rateLimiter.js";
 import { initializeWebSocketHandlers } from "./src/websocket/handlers.js";
-import { handleLogin, getCurrentUser, authenticate } from "./middleware/auth.js";
+import { handleLogin, getCurrentUser, authenticate, refreshAccessToken, logout } from "./middleware/auth.js";
 import { initBotRoutes } from "./routes/bot.js";
 import { initMineflayerRoutes } from "./routes/mineflayer.js";
+import { initMineflayerRoutesV2 } from "./routes/mineflayer_v2.js";
+import { MineflayerPolicyService } from "./src/services/mineflayer_policy_service.js";
 import { initLLMRoutes } from "./routes/llm.js";
 import { logSecretWarnings } from "./security/secrets.js";
 import { runStartupValidation } from "./src/services/startup.js";
 import { initDatabase, closeDatabase } from "./src/database/connection.js";
 import { bindMetricsToNpcEngine, getPrometheusRegistry } from "./src/services/metrics.js";
 import { loadAndValidateGovernanceConfig } from "./security/governance_validator.js";
+import { validateCriticalEnvVars } from "./security/env-validation.js";
 import express from "express";
+
+// CRITICAL SECURITY: Validate environment variables BEFORE any initialization
+// This prevents the server from starting with hardcoded/weak credentials
+try {
+  validateCriticalEnvVars();
+} catch (error) {
+  console.error('\n❌ FATAL: Environment validation failed');
+  console.error(error.message);
+  process.exit(1);
+}
 
 // Create Express app, HTTP server, and Socket.IO
 const { app, httpServer, io } = createAppServer();
@@ -32,13 +46,42 @@ const stateManager = new SystemStateManager(io);
 /**
  * Initialize all API routes
  */
-function initializeAPIRoutes() {
+async function initializeAPIRoutes() {
   const apiV1 = express.Router();
   const apiV2 = express.Router();
 
   // Auth routes (unversioned for compatibility)
-  app.post("/api/auth/login", handleLogin);
+  app.post("/api/auth/login", authLimiter, handleLogin);
   app.get("/api/auth/me", authenticate, getCurrentUser);
+
+  // Refresh token endpoint
+  app.post("/api/auth/refresh", authLimiter, (req, res) => {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'Refresh token required' });
+    }
+
+    const newAccessToken = refreshAccessToken(refreshToken);
+
+    if (!newAccessToken) {
+      return res.status(401).json({ error: 'Invalid or expired refresh token' });
+    }
+
+    res.json({
+      success: true,
+      accessToken: newAccessToken,
+      // Keep 'token' for backward compatibility
+      token: newAccessToken
+    });
+  });
+
+  // Logout endpoint
+  app.post("/api/auth/logout", authenticate, (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    logout(token);
+    res.json({ success: true, message: 'Logged out successfully' });
+  });
 
   // Dashboard and cluster routes remain unversioned for HTML assets
   app.use("/", initClusterRoutes(stateManager, npcSystem));
@@ -48,8 +91,10 @@ function initializeAPIRoutes() {
   const progressionRouter = initProgressionRoutes();
 
   let botRouter = null;
-  let mineflayerRouter = null;
+  let mineflayerRouterV1 = null;
+  let mineflayerRouterV2 = null;
   let llmRouter = null;
+  let policyService = null;
 
   if (npcSystem.npcEngine) {
     botRouter = initBotRoutes(npcSystem, io);
@@ -61,35 +106,73 @@ function initializeAPIRoutes() {
 
     // Initialize Mineflayer routes if bridge available
     if (npcSystem.mineflayerBridge) {
-      mineflayerRouter = initMineflayerRoutes(npcSystem, io);
-      logger.info('Mineflayer bot routes initialized');
-      console.log('✅ Mineflayer bot routes initialized');
+      // v1: Direct bot control without policy approval
+      mineflayerRouterV1 = initMineflayerRoutes(npcSystem, io);
+      logger.info('Mineflayer v1 routes initialized (direct control)');
+      console.log('✅ Mineflayer v1 routes initialized (direct control)');
+
+      // v2: Policy-based approval flow for bot actions
+      policyService = new MineflayerPolicyService(npcSystem);
+      const policyInitialized = await policyService.initialize();
+      if (policyInitialized) {
+        mineflayerRouterV2 = initMineflayerRoutesV2(npcSystem, policyService, io);
+        logger.info('Mineflayer v2 routes initialized (with policy enforcement)');
+        console.log('✅ Mineflayer v2 routes initialized (with policy enforcement)');
+      } else {
+        logger.warn('Policy service failed to initialize, v2 routes unavailable');
+        console.warn('⚠️  Policy service initialization failed');
+      }
     }
   } else {
     logger.warn('Bot and LLM routes not initialized - NPC Engine not ready');
   }
 
-  const mountRoutes = (router) => {
+  const mountRoutesV1 = (router) => {
     router.use("/health", healthRouter);
     router.use("/npcs", npcRouter);
     router.use("/progression", progressionRouter);
     if (botRouter) {
       router.use("/bots", botRouter);
     }
-    if (mineflayerRouter) {
-      router.use("/mineflayer", mineflayerRouter);
+    if (mineflayerRouterV1) {
+      router.use("/mineflayer", mineflayerRouterV1);
     }
     if (llmRouter) {
       router.use("/llm", llmRouter);
     }
   };
 
-  mountRoutes(apiV1);
-  mountRoutes(apiV2);
+  const mountRoutesV2 = (router) => {
+    router.use("/health", healthRouter);
+    router.use("/npcs", npcRouter);
+    router.use("/progression", progressionRouter);
+    if (botRouter) {
+      router.use("/bots", botRouter);
+    }
+    if (mineflayerRouterV2) {
+      router.use("/mineflayer", mineflayerRouterV2);
+    }
+    if (llmRouter) {
+      router.use("/llm", llmRouter);
+    }
+  };
 
-  app.use("/api", apiV1);
-  app.use("/api/v1", apiV1);
-  app.use("/api/v2", apiV2);
+  mountRoutesV1(apiV1);
+  mountRoutesV2(apiV2);
+
+  // Apply rate limiting to all API routes
+  app.use("/api", apiLimiter, apiV1);
+  app.use("/api/v1", apiLimiter, apiV1);
+  app.use("/api/v2", apiLimiter, apiV2);
+
+  // Backward compatibility: default to v2 routes for critical endpoints
+  // This allows old clients to work with policy enforcement
+  if (mineflayerRouterV2) {
+    app.use("/api/mineflayer", mineflayerRouterV2);
+  } else if (mineflayerRouterV1) {
+    // Fallback to v1 if v2 policy service failed to initialize
+    app.use("/api/mineflayer", mineflayerRouterV1);
+  }
 
   // Error handlers
   app.use('/data', notFoundHandler);
@@ -196,7 +279,7 @@ async function startServer() {
     await loadAndValidateGovernanceConfig();
 
     // Initialize API routes (after NPC system is ready)
-    initializeAPIRoutes();
+    await initializeAPIRoutes();
 
     // Initialize WebSocket handlers
     initializeWebSocketHandlers(io, stateManager, npcSystem);

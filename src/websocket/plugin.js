@@ -227,7 +227,7 @@ export class PluginInterface {
       if (this.socket) {
         this.socket.emit('plugin_latency_update', {
           timestamp: this.lastHeartbeatAt,
-          tickLatency: payload.meta.tickLatency
+          tickLatency: payload.meta.tickLatency,
         });
       }
     }

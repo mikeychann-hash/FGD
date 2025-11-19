@@ -15,6 +15,9 @@
 import EventEmitter from 'events';
 import mineflayer from 'mineflayer';
 import pathfinderPlugin from 'mineflayer-pathfinder';
+import autoEat from 'mineflayer-auto-eat';
+import pvp from 'mineflayer-pvp';
+import collectBlock from 'mineflayer-collectblock';
 import { logger } from './logger.js';
 
 const { pathfinder, Movements, goals } = pathfinderPlugin;
@@ -75,8 +78,24 @@ export class MineflayerBridge extends EventEmitter {
       // Load pathfinder plugin
       bot.loadPlugin(pathfinder);
 
+      // Load collect block plugin for automated block gathering
+      bot.loadPlugin(collectBlock);
+
+      // Load auto-eat plugin for survival (automatic eating when hungry)
+      bot.loadPlugin(autoEat);
+
+      // Load PvP plugin for enhanced combat capabilities
+      bot.loadPlugin(pvp);
+
       // Wait for spawn event with timeout
       await this._waitForEvent(bot, 'spawn', 30000, `Bot ${botId} spawn timeout`);
+
+      // Configure auto-eat plugin (start eating automatically when hungry)
+      bot.autoEat.options = {
+        priority: 'foodPoints',
+        startAt: 14,
+        bannedFood: []
+      };
 
       // Store bot instance
       this.bots.set(botId, bot);
@@ -624,6 +643,118 @@ export class MineflayerBridge extends EventEmitter {
 
     } catch (err) {
       logger.error('Failed to send chat', { botId, error: err.message });
+      throw err;
+    }
+  }
+
+  /**
+   * Collect blocks using mineflayer-collectblock plugin
+   * High-level block collection that handles pathfinding and tool selection
+   * @param {string} botId - Bot identifier
+   * @param {Object} options - Collection options
+   * @param {string} options.blockType - Block name to collect (e.g., 'iron_ore')
+   * @param {number} options.count - Number of blocks to collect (default: 1)
+   * @param {number} options.maxDistance - Max search distance (default: 32)
+   * @returns {Promise<{success: boolean, collected: number}>}
+   */
+  async collectBlocks(botId, options = {}) {
+    try {
+      const bot = this.bots.get(botId);
+      if (!bot) throw new Error(`Bot ${botId} not found`);
+
+      const blockType = options.blockType || options.block;
+      const count = options.count || 1;
+
+      if (!blockType) {
+        throw new Error('blockType required for collection');
+      }
+
+      logger.debug('Collecting blocks', { botId, blockType, count });
+
+      // Use collectBlock plugin for automated collection
+      const targets = bot.collectBlock.findFromVein(blockType, null, count);
+
+      if (!targets || targets.length === 0) {
+        throw new Error(`No ${blockType} found within range`);
+      }
+
+      // Collect the blocks
+      await this._withTimeout(
+        bot.collectBlock.collect(targets),
+        options.timeout || 120000,
+        `Block collection timed out`
+      );
+
+      logger.info('Blocks collected', { botId, blockType, count: targets.length });
+      return {
+        success: true,
+        collected: targets.length
+      };
+
+    } catch (err) {
+      logger.error('Failed to collect blocks', { botId, error: err.message });
+      throw err;
+    }
+  }
+
+  /**
+   * Attack an entity using PvP plugin
+   * @param {string} botId - Bot identifier
+   * @param {Object} options - Attack options
+   * @param {number} options.entityId - Entity ID to attack
+   * @param {string} options.entityType - Entity type filter (optional)
+   * @returns {Promise<{success: boolean}>}
+   */
+  async attackEntity(botId, options = {}) {
+    try {
+      const bot = this.bots.get(botId);
+      if (!bot) throw new Error(`Bot ${botId} not found`);
+
+      const { entityId, entityType } = options;
+
+      // Find target entity
+      let target;
+      if (entityId) {
+        target = bot.entities[entityId];
+      } else if (entityType) {
+        target = Object.values(bot.entities).find(e =>
+          e.name && e.name.includes(entityType) && e.id !== bot.entity.id
+        );
+      }
+
+      if (!target) {
+        throw new Error(`No target entity found`);
+      }
+
+      logger.debug('Attacking entity', { botId, entityId: target.id, type: target.name });
+
+      // Use PvP plugin to attack
+      bot.pvp.attack(target);
+
+      return { success: true, targetId: target.id };
+
+    } catch (err) {
+      logger.error('Failed to attack entity', { botId, error: err.message });
+      throw err;
+    }
+  }
+
+  /**
+   * Stop attacking
+   * @param {string} botId - Bot identifier
+   * @returns {Promise<{success: boolean}>}
+   */
+  async stopAttack(botId) {
+    try {
+      const bot = this.bots.get(botId);
+      if (!bot) throw new Error(`Bot ${botId} not found`);
+
+      bot.pvp.stop();
+      logger.debug('Stopped attacking', { botId });
+      return { success: true };
+
+    } catch (err) {
+      logger.error('Failed to stop attack', { botId, error: err.message });
       throw err;
     }
   }

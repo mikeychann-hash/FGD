@@ -60,7 +60,6 @@ export class InventoryTaskExecutor extends BaseTaskExecutor {
 
       this._logAction(botId, `Inventory task completed: ${subAction}`, result);
       return result;
-
     } catch (err) {
       return this._handleError(botId, err, 'Inventory task');
     }
@@ -76,7 +75,9 @@ export class InventoryTaskExecutor extends BaseTaskExecutor {
     const subAction = task?.subAction || task?.params?.subAction || 'get';
     const validSubActions = ['get', 'equip', 'drop', 'organize'];
     if (!validSubActions.includes(subAction)) {
-      validation.errors.push(`Invalid subAction '${subAction}'. Must be one of: ${validSubActions.join(', ')}`);
+      validation.errors.push(
+        `Invalid subAction '${subAction}'. Must be one of: ${validSubActions.join(', ')}`
+      );
     }
 
     if ((subAction === 'equip' || subAction === 'drop') && !task?.params?.item) {
@@ -96,8 +97,8 @@ export class InventoryTaskExecutor extends BaseTaskExecutor {
       items: inventory,
       slots: {
         used: inventory.length,
-        total: 36
-      }
+        total: 36,
+      },
     };
   }
 
@@ -121,7 +122,7 @@ export class InventoryTaskExecutor extends BaseTaskExecutor {
       action: 'equip',
       item,
       destination,
-      inventory: this.bridge.getInventory(botId)
+      inventory: this.bridge.getInventory(botId),
     };
   }
 
@@ -145,7 +146,7 @@ export class InventoryTaskExecutor extends BaseTaskExecutor {
       action: 'drop',
       item,
       count,
-      inventory: this.bridge.getInventory(botId)
+      inventory: this.bridge.getInventory(botId),
     };
   }
 
@@ -153,8 +154,8 @@ export class InventoryTaskExecutor extends BaseTaskExecutor {
     const inventory = this.bridge.getInventory(botId);
 
     // Simple organization: identify full stacks vs partial
-    const fullStacks = inventory.filter(item => item.count >= 64);
-    const partialStacks = inventory.filter(item => item.count < 64);
+    const fullStacks = inventory.filter((item) => item.count >= 64);
+    const partialStacks = inventory.filter((item) => item.count < 64);
 
     return {
       success: true,
@@ -163,9 +164,9 @@ export class InventoryTaskExecutor extends BaseTaskExecutor {
         totalItems: inventory.length,
         fullStacks: fullStacks.length,
         partialStacks: partialStacks.length,
-        wasted: partialStacks.reduce((sum, item) => sum + (64 - item.count), 0)
+        wasted: partialStacks.reduce((sum, item) => sum + (64 - item.count), 0),
       },
-      inventory
+      inventory,
     };
   }
 }

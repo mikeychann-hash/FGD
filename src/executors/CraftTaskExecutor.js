@@ -32,7 +32,14 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
     try {
       this._verifyTask(task, 'craft');
 
-      const { subAction = 'craft', recipe, count = 1, findTable = true, range = 32, timeout = 60000 } = task.params || {};
+      const {
+        subAction = 'craft',
+        recipe,
+        count = 1,
+        findTable = true,
+        range = 32,
+        timeout = 60000,
+      } = task.params || {};
 
       return await this._withTimeout(timeout, async () => {
         const bot = this.bridge.bots.get(botId);
@@ -57,7 +64,7 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
       return {
         success: false,
         error: err.message,
-        action: 'craft'
+        action: 'craft',
       };
     }
   }
@@ -72,7 +79,7 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
         return {
           success: false,
           error: 'Recipe name is required',
-          action: 'craft:craft'
+          action: 'craft:craft',
         };
       }
 
@@ -83,7 +90,7 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
           success: false,
           error: `Unknown recipe: ${recipe}`,
           action: 'craft:craft',
-          availableRecipes: this._getAvailableRecipes()
+          availableRecipes: this._getAvailableRecipes(),
         };
       }
 
@@ -97,7 +104,9 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
       }
 
       // Check inventory for required materials
-      const requiredItems = this._parseRecipeItems(recipeInfo.inShape || recipeInfo.ingredients || []);
+      const requiredItems = this._parseRecipeItems(
+        recipeInfo.inShape || recipeInfo.ingredients || []
+      );
       const inventoryCheck = this._checkInventory(bot, requiredItems, count);
 
       if (!inventoryCheck.hasMaterials) {
@@ -108,7 +117,7 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
           recipe,
           required: inventoryCheck.required,
           available: inventoryCheck.available,
-          missing: inventoryCheck.missing
+          missing: inventoryCheck.missing,
         };
       }
 
@@ -123,7 +132,11 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
           if (!currentCheck.hasMaterials) break;
 
           // For shapeless or shaped recipes
-          if (needsTable && bot.currentWindow && bot.currentWindow.type === 'minecraft:crafting_table') {
+          if (
+            needsTable &&
+            bot.currentWindow &&
+            bot.currentWindow.type === 'minecraft:crafting_table'
+          ) {
             // Craft via crafting table window
             await this._executeTableCraft(bot, recipeInfo);
           } else {
@@ -152,14 +165,14 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
         result: resultItem,
         resultCount,
         inventory: this._getInventorySummary(bot),
-        materialsUsed: requiredItems
+        materialsUsed: requiredItems,
       };
     } catch (err) {
       logger.error('Craft action failed', { botId, error: err.message });
       return {
         success: false,
         error: err.message,
-        action: 'craft:craft'
+        action: 'craft:craft',
       };
     }
   }
@@ -176,7 +189,7 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
           success: false,
           error: `Unknown recipe: ${recipe}`,
           action: 'craft:lookup',
-          availableRecipes: this._getAvailableRecipes()
+          availableRecipes: this._getAvailableRecipes(),
         };
       }
 
@@ -190,15 +203,15 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
           ingredients: this._parseRecipeItems(recipeInfo.inShape || recipeInfo.ingredients || []),
           needsTable: recipeInfo.needsTable !== false,
           shapeless: !recipeInfo.inShape,
-          pattern: recipeInfo.inShape || null
-        }
+          pattern: recipeInfo.inShape || null,
+        },
       };
     } catch (err) {
       logger.error('Lookup action failed', { error: err.message });
       return {
         success: false,
         error: err.message,
-        action: 'craft:lookup'
+        action: 'craft:lookup',
       };
     }
   }
@@ -219,14 +232,14 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
         inventory,
         craftableRecipes: canCraft.slice(0, 20), // Top 20
         totalCraftable: canCraft.length,
-        hasSpaceForCraft: inventory.emptySlots > 0
+        hasSpaceForCraft: inventory.emptySlots > 0,
       };
     } catch (err) {
       logger.error('Analyze action failed', { botId, error: err.message });
       return {
         success: false,
         error: err.message,
-        action: 'craft:analyze'
+        action: 'craft:analyze',
       };
     }
   }
@@ -264,7 +277,7 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
           success: false,
           error: 'No crafting table found',
           action: 'craft:craft',
-          searched: radius
+          searched: radius,
         };
       }
 
@@ -278,8 +291,10 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
 
       await Promise.race([
         bot.pathfinder.goto(tableGoal),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Approach timeout')), timeout))
-      ]).catch(err => {
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Approach timeout')), timeout)
+        ),
+      ]).catch((err) => {
         if (err.message !== 'Approach timeout') throw err;
       });
 
@@ -295,14 +310,14 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
 
       return {
         success: true,
-        tablePosition: { x: craftingTable.x, y: craftingTable.y, z: craftingTable.z }
+        tablePosition: { x: craftingTable.x, y: craftingTable.y, z: craftingTable.z },
       };
     } catch (err) {
       logger.error('Find crafting table failed', { error: err.message });
       return {
         success: false,
         error: err.message,
-        action: 'craft:craft'
+        action: 'craft:craft',
       };
     }
   }
@@ -334,59 +349,52 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
   _getRecipe(recipeName) {
     // Common recipes hardcoded (would be extended with minecraft-data)
     const recipes = {
-      'wooden_pickaxe': {
+      wooden_pickaxe: {
         result: 'wooden_pickaxe',
         inShape: [
           ['oak_planks', 'oak_planks', 'oak_planks'],
           [null, 'stick', null],
-          [null, 'stick', null]
+          [null, 'stick', null],
         ],
-        needsTable: true
+        needsTable: true,
       },
-      'wooden_sword': {
+      wooden_sword: {
         result: 'wooden_sword',
-        inShape: [
-          ['oak_planks'],
-          ['oak_planks'],
-          ['stick']
-        ],
-        needsTable: true
+        inShape: [['oak_planks'], ['oak_planks'], ['stick']],
+        needsTable: true,
       },
-      'stick': {
+      stick: {
         result: 'stick',
-        inShape: [
-          ['oak_planks'],
-          ['oak_planks']
-        ],
+        inShape: [['oak_planks'], ['oak_planks']],
         needsTable: false,
-        count: 4
+        count: 4,
       },
-      'crafting_table': {
+      crafting_table: {
         result: 'crafting_table',
         inShape: [
           ['oak_planks', 'oak_planks'],
-          ['oak_planks', 'oak_planks']
+          ['oak_planks', 'oak_planks'],
         ],
-        needsTable: false
+        needsTable: false,
       },
-      'chest': {
+      chest: {
         result: 'chest',
         inShape: [
           ['oak_planks', 'oak_planks', 'oak_planks'],
           ['oak_planks', null, 'oak_planks'],
-          ['oak_planks', 'oak_planks', 'oak_planks']
+          ['oak_planks', 'oak_planks', 'oak_planks'],
         ],
-        needsTable: true
+        needsTable: true,
       },
-      'furnace': {
+      furnace: {
         result: 'furnace',
         inShape: [
           ['cobblestone', 'cobblestone', 'cobblestone'],
           ['cobblestone', null, 'cobblestone'],
-          ['cobblestone', 'cobblestone', 'cobblestone']
+          ['cobblestone', 'cobblestone', 'cobblestone'],
         ],
-        needsTable: true
-      }
+        needsTable: true,
+      },
     };
 
     return recipes[recipeName.toLowerCase()] || null;
@@ -397,14 +405,7 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
    * @private
    */
   _getAvailableRecipes() {
-    return [
-      'wooden_pickaxe',
-      'wooden_sword',
-      'stick',
-      'crafting_table',
-      'chest',
-      'furnace'
-    ];
+    return ['wooden_pickaxe', 'wooden_sword', 'stick', 'crafting_table', 'chest', 'furnace'];
   }
 
   /**
@@ -505,7 +506,7 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
       items,
       usedSlots,
       emptySlots: 36 - usedSlots,
-      totalSlots: 36
+      totalSlots: 36,
     };
   }
 
@@ -528,7 +529,7 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
       if (check.hasMaterials) {
         craftable.push({
           recipe: recipeName,
-          result: this._getRecipeResult(recipeInfo)
+          result: this._getRecipeResult(recipeInfo),
         });
       }
     }
@@ -541,7 +542,7 @@ export class CraftTaskExecutor extends BaseTaskExecutor {
    * @private
    */
   _delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**

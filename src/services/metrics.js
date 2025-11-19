@@ -1,9 +1,16 @@
 const METRICS = {
   queueDepth: 0,
   heartbeatAgeSeconds: 0,
-  latencyBuckets: new Map([[0.5, 0], [1, 0], [2, 0], [4, 0], [8, 0], ['+Inf', 0]]),
+  latencyBuckets: new Map([
+    [0.5, 0],
+    [1, 0],
+    [2, 0],
+    [4, 0],
+    [8, 0],
+    ['+Inf', 0],
+  ]),
   latencySum: 0,
-  latencyCount: 0
+  latencyCount: 0,
 };
 
 function recordLatency(value) {
@@ -27,7 +34,10 @@ export function bindMetricsToNpcEngine(npcEngine, stateManager) {
 
   const updateQueueDepth = () => {
     METRICS.queueDepth = npcEngine.taskQueue?.length || 0;
-    stateManager.updatePerformanceMetrics({ queueDepth: METRICS.queueDepth, heartbeatAgeSeconds: METRICS.heartbeatAgeSeconds });
+    stateManager.updatePerformanceMetrics({
+      queueDepth: METRICS.queueDepth,
+      heartbeatAgeSeconds: METRICS.heartbeatAgeSeconds,
+    });
   };
 
   npcEngine.on('task_queued', updateQueueDepth);
@@ -45,7 +55,7 @@ export function bindMetricsToNpcEngine(npcEngine, stateManager) {
       stateManager.updatePerformanceMetrics({
         lastLatencySeconds: latency,
         queueDepth: METRICS.queueDepth,
-        heartbeatAgeSeconds: METRICS.heartbeatAgeSeconds
+        heartbeatAgeSeconds: METRICS.heartbeatAgeSeconds,
       });
       npcEngine.taskStartTimes.delete(npcId);
     }
@@ -85,12 +95,12 @@ export function getPrometheusRegistry() {
       lines.push(`fgd_bridge_heartbeat_age_seconds ${METRICS.heartbeatAgeSeconds}`);
       lines.push(formatHistogram().trimEnd());
       return `${lines.join('\n')}\n`;
-    }
+    },
   };
 }
 
 export default {
   bindMetricsToNpcEngine,
   getPrometheusRegistry,
-  updateHeartbeatAge
+  updateHeartbeatAge,
 };

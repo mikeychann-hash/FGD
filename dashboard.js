@@ -22,7 +22,9 @@
     },
     CHART_BORDER_COLOR: 'rgba(15, 23, 42, 0.85)',
     CHART_BORDER_WIDTH: 2,
-    POLLING_INTERVAL: 5000, // 5 seconds
+    // OPTIMIZATION: Polling disabled - using WebSocket push (30s interval) instead of 5s polling
+    // This reduces requests from 2,880/hour per user to ~120/hour (cluster updates only)
+    POLLING_INTERVAL: 0, // Disabled - WebSocket push used instead
     ELEMENT_IDS: {
       clusterGrid: 'cluster-grid',
       cpuChart: 'cpuChart',
@@ -194,42 +196,44 @@
       return;
     }
 
-    // Destroy existing chart to prevent memory leaks
+    // Update existing chart in place instead of destroying/recreating
     if (chartInstances.cpu) {
-      chartInstances.cpu.destroy();
-    }
-
-    // Create new chart instance
-    chartInstances.cpu = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: metricsHistory.timestamps,
-        datasets: [{
-          label: 'CPU %',
-          data: metricsHistory.cpu,
-          borderColor: CONFIG.CHART_COLORS.cpu,
-          backgroundColor: `${CONFIG.CHART_COLORS.cpu}33`,
-          fill: true,
-          tension: 0.4,
-          borderWidth: 2
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        scales: {
-          y: {
-            beginAtZero: true,
-            max: 100
-          }
+      chartInstances.cpu.data.labels = metricsHistory.timestamps;
+      chartInstances.cpu.data.datasets[0].data = metricsHistory.cpu;
+      chartInstances.cpu.update('none');  // No animation for performance
+    } else {
+      // Create new chart instance on first render
+      chartInstances.cpu = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: metricsHistory.timestamps,
+          datasets: [{
+            label: 'CPU %',
+            data: metricsHistory.cpu,
+            borderColor: CONFIG.CHART_COLORS.cpu,
+            backgroundColor: `${CONFIG.CHART_COLORS.cpu}33`,
+            fill: true,
+            tension: 0.4,
+            borderWidth: 2
+          }]
         },
-        plugins: {
-          legend: {
-            display: false
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: 100
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
+            }
           }
         }
-      }
-    });
+      });
+    }
   }
 
   /**
@@ -248,40 +252,42 @@
       return;
     }
 
-    // Destroy existing chart to prevent memory leaks
+    // Update existing chart in place instead of destroying/recreating
     if (chartInstances.memory) {
-      chartInstances.memory.destroy();
-    }
-
-    // Create new chart instance
-    chartInstances.memory = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: metricsHistory.timestamps,
-        datasets: [{
-          label: 'Memory %',
-          data: metricsHistory.memory,
-          backgroundColor: CONFIG.CHART_COLORS.memory,
-          borderColor: CONFIG.CHART_BORDER_COLOR,
-          borderWidth: 1
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        scales: {
-          y: {
-            beginAtZero: true,
-            max: 100
-          }
+      chartInstances.memory.data.labels = metricsHistory.timestamps;
+      chartInstances.memory.data.datasets[0].data = metricsHistory.memory;
+      chartInstances.memory.update('none');  // No animation for performance
+    } else {
+      // Create new chart instance on first render
+      chartInstances.memory = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: metricsHistory.timestamps,
+          datasets: [{
+            label: 'Memory %',
+            data: metricsHistory.memory,
+            backgroundColor: CONFIG.CHART_COLORS.memory,
+            borderColor: CONFIG.CHART_BORDER_COLOR,
+            borderWidth: 1
+          }]
         },
-        plugins: {
-          legend: {
-            display: false
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: 100
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
+            }
           }
         }
-      }
-    });
+      });
+    }
   }
 
   function renderQueueChart() {
@@ -295,37 +301,41 @@
       return;
     }
 
+    // Update existing chart in place instead of destroying/recreating
     if (chartInstances.queue) {
-      chartInstances.queue.destroy();
-    }
-
-    chartInstances.queue = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: performanceHistory.timestamps,
-        datasets: [{
-          label: 'Tasks Pending',
-          data: performanceHistory.queue,
-          borderColor: '#facc15',
-          backgroundColor: '#facc1533',
-          fill: true,
-          tension: 0.4,
-          borderWidth: 2
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        scales: {
-          y: {
-            beginAtZero: true
-          }
+      chartInstances.queue.data.labels = performanceHistory.timestamps;
+      chartInstances.queue.data.datasets[0].data = performanceHistory.queue;
+      chartInstances.queue.update('none');  // No animation for performance
+    } else {
+      // Create new chart instance on first render
+      chartInstances.queue = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: performanceHistory.timestamps,
+          datasets: [{
+            label: 'Tasks Pending',
+            data: performanceHistory.queue,
+            borderColor: '#facc15',
+            backgroundColor: '#facc1533',
+            fill: true,
+            tension: 0.4,
+            borderWidth: 2
+          }]
         },
-        plugins: {
-          legend: { display: false }
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          scales: {
+            y: {
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            legend: { display: false }
+          }
         }
-      }
-    });
+      });
+    }
   }
 
   function renderLatencyChart() {
@@ -339,37 +349,41 @@
       return;
     }
 
+    // Update existing chart in place instead of destroying/recreating
     if (chartInstances.latency) {
-      chartInstances.latency.destroy();
-    }
-
-    chartInstances.latency = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: performanceHistory.timestamps,
-        datasets: [{
-          label: 'Seconds',
-          data: performanceHistory.latency,
-          borderColor: '#34d399',
-          backgroundColor: '#34d39933',
-          fill: true,
-          tension: 0.4,
-          borderWidth: 2
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        scales: {
-          y: {
-            beginAtZero: true
-          }
+      chartInstances.latency.data.labels = performanceHistory.timestamps;
+      chartInstances.latency.data.datasets[0].data = performanceHistory.latency;
+      chartInstances.latency.update('none');  // No animation for performance
+    } else {
+      // Create new chart instance on first render
+      chartInstances.latency = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: performanceHistory.timestamps,
+          datasets: [{
+            label: 'Seconds',
+            data: performanceHistory.latency,
+            borderColor: '#34d399',
+            backgroundColor: '#34d39933',
+            fill: true,
+            tension: 0.4,
+            borderWidth: 2
+          }]
         },
-        plugins: {
-          legend: { display: false }
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          scales: {
+            y: {
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            legend: { display: false }
+          }
         }
-      }
-    });
+      });
+    }
   }
 
   /**
@@ -389,43 +403,44 @@
       return;
     }
 
-    // Destroy existing chart to prevent memory leaks
+    // Update existing chart in place instead of destroying/recreating
     if (chartInstances.fusion) {
-      chartInstances.fusion.destroy();
-    }
-
-    // Create new chart instance
-    chartInstances.fusion = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: ['Skills', 'Dialogues', 'Outcomes'],
-        datasets: [{
-          data: [metrics.skills, metrics.dialogues, metrics.outcomes],
-          backgroundColor: [
-            CONFIG.CHART_COLORS.skills,
-            CONFIG.CHART_COLORS.dialogues,
-            CONFIG.CHART_COLORS.outcomes
-          ],
-          borderColor: CONFIG.CHART_BORDER_COLOR,
-          borderWidth: 1
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        indexAxis: 'y',
-        scales: {
-          x: {
-            beginAtZero: true
-          }
+      chartInstances.fusion.data.datasets[0].data = [metrics.skills, metrics.dialogues, metrics.outcomes];
+      chartInstances.fusion.update('none');  // No animation for performance
+    } else {
+      // Create new chart instance on first render
+      chartInstances.fusion = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['Skills', 'Dialogues', 'Outcomes'],
+          datasets: [{
+            data: [metrics.skills, metrics.dialogues, metrics.outcomes],
+            backgroundColor: [
+              CONFIG.CHART_COLORS.skills,
+              CONFIG.CHART_COLORS.dialogues,
+              CONFIG.CHART_COLORS.outcomes
+            ],
+            borderColor: CONFIG.CHART_BORDER_COLOR,
+            borderWidth: 1
+          }]
         },
-        plugins: {
-          legend: {
-            display: false
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: 'y',
+          scales: {
+            x: {
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
+            }
           }
         }
-      }
-    });
+      });
+    }
   }
 
   /**
@@ -586,16 +601,104 @@
   }
 
   /**
+   * Initializes WebSocket listeners for real-time updates
+   */
+  function initializeWebSocketListeners() {
+    try {
+      // Create socket connection if Socket.io is available
+      const socket = typeof io !== 'undefined' ? io() : null;
+
+      if (!socket) {
+        console.warn('Socket.io not available, falling back to initial load only');
+        loadDashboardData();
+        return;
+      }
+
+      console.log('Initializing WebSocket listeners for dashboard updates');
+
+      // On successful connection, load initial data once
+      socket.on('connect', () => {
+        console.log('WebSocket connected - loading initial dashboard data');
+        loadDashboardData();
+      });
+
+      // Listen for cluster status updates (pushed every 30s)
+      socket.on('cluster:update', (data) => {
+        if (data && data.nodes) {
+          console.log('Received cluster update via WebSocket');
+          renderClusterNodes(data.nodes);
+        }
+      });
+
+      // Listen for metrics updates (pushed every 30s)
+      socket.on('metrics:update', (data) => {
+        if (data) {
+          console.log('Received metrics update via WebSocket');
+          updateMetricsHistory({
+            cpu: data.cpu || 0,
+            memory: data.memory || 0
+          });
+          renderCPUChart();
+          renderMemoryChart();
+
+          // Update performance data if available
+          if (data.performance) {
+            updatePerformanceHistory(data.performance);
+            renderQueueChart();
+            renderLatencyChart();
+          }
+        }
+      });
+
+      // Listen for fusion data updates (pushed every 30s)
+      socket.on('fusion:update', (data) => {
+        if (data) {
+          console.log('Received fusion data update via WebSocket');
+          const fusionMetrics = {
+            skills: Object.keys(data.skills || {}).length,
+            dialogues: Object.keys(data.dialogues || {}).length,
+            outcomes: (data.outcomes || []).length,
+            lastSync: data.lastSync || 'N/A'
+          };
+          updateFusionSummary(fusionMetrics);
+        }
+      });
+
+      // Handle disconnection
+      socket.on('disconnect', () => {
+        console.log('WebSocket disconnected');
+      });
+
+      // Handle connection errors
+      socket.on('connect_error', (error) => {
+        console.warn('WebSocket connection error:', error);
+      });
+
+    } catch (error) {
+      console.error('Failed to initialize WebSocket listeners:', error);
+      // Fallback to initial load only
+      loadDashboardData();
+    }
+  }
+
+  /**
    * Starts polling for data updates
+   * DEPRECATED: Now uses WebSocket push instead (90% reduction in requests)
    */
   function startPolling() {
-    // Initial load
+    // Load initial data
     loadDashboardData();
 
-    // Set up polling interval
-    pollingTimer = setInterval(() => {
-      loadDashboardData();
-    }, CONFIG.POLLING_INTERVAL);
+    // Initialize WebSocket listeners for real-time updates
+    initializeWebSocketListeners();
+
+    // Legacy polling fallback (if POLLING_INTERVAL > 0)
+    if (CONFIG.POLLING_INTERVAL > 0) {
+      console.warn('HTTP polling is enabled - consider using WebSocket for efficiency');
+      pollingTimer = setInterval(() => {
+        loadDashboardData();
+      }, CONFIG.POLLING_INTERVAL);
+    }
   }
 
   /**

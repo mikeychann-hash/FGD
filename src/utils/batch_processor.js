@@ -20,13 +20,13 @@ export class BatchProcessor extends EventEmitter {
       totalItems: 0,
       totalBatches: 0,
       itemsProcessed: 0,
-      errors: 0
+      errors: 0,
     };
 
     logger.info('Batch processor initialized', {
       name: this.name,
       batchSize: this.batchSize,
-      flushInterval: this.flushInterval
+      flushInterval: this.flushInterval,
     });
   }
 
@@ -58,11 +58,11 @@ export class BatchProcessor extends EventEmitter {
    */
   scheduleFlush(batchType) {
     const timer = setTimeout(() => {
-      this.flush(batchType).catch(err => {
+      this.flush(batchType).catch((err) => {
         logger.error('Scheduled flush failed', {
           name: this.name,
           batchType,
-          error: err.message
+          error: err.message,
         });
       });
     }, this.flushInterval);
@@ -95,7 +95,7 @@ export class BatchProcessor extends EventEmitter {
       logger.debug('Processing batch', {
         name: this.name,
         batchType,
-        size: items.length
+        size: items.length,
       });
 
       // Process batch
@@ -109,13 +109,13 @@ export class BatchProcessor extends EventEmitter {
       this.emit('batchProcessed', {
         batchType,
         size: items.length,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       logger.debug('Batch processed successfully', {
         name: this.name,
         batchType,
-        size: items.length
+        size: items.length,
       });
     } catch (err) {
       this.stats.errors++;
@@ -123,14 +123,14 @@ export class BatchProcessor extends EventEmitter {
         name: this.name,
         batchType,
         size: items.length,
-        error: err.message
+        error: err.message,
       });
 
       this.emit('batchError', {
         batchType,
         size: items.length,
         error: err,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       throw err;
@@ -164,7 +164,7 @@ export class BatchProcessor extends EventEmitter {
       ...this.stats,
       pendingItems,
       totalPending,
-      batchTypes: Array.from(this.batches.keys())
+      batchTypes: Array.from(this.batches.keys()),
     };
   }
 
@@ -214,13 +214,13 @@ export class PositionBatchProcessor extends BatchProcessor {
 
         // Emit WebSocket update (single batch message)
         io.emit('npcs:positionUpdate', {
-          positions: positions.map(p => ({
+          positions: positions.map((p) => ({
             id: p.id,
-            position: p.position
+            position: p.position,
           })),
-          timestamp: Date.now()
+          timestamp: Date.now(),
         });
-      }
+      },
     });
   }
 }
@@ -237,7 +237,7 @@ export class MetricsBatchProcessor extends BatchProcessor {
       flushInterval: 5000, // 5 seconds
       processor: async (metrics) => {
         await metricsRepository.batchInsert(metrics);
-      }
+      },
     });
   }
 }

@@ -1,5 +1,5 @@
 function isObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function validateRegistryData(data) {
@@ -10,13 +10,13 @@ export function validateRegistryData(data) {
     if (!isObject(entry)) {
       throw new Error(`Registry entry ${index} must be an object`);
     }
-    if (typeof entry.id !== "string" || entry.id.trim().length === 0) {
+    if (typeof entry.id !== 'string' || entry.id.trim().length === 0) {
       throw new Error(`Registry entry ${index} is missing an id`);
     }
-    if (typeof entry.role !== "string" || entry.role.trim().length === 0) {
+    if (typeof entry.role !== 'string' || entry.role.trim().length === 0) {
       throw new Error(`Registry entry ${entry.id} is missing a role`);
     }
-    if (typeof entry.npcType !== "string" || entry.npcType.trim().length === 0) {
+    if (typeof entry.npcType !== 'string' || entry.npcType.trim().length === 0) {
       throw new Error(`Registry entry ${entry.id} is missing npcType`);
     }
   });
@@ -25,7 +25,7 @@ export function validateRegistryData(data) {
 
 export function validateProfileData(data) {
   if (!isObject(data)) {
-    throw new Error("Profile payload must be an object keyed by NPC id");
+    throw new Error('Profile payload must be an object keyed by NPC id');
   }
   for (const [npcId, profile] of Object.entries(data)) {
     if (!isObject(profile)) {
@@ -43,5 +43,5 @@ export function validateProfileData(data) {
 
 export default {
   validateRegistryData,
-  validateProfileData
+  validateProfileData,
 };

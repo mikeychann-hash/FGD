@@ -3,7 +3,16 @@
 
 import express from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
+import { botCreationLimiter } from '../src/middleware/rateLimiter.js';
 import { MAX_BOTS, WORLD_BOUNDS } from '../constants.js';
+import {
+  createBotSchema,
+  updateBotSchema,
+  taskSchema,
+  spawnPositionSchema,
+  botQuerySchema,
+} from '../src/validators/bot.schemas.js';
+import { validate, validateQuery } from '../src/middleware/validate.js';
 
 /**
  * Count currently spawned bots
@@ -13,7 +22,7 @@ import { MAX_BOTS, WORLD_BOUNDS } from '../constants.js';
 function countSpawnedBots(npcEngine) {
   if (!npcEngine?.registry) return 0;
   const allBots = npcEngine.registry.getAll();
-  return allBots.filter(bot => bot.status === 'active').length;
+  return allBots.filter((bot) => bot.status === 'active').length;
 }
 
 /**
@@ -27,11 +36,12 @@ function checkSpawnLimit(npcEngine, count = 1) {
   if (currentCount + count > MAX_BOTS) {
     return {
       error: 'Spawn limit exceeded',
-      message: `Cannot spawn ${count} bot(s): would exceed maximum of ${MAX_BOTS} bots. ` +
-               `Currently ${currentCount} bot(s) active. Please despawn some bots first.`,
+      message:
+        `Cannot spawn ${count} bot(s): would exceed maximum of ${MAX_BOTS} bots. ` +
+        `Currently ${currentCount} bot(s) active. Please despawn some bots first.`,
       currentCount,
       maxBots: MAX_BOTS,
-      requested: count
+      requested: count,
     };
   }
   return null;
@@ -52,11 +62,11 @@ export function initBotRoutes(npcSystem, io) {
   const npcSpawner = npcSystem?.npcSpawner || null;
 
   if (io) {
-    npcEngine.on('npc_moved', data => io.emit('bot:moved', data));
-    npcEngine.on('npc_status', data => io.emit('bot:status', data));
-    npcEngine.on('npc_task_completed', data => io.emit('bot:task_complete', data));
-    npcEngine.on('npc_scan', data => io.emit('bot:scan', data));
-    npcEngine.on('npc_error', data => io.emit('bot:error', data));
+    npcEngine.on('npc_moved', (data) => io.emit('bot:moved', data));
+    npcEngine.on('npc_status', (data) => io.emit('bot:status', data));
+    npcEngine.on('npc_task_completed', (data) => io.emit('bot:task_complete', data));
+    npcEngine.on('npc_scan', (data) => io.emit('bot:scan', data));
+    npcEngine.on('npc_error', (data) => io.emit('bot:error', data));
   }
 
   // ============================================================================
@@ -71,7 +81,7 @@ export function initBotRoutes(npcSystem, io) {
     res.json({
       success: true,
       status: 'healthy',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   });
 
@@ -83,7 +93,7 @@ export function initBotRoutes(npcSystem, io) {
    * GET /api/bots
    * List all bots with optional filtering
    */
-  router.get('/', authenticate, authorize('read'), (req, res) => {
+  router.get('/', authenticate, authorize('read'), validateQuery(botQuerySchema), (req, res) => {
     try {
       const { status, role, type } = req.query;
 
@@ -92,24 +102,24 @@ export function initBotRoutes(npcSystem, io) {
 
       // Filter out inactive bots by default (unless explicitly requested)
       if (status !== 'inactive') {
-        bots = bots.filter(bot => bot.status !== 'inactive');
+        bots = bots.filter((bot) => bot.status !== 'inactive');
       }
 
       // Apply filters
       if (status) {
-        bots = bots.filter(bot => bot.status === status);
+        bots = bots.filter((bot) => bot.status === status);
       }
       if (role) {
-        bots = bots.filter(bot => bot.role === role);
+        bots = bots.filter((bot) => bot.role === role);
       }
       if (type) {
-        bots = bots.filter(bot => bot.npcType === type);
+        bots = bots.filter((bot) => bot.npcType === type);
       }
 
       res.json({
         success: true,
         count: bots.length,
-        bots: bots.map(bot => {
+        bots: bots.map((bot) => {
           const runtime = runtimeMap?.get(bot.id)?.runtime || null;
           return {
             id: bot.id,
@@ -128,15 +138,15 @@ export function initBotRoutes(npcSystem, io) {
             spawnCount: bot.spawnCount,
             lastSpawnedAt: bot.lastSpawnedAt,
             createdAt: bot.createdAt,
-            updatedAt: bot.updatedAt
+            updatedAt: bot.updatedAt,
           };
-        })
+        }),
       });
     } catch (error) {
       console.error('Error listing bots:', error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -153,7 +163,7 @@ export function initBotRoutes(npcSystem, io) {
       if (!bot) {
         return res.status(404).json({
           error: 'Not found',
-          message: `Bot ${id} not found`
+          message: `Bot ${id} not found`,
         });
       }
 
@@ -167,18 +177,20 @@ export function initBotRoutes(npcSystem, io) {
             level: Math.floor(learningProfile.xp / 10),
             tasksCompleted: learningProfile.tasksCompleted,
             tasksFailed: learningProfile.tasksFailed,
-            successRate: (learningProfile.tasksCompleted + learningProfile.tasksFailed) > 0
-              ? (learningProfile.tasksCompleted / (learningProfile.tasksCompleted + learningProfile.tasksFailed)) * 100
-              : 0,
+            successRate:
+              learningProfile.tasksCompleted + learningProfile.tasksFailed > 0
+                ? (learningProfile.tasksCompleted /
+                    (learningProfile.tasksCompleted + learningProfile.tasksFailed)) *
+                  100
+                : 0,
             skills: learningProfile.skills,
-            personality: learningProfile.personality
+            personality: learningProfile.personality,
           };
         }
       }
 
-      const runtime = npcEngine.npcs instanceof Map
-        ? npcEngine.npcs.get(id)?.runtime || null
-        : null;
+      const runtime =
+        npcEngine.npcs instanceof Map ? npcEngine.npcs.get(id)?.runtime || null : null;
 
       const runtimeSafe = runtime
         ? {
@@ -188,7 +200,7 @@ export function initBotRoutes(npcSystem, io) {
             tickCount: runtime.tickCount,
             lastTickAt: runtime.lastTickAt,
             memory: runtime.memory,
-            lastScan: runtime.lastScan
+            lastScan: runtime.lastScan,
           }
         : null;
 
@@ -198,14 +210,14 @@ export function initBotRoutes(npcSystem, io) {
           ...bot,
           state: runtime?.status || bot.status,
           runtime: runtimeSafe,
-          learning
-        }
+          learning,
+        },
       });
     } catch (error) {
       console.error(`Error getting bot ${req.params.id}:`, error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -214,7 +226,13 @@ export function initBotRoutes(npcSystem, io) {
    * POST /api/bots
    * Create a new bot
    */
-  router.post('/', authenticate, authorize('write'), async (req, res) => {
+  router.post(
+    '/',
+    botCreationLimiter,
+    authenticate,
+    authorize('write'),
+    validate(createBotSchema),
+    async (req, res) => {
     try {
       const {
         name,
@@ -226,7 +244,7 @@ export function initBotRoutes(npcSystem, io) {
         position,
         taskParameters,
         behaviorPreset,
-        autoSpawn
+        autoSpawn,
       } = req.body;
 
       const shouldAutoSpawn = autoSpawn !== false;
@@ -236,7 +254,7 @@ export function initBotRoutes(npcSystem, io) {
         if (typeof y === 'number' && (y < WORLD_BOUNDS.MIN_Y || y > WORLD_BOUNDS.MAX_Y)) {
           return res.status(400).json({
             error: 'Invalid position',
-            message: `Y coordinate must be between ${WORLD_BOUNDS.MIN_Y} and ${WORLD_BOUNDS.MAX_Y}`
+            message: `Y coordinate must be between ${WORLD_BOUNDS.MIN_Y} and ${WORLD_BOUNDS.MAX_Y}`,
           });
         }
       }
@@ -251,7 +269,7 @@ export function initBotRoutes(npcSystem, io) {
       if (!role && !type) {
         return res.status(400).json({
           error: 'Bad request',
-          message: 'Role or type is required'
+          message: 'Role or type is required',
         });
       }
 
@@ -271,9 +289,9 @@ export function initBotRoutes(npcSystem, io) {
           taskParameters: taskParameters || {},
           behaviorPreset: behaviorPreset || 'default',
           createdBy: req.user.username,
-          createdByRole: req.user.role
+          createdByRole: req.user.role,
         },
-        autoSpawn: shouldAutoSpawn
+        autoSpawn: shouldAutoSpawn,
       });
 
       const spawnResponse = bot?.lastSpawnResponse || null;
@@ -286,10 +304,10 @@ export function initBotRoutes(npcSystem, io) {
             id: bot.id,
             role: bot.role,
             type: bot.npcType,
-            personalitySummary: bot.personalitySummary
+            personalitySummary: bot.personalitySummary,
           },
           createdBy: req.user.username,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
 
@@ -307,16 +325,16 @@ export function initBotRoutes(npcSystem, io) {
           personalitySummary: bot.personalitySummary,
           personalityTraits: bot.personalityTraits,
           description: bot.description,
-          position: bot.spawnPosition
+          position: bot.spawnPosition,
         },
         spawned,
-        spawnResponse: spawnResponse || undefined
+        spawnResponse: spawnResponse || undefined,
       });
     } catch (error) {
       console.error('Error creating bot:', error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -325,23 +343,17 @@ export function initBotRoutes(npcSystem, io) {
    * PUT /api/bots/:id
    * Update bot configuration
    */
-  router.put('/:id', authenticate, authorize('write'), async (req, res) => {
+  router.put('/:id', authenticate, authorize('write'), validate(updateBotSchema), async (req, res) => {
     try {
       const { id } = req.params;
-      const {
-        description,
-        personality,
-        appearance,
-        position,
-        taskParameters,
-        behaviorPreset
-      } = req.body;
+      const { description, personality, appearance, position, taskParameters, behaviorPreset } =
+        req.body;
 
       const existingBot = npcEngine.registry.get(id);
       if (!existingBot) {
         return res.status(404).json({
           error: 'Not found',
-          message: `Bot ${id} not found`
+          message: `Bot ${id} not found`,
         });
       }
 
@@ -357,8 +369,8 @@ export function initBotRoutes(npcSystem, io) {
           taskParameters: taskParameters || existingBot.metadata?.taskParameters,
           behaviorPreset: behaviorPreset || existingBot.metadata?.behaviorPreset,
           updatedBy: req.user.username,
-          updatedByRole: req.user.role
-        }
+          updatedByRole: req.user.role,
+        },
       });
 
       // Emit WebSocket event
@@ -367,7 +379,7 @@ export function initBotRoutes(npcSystem, io) {
           botId: id,
           changes: { description, personality, appearance, position },
           updatedBy: req.user.username,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
 
@@ -376,13 +388,13 @@ export function initBotRoutes(npcSystem, io) {
       res.json({
         success: true,
         message: `Bot ${id} updated successfully`,
-        bot: updatedBot
+        bot: updatedBot,
       });
     } catch (error) {
       console.error(`Error updating bot ${req.params.id}:`, error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -400,7 +412,7 @@ export function initBotRoutes(npcSystem, io) {
       if (!bot) {
         return res.status(404).json({
           error: 'Not found',
-          message: `Bot ${id} not found`
+          message: `Bot ${id} not found`,
         });
       }
 
@@ -409,13 +421,13 @@ export function initBotRoutes(npcSystem, io) {
         if (req.user.role !== 'admin') {
           return res.status(403).json({
             error: 'Forbidden',
-            message: 'Only admins can permanently delete bots'
+            message: 'Only admins can permanently delete bots',
           });
         }
         // TODO: Implement permanent deletion
         return res.status(501).json({
           error: 'Not implemented',
-          message: 'Permanent deletion not yet implemented'
+          message: 'Permanent deletion not yet implemented',
         });
       } else {
         // Mark as inactive
@@ -433,7 +445,7 @@ export function initBotRoutes(npcSystem, io) {
           botId: id,
           deletedBy: req.user.username,
           permanent: permanent === 'true',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
 
@@ -441,13 +453,13 @@ export function initBotRoutes(npcSystem, io) {
 
       res.json({
         success: true,
-        message: `Bot ${id} ${permanent === 'true' ? 'permanently deleted' : 'deactivated'}`
+        message: `Bot ${id} ${permanent === 'true' ? 'permanently deleted' : 'deactivated'}`,
       });
     } catch (error) {
       console.error(`Error deleting bot ${req.params.id}:`, error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -456,7 +468,12 @@ export function initBotRoutes(npcSystem, io) {
    * POST /api/bots/:id/spawn
    * Spawn a bot in Minecraft
    */
-  router.post('/:id/spawn', authenticate, authorize('spawn'), async (req, res) => {
+  router.post(
+    '/:id/spawn',
+    authenticate,
+    authorize('spawn'),
+    validate(spawnPositionSchema),
+    async (req, res) => {
     try {
       const { id } = req.params;
       const { position } = req.body;
@@ -464,7 +481,7 @@ export function initBotRoutes(npcSystem, io) {
       if (!npcEngine.mineflayerBridge) {
         return res.status(503).json({
           error: 'Service unavailable',
-          message: 'Minecraft bridge not configured'
+          message: 'Minecraft bridge not configured',
         });
       }
 
@@ -472,7 +489,7 @@ export function initBotRoutes(npcSystem, io) {
       if (!bot) {
         return res.status(404).json({
           error: 'Not found',
-          message: `Bot ${id} not found`
+          message: `Bot ${id} not found`,
         });
       }
 
@@ -494,7 +511,7 @@ export function initBotRoutes(npcSystem, io) {
           botId: id,
           position: spawnPosition,
           spawnedBy: req.user.username,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
 
@@ -503,13 +520,13 @@ export function initBotRoutes(npcSystem, io) {
       res.json({
         success: true,
         message: `Bot ${id} spawned successfully`,
-        position: spawnPosition
+        position: spawnPosition,
       });
     } catch (error) {
       console.error(`Error spawning bot ${req.params.id}:`, error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -533,7 +550,7 @@ export function initBotRoutes(npcSystem, io) {
         io.emit('bot:despawned', {
           botId: id,
           despawnedBy: req.user.username,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
 
@@ -541,13 +558,13 @@ export function initBotRoutes(npcSystem, io) {
 
       res.json({
         success: true,
-        message: `Bot ${id} despawned successfully`
+        message: `Bot ${id} despawned successfully`,
       });
     } catch (error) {
       console.error(`Error despawning bot ${req.params.id}:`, error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -556,7 +573,7 @@ export function initBotRoutes(npcSystem, io) {
    * POST /api/bots/:id/task
    * Assign a task to a bot
    */
-  router.post('/:id/task', authenticate, authorize('command'), async (req, res) => {
+  router.post('/:id/task', authenticate, authorize('command'), validate(taskSchema), async (req, res) => {
     try {
       const { id } = req.params;
       const { action, target, parameters, priority } = req.body;
@@ -564,7 +581,7 @@ export function initBotRoutes(npcSystem, io) {
       if (!action) {
         return res.status(400).json({
           error: 'Bad request',
-          message: 'Action is required'
+          message: 'Action is required',
         });
       }
 
@@ -572,7 +589,7 @@ export function initBotRoutes(npcSystem, io) {
       if (!npc) {
         return res.status(404).json({
           error: 'Not found',
-          message: `Bot ${id} not found or not active`
+          message: `Bot ${id} not found or not active`,
         });
       }
 
@@ -582,7 +599,7 @@ export function initBotRoutes(npcSystem, io) {
         ...parameters,
         priority: priority || 'normal',
         sender: req.user.username,
-        createdAt: Date.now()
+        createdAt: Date.now(),
       };
 
       await npcEngine.assignTask(npc, task);
@@ -593,7 +610,7 @@ export function initBotRoutes(npcSystem, io) {
           botId: id,
           task: { action, target, priority },
           assignedBy: req.user.username,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
 
@@ -602,13 +619,13 @@ export function initBotRoutes(npcSystem, io) {
       res.json({
         success: true,
         message: `Task assigned to bot ${id}`,
-        task: { action, target, priority }
+        task: { action, target, priority },
       });
     } catch (error) {
       console.error(`Error assigning task to bot ${req.params.id}:`, error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -622,13 +639,13 @@ export function initBotRoutes(npcSystem, io) {
       if (!npcEngine.mineflayerBridge) {
         return res.status(503).json({
           error: 'Service unavailable',
-          message: 'Minecraft bridge not configured'
+          message: 'Minecraft bridge not configured',
         });
       }
 
       // Count how many bots would be spawned
       const allBots = npcEngine.registry.getAll();
-      const inactiveBots = allBots.filter(bot => bot.status !== 'active');
+      const inactiveBots = allBots.filter((bot) => bot.status !== 'active');
 
       // Check spawn limit
       const limitError = checkSpawnLimit(npcEngine, inactiveBots.length);
@@ -642,9 +659,9 @@ export function initBotRoutes(npcSystem, io) {
       if (io) {
         io.emit('bot:spawn_all', {
           count: results.length,
-          bots: results.map(r => r.id),
+          bots: results.map((r) => r.id),
           spawnedBy: req.user.username,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
 
@@ -654,13 +671,13 @@ export function initBotRoutes(npcSystem, io) {
         success: true,
         message: `Spawned ${results.length} bots`,
         count: results.length,
-        bots: results.map(r => ({ id: r.id, role: r.role }))
+        bots: results.map((r) => ({ id: r.id, role: r.role })),
       });
     } catch (error) {
       console.error('Error spawning all bots:', error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -683,14 +700,14 @@ export function initBotRoutes(npcSystem, io) {
           maxQueueSize: status.maxQueueSize,
           queueUtilization: status.queueUtilization,
           bridgeConnected: status.bridgeConnected,
-          npcs: status.npcs
-        }
+          npcs: status.npcs,
+        },
       });
     } catch (error) {
       console.error('Error getting status:', error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -704,7 +721,7 @@ export function initBotRoutes(npcSystem, io) {
       if (!npcEngine.learningEngine) {
         return res.status(503).json({
           error: 'Service unavailable',
-          message: 'Learning engine not available'
+          message: 'Learning engine not available',
         });
       }
 
@@ -713,24 +730,25 @@ export function initBotRoutes(npcSystem, io) {
       res.json({
         success: true,
         count: profiles.length,
-        profiles: profiles.map(p => ({
+        profiles: profiles.map((p) => ({
           id: p.id,
           xp: p.xp,
           level: Math.floor(p.xp / 10),
           tasksCompleted: p.tasksCompleted,
           tasksFailed: p.tasksFailed,
-          successRate: (p.tasksCompleted + p.tasksFailed) > 0
-            ? (p.tasksCompleted / (p.tasksCompleted + p.tasksFailed)) * 100
-            : 0,
+          successRate:
+            p.tasksCompleted + p.tasksFailed > 0
+              ? (p.tasksCompleted / (p.tasksCompleted + p.tasksFailed)) * 100
+              : 0,
           skills: p.skills,
-          personality: p.personality
-        }))
+          personality: p.personality,
+        })),
       });
     } catch (error) {
       console.error('Error getting learning profiles:', error);
       res.status(500).json({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -742,7 +760,7 @@ export function initBotRoutes(npcSystem, io) {
         res.json({
           success: true,
           count: queue.length,
-          queue
+          queue,
         });
       } catch (error) {
         console.error('Failed to fetch dead letter queue:', error);
@@ -756,7 +774,9 @@ export function initBotRoutes(npcSystem, io) {
         res.json({ success: true, ...results });
       } catch (error) {
         console.error('Failed to retry dead letter queue:', error);
-        res.status(500).json({ error: 'Failed to retry dead letter queue', message: error.message });
+        res
+          .status(500)
+          .json({ error: 'Failed to retry dead letter queue', message: error.message });
       }
     });
   }

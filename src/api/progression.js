@@ -1,6 +1,6 @@
-import express from "express";
-import { logger } from "../../logger.js";
-import { progressionEngine } from "../../core/progression_engine.js";
+import express from 'express';
+import { logger } from '../../logger.js';
+import { progressionEngine } from '../../core/progression_engine.js';
 
 /**
  * Initialize progression system routes
@@ -11,7 +11,7 @@ export function initProgressionRoutes() {
   /**
    * GET / - Get current progression status
    */
-  router.get("/", (req, res) => {
+  router.get('/', (req, res) => {
     try {
       const status = progressionEngine.getStatus();
       res.json(status);
@@ -24,7 +24,7 @@ export function initProgressionRoutes() {
   /**
    * GET /phase - Get current phase information
    */
-  router.get("/phase", (req, res) => {
+  router.get('/phase', (req, res) => {
     try {
       const phaseInfo = progressionEngine.getCurrentPhase();
       res.json(phaseInfo);
@@ -37,11 +37,11 @@ export function initProgressionRoutes() {
   /**
    * PUT /phase - Manually set progression phase (admin)
    */
-  router.put("/phase", async (req, res) => {
+  router.put('/phase', async (req, res) => {
     try {
       const { phase } = req.body;
 
-      if (typeof phase !== "number" || phase < 1 || phase > 6) {
+      if (typeof phase !== 'number' || phase < 1 || phase > 6) {
         return res.status(400).json({ error: 'Phase must be a number between 1 and 6' });
       }
 
@@ -51,7 +51,7 @@ export function initProgressionRoutes() {
       res.json({
         success: true,
         phase,
-        status: progressionEngine.getStatus()
+        status: progressionEngine.getStatus(),
       });
     } catch (err) {
       logger.error('Failed to set phase', { error: err.message });
@@ -62,7 +62,7 @@ export function initProgressionRoutes() {
   /**
    * POST /metrics - Update progression metrics
    */
-  router.post("/metrics", async (req, res) => {
+  router.post('/metrics', async (req, res) => {
     try {
       const metrics = req.body;
 
@@ -77,7 +77,7 @@ export function initProgressionRoutes() {
         success: true,
         phaseAdvanced,
         currentPhase: progressionEngine.currentPhase,
-        metrics: progressionEngine.progressData
+        metrics: progressionEngine.progressData,
       });
     } catch (err) {
       logger.error('Failed to update metrics', { error: err.message });
@@ -88,12 +88,12 @@ export function initProgressionRoutes() {
   /**
    * POST /metric/:name - Update a specific metric
    */
-  router.post("/metric/:name", (req, res) => {
+  router.post('/metric/:name', (req, res) => {
     try {
       const { name } = req.params;
       const { value, increment } = req.body;
 
-      if (increment !== undefined && typeof increment === "number") {
+      if (increment !== undefined && typeof increment === 'number') {
         progressionEngine.incrementMetric(name, increment);
       } else if (value !== undefined) {
         progressionEngine.updateMetric(name, value);
@@ -106,7 +106,7 @@ export function initProgressionRoutes() {
       res.json({
         success: true,
         metric: name,
-        value: progressionEngine.progressData[name]
+        value: progressionEngine.progressData[name],
       });
     } catch (err) {
       logger.error('Failed to update metric', { error: err.message, metric: req.params.name });
@@ -117,7 +117,7 @@ export function initProgressionRoutes() {
   /**
    * POST /reset - Reset progression to Phase 1
    */
-  router.post("/reset", async (req, res) => {
+  router.post('/reset', async (req, res) => {
     try {
       await progressionEngine.reset();
       logger.warn('Progression engine reset to Phase 1');
@@ -125,7 +125,7 @@ export function initProgressionRoutes() {
       res.json({
         success: true,
         message: 'Progression reset to Phase 1',
-        status: progressionEngine.getStatus()
+        status: progressionEngine.getStatus(),
       });
     } catch (err) {
       logger.error('Failed to reset progression', { error: err.message });
@@ -136,7 +136,7 @@ export function initProgressionRoutes() {
   /**
    * GET /tasks - Get recommended tasks for current phase
    */
-  router.get("/tasks", (req, res) => {
+  router.get('/tasks', (req, res) => {
     try {
       const tasks = progressionEngine.getRecommendedTasks();
       const builds = progressionEngine.getRecommendedBuilds();
@@ -144,7 +144,7 @@ export function initProgressionRoutes() {
       res.json({
         phase: progressionEngine.currentPhase,
         recommendedTasks: tasks,
-        recommendedBuilds: builds
+        recommendedBuilds: builds,
       });
     } catch (err) {
       logger.error('Failed to get recommended tasks', { error: err.message });

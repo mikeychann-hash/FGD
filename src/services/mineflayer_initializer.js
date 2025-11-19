@@ -31,13 +31,15 @@ export async function initializeMineflayerBridge(options = {}) {
       host,
       port,
       version,
-      auth: 'offline'
+      auth: 'offline',
     });
 
     // Attach event listeners for logging
     bridge.on('bot_spawned', (data) => {
       logger.info('Bot spawned via Mineflayer', { botId: data.botId, position: data.position });
-      console.log(`✅ Bot spawned: ${data.botId} at (${data.position.x}, ${data.position.y}, ${data.position.z})`);
+      console.log(
+        `✅ Bot spawned: ${data.botId} at (${data.position.x}, ${data.position.y}, ${data.position.z})`
+      );
     });
 
     bridge.on('bot_disconnected', (data) => {
@@ -54,7 +56,6 @@ export async function initializeMineflayerBridge(options = {}) {
     console.log('✅ Mineflayer Bridge initialized');
 
     return bridge;
-
   } catch (err) {
     logger.error('Failed to initialize Mineflayer Bridge', { error: err.message });
     console.error('❌ Failed to initialize Mineflayer Bridge:', err.message);
@@ -80,14 +81,13 @@ export function createTaskExecutors(bridge) {
       movement: new MovementTaskExecutor(bridge), // Alias
       inventory: new InventoryTaskExecutor(bridge),
       combat: new CombatTaskExecutor(bridge),
-      craft: new CraftTaskExecutor(bridge)
+      craft: new CraftTaskExecutor(bridge),
     };
 
     logger.info('Task executors created', { executors: Object.keys(executors) });
     console.log(`✅ Task executors created: ${Object.keys(executors).join(', ')}`);
 
     return executors;
-
   } catch (err) {
     logger.error('Failed to create task executors', { error: err.message });
     console.error('❌ Failed to create task executors:', err.message);
@@ -114,7 +114,6 @@ export function attachMineflayerBridge(npcEngine, bridge, executors) {
 
     logger.info('Mineflayer bridge attached to NPC engine');
     console.log('✅ Mineflayer bridge attached to NPC engine');
-
   } catch (err) {
     logger.error('Failed to attach Mineflayer bridge', { error: err.message });
     console.error('❌ Failed to attach Mineflayer bridge:', err.message);
@@ -179,7 +178,6 @@ export function bridgeMineflayerEvents(bridge, npcEngine, io) {
 
     logger.info('Mineflayer events bridged to NPC system');
     console.log('✅ Mineflayer events bridged to NPC system');
-
   } catch (err) {
     logger.error('Failed to bridge Mineflayer events', { error: err.message });
     console.error('❌ Failed to bridge Mineflayer events:', err.message);
@@ -226,7 +224,7 @@ export async function spawnBotViaMinecraft(bridge, botId, options = {}) {
 
     const result = await bridge.createBot(botId, {
       username: options.username || botId,
-      version: options.version
+      version: options.version,
     });
 
     if (result.success) {
@@ -234,7 +232,6 @@ export async function spawnBotViaMinecraft(bridge, botId, options = {}) {
     }
 
     return result;
-
   } catch (err) {
     logger.error('Failed to spawn bot', { botId, error: err.message });
     throw err;
@@ -257,7 +254,6 @@ export async function despawnBotViaMinecraft(bridge, botId) {
     const result = await bridge.disconnectBot(botId);
     logger.info('Bot despawned', { botId });
     return result;
-
   } catch (err) {
     logger.error('Failed to despawn bot', { botId, error: err.message });
     throw err;
@@ -291,5 +287,5 @@ export default {
   executeMineflayerTask,
   spawnBotViaMinecraft,
   despawnBotViaMinecraft,
-  getBotStateFromMinecraft
+  getBotStateFromMinecraft,
 };

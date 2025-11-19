@@ -1,0 +1,26 @@
+{
+  "test_miner_01": {
+    "role": "miner",
+    "skills": {
+      "mining": 1.1,
+      "building": 1,
+      "gathering": 1,
+      "exploring": 1,
+      "guard": 1
+    },
+    "personality": {
+      "curiosity": 0.22634997323331052,
+      "patience": 0.02800867670276186,
+      "motivation": 0.9046061602285513,
+      "empathy": 0.7324340881381393,
+      "aggression": 0.17419604593376747,
+      "creativity": 0.026561566548756854,
+      "loyalty": 0.24509860059058441
+    },
+    "xp": 1,
+    "tasksCompleted": 1,
+    "tasksFailed": 1,
+    "createdAt": "2025-11-18T01:01:38.918Z",
+    "lastActivity": "2025-11-18T01:01:39.421Z"
+  }
+}

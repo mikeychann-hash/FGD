@@ -1,4 +1,6 @@
 import { PluginInterface } from './plugin.js';
+import { runSelfCheck } from '../services/init_cluster.js';
+import { setServiceContainer, getServiceStatus } from '../services/service_container.js';
 
 const MAX_REPLAY_EVENTS = 50;
 
@@ -41,6 +43,30 @@ function replayEventsToSocket(socket, buffer) {
  */
 export function initializeWebSocketHandlers(io, stateManager, npcSystem) {
   const pluginInterface = new PluginInterface();
+  // Register control handlers for real‑time bot control
+  // This will attach additional socket listeners for control commands.
+  // The handlers use the BotControlManager service and interact with the Mineflayer bridge.
+  import('../services/bot_control_manager.js').then(({ botControlManager }) => {
+    // Dynamically import to avoid circular dependencies at load time.
+    // Register after the socket connection is established.
+    io.on('connection', (socket) => {
+      // Ensure control handlers are set up for each new socket.
+      // The registerControlHandlers function is defined in src/websocket/control_handlers.js.
+      import('../websocket/control_handlers.js').then(({ registerControlHandlers }) => {
+        registerControlHandlers(io, npcSystem);
+      }).catch((err) => {
+        console.error('Failed to load control handlers:', err);
+      });
+      // Register high‑level command handlers
+      import('../websocket/command_handlers.js').then(({ registerCommandHandlers }) => {
+        registerCommandHandlers(io);
+      }).catch((err) => {
+        console.error('Failed to load command handlers:', err);
+      });
+    });
+  }).catch((err) => {
+    console.error('Failed to load BotControlManager:', err);
+  });
   const replayBuffer = createReplayBuffer(io);
   let dataUpdateIntervals = [];
 
@@ -75,6 +101,13 @@ export function initializeWebSocketHandlers(io, stateManager, npcSystem) {
       config: systemState.config,
     });
 
+    // Emit current system status on connect
+    const status = getServiceStatus();
+    socket.emit('system:status', {
+      status,
+      timestamp: Date.now(),
+    });
+
     replayEventsToSocket(socket, replayBuffer);
 
     socket.on('disconnect', () => {
@@ -85,6 +118,16 @@ export function initializeWebSocketHandlers(io, stateManager, npcSystem) {
   // Push cluster status and metrics every 30 seconds to reduce polling
   const dashboardDataInterval = setInterval(() => {
     const currentState = stateManager.getState();
+    // Refresh service status and emit
+    runSelfCheck(npcSystem)
+      .then((status) => {
+        setServiceContainer({ status });
+        io.emit('system:status', {
+          status,
+          timestamp: Date.now(),
+        });
+      })
+      .catch(() => { });
 
     // Emit cluster status update
     io.emit('cluster:update', {

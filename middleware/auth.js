@@ -54,21 +54,16 @@ export function validatePassword(password) {
   };
 }
 
-// API Keys - MUST be set via environment variables
-// NO DEFAULT VALUES for security - validation enforced at startup
+// API Keys - Optional for local/open mode
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
 const LLM_API_KEY = process.env.LLM_API_KEY;
 
-// Validate API keys are set (should be caught by startup validation)
+// Log warning instead of throwing error
 if (!ADMIN_API_KEY || ADMIN_API_KEY.trim() === '') {
-  throw new Error(
-    'CRITICAL: ADMIN_API_KEY environment variable must be set. Cannot start without credentials.'
-  );
+  console.warn('WARNING: ADMIN_API_KEY not set. Authentication will be bypassed for admin routes.');
 }
 if (!LLM_API_KEY || LLM_API_KEY.trim() === '') {
-  throw new Error(
-    'CRITICAL: LLM_API_KEY environment variable must be set. Cannot start without credentials.'
-  );
+  console.warn('WARNING: LLM_API_KEY not set. Authentication will be bypassed for LLM routes.');
 }
 
 // Hash passwords on initialization
@@ -268,6 +263,16 @@ export function authenticateJWT(req, res, next) {
 export function authenticateApiKey(req, res, next) {
   const apiKey = req.headers['x-api-key'];
 
+  // If no ADMIN_API_KEY is configured, allow all requests (Open Mode)
+  if (!process.env.ADMIN_API_KEY) {
+    req.user = {
+      id: 'admin',
+      username: 'admin',
+      role: ROLES.ADMIN,
+    };
+    return next();
+  }
+
   if (!apiKey) {
     return res.status(401).json({
       error: 'Unauthorized',
@@ -299,6 +304,16 @@ export function authenticateApiKey(req, res, next) {
 export function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
   const apiKey = req.headers['x-api-key'];
+
+  // If no keys configured, bypass auth
+  if (!process.env.ADMIN_API_KEY && !process.env.LLM_API_KEY) {
+    req.user = {
+      id: 'admin',
+      username: 'admin',
+      role: ROLES.ADMIN,
+    };
+    return next();
+  }
 
   if (apiKey) {
     return authenticateApiKey(req, res, next);

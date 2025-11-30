@@ -44,7 +44,7 @@ export class SystemStateManager {
     const avgMemory = healthyNodes.length ? Math.round(sumMemory / healthyNodes.length) : 0;
 
     const activeBots =
-      npcEngine?.npcs instanceof Map ? npcEngine.npcs.size : this.state.systemStats.activeBots || 0;
+      npcEngine?.npcs instanceof Map ? npcEngine.npcs.size : 0;
 
     this.state.systemStats = {
       ...this.state.systemStats,

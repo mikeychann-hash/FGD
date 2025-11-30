@@ -62,8 +62,20 @@ public class FGDWebSocketClient extends WebSocketClient {
                 handleMoveBot(json);
                 break;
 
+            case "action":
+                handleAction(json);
+                break;
+
             case "scanArea":
                 handleScanArea(json);
+                break;
+
+            case "inventory:get":
+            case "inventory:move":
+            case "inventory:equip":
+            case "inventory:useSlot":
+            case "inventory:drop":
+                handleInventoryAction(type, json);
                 break;
 
             case "spawnBot":
@@ -111,6 +123,158 @@ public class FGDWebSocketClient extends WebSocketClient {
         }
     }
 
+    private void handleAction(JsonObject json) {
+        try {
+            String action = json.has("action") ? json.get("action").getAsString() : "";
+            String botId = json.has("botId") ? json.get("botId").getAsString() : "";
+
+            if (action.startsWith("inventory:")) {
+                handleInventoryAction(action, json);
+                return;
+            }
+
+            switch (action) {
+                case "eat":
+                    JsonObject food = json.has("food") && json.get("food").isJsonObject() ? json.getAsJsonObject("food") : null;
+                    String itemId = food != null && food.has("itemId") ? food.get("itemId").getAsString() : (food != null && food.has("item")) ? food.get("item").getAsString() : null;
+                    Integer slot = (food != null && food.has("slot")) ? food.get("slot").getAsInt() : null;
+                    ActionManager.ActionResult eatResult = actionManager.eat(botId, itemId, slot);
+                    JsonObject eatResponse = new JsonObject();
+                    eatResponse.addProperty("type", eatResult.isSuccess() ? "actionComplete" : "actionFailed");
+                    eatResponse.addProperty("action", "eat");
+                    eatResponse.addProperty("botId", botId);
+                    if (eatResult.isSuccess() && eatResult.getHunger() != null) {
+                        eatResponse.addProperty("hunger", eatResult.getHunger());
+                    } else if (!eatResult.isSuccess()) {
+                        eatResponse.addProperty("error", eatResult.getErrorCode());
+                        if (eatResult.getMessage() != null) {
+                            eatResponse.addProperty("message", eatResult.getMessage());
+                        }
+                    }
+                    send(gson.toJson(eatResponse));
+                    break;
+
+                case "chestOpen": {
+                    JsonObject pos = json.getAsJsonObject("chestPos");
+                    double cx = pos.get("x").getAsDouble();
+                    double cy = pos.get("y").getAsDouble();
+                    double cz = pos.get("z").getAsDouble();
+                    JsonObject snap = actionManager.chestOpen(botId, cx, cy, cz);
+                    send(gson.toJson(snap));
+                    sendActionAck("chestOpen", botId, snap);
+                    break;
+                }
+                case "chestLoot": {
+                    JsonObject pos = json.getAsJsonObject("chestPos");
+                    double cx = pos.get("x").getAsDouble();
+                    double cy = pos.get("y").getAsDouble();
+                    double cz = pos.get("z").getAsDouble();
+                    String[] items = extractItems(json);
+                    JsonObject snap = actionManager.chestLoot(botId, items, cx, cy, cz);
+                    send(gson.toJson(snap));
+                    sendActionAck("chestLoot", botId, snap);
+                    break;
+                }
+                case "chestDeposit": {
+                    JsonObject pos = json.getAsJsonObject("chestPos");
+                    double cx = pos.get("x").getAsDouble();
+                    double cy = pos.get("y").getAsDouble();
+                    double cz = pos.get("z").getAsDouble();
+                    String[] items = extractItems(json);
+                    JsonObject snap = actionManager.chestDeposit(botId, items, cx, cy, cz);
+                    send(gson.toJson(snap));
+                    sendActionAck("chestDeposit", botId, snap);
+                    break;
+                }
+                case "chestTransfer": {
+                    JsonObject pos = json.getAsJsonObject("chestPos");
+                    double cx = pos.get("x").getAsDouble();
+                    double cy = pos.get("y").getAsDouble();
+                    double cz = pos.get("z").getAsDouble();
+                    int from = json.get("fromSlot").getAsInt();
+                    int to = json.get("toSlot").getAsInt();
+                    Integer count = json.has("count") ? json.get("count").getAsInt() : null;
+                    JsonObject snap = actionManager.chestTransfer(botId, from, to, count, cx, cy, cz);
+                    send(gson.toJson(snap));
+                    sendActionAck("chestTransfer", botId, snap);
+                    break;
+                }
+                case "chestClose": {
+                    JsonObject resp = actionManager.chestClose(botId);
+                    send(gson.toJson(resp));
+                    sendActionAck("chestClose", botId, resp);
+                    break;
+                }
+
+                case "mine":
+                case "dig":
+                    JsonObject pos = json.has("pos") && json.get("pos").isJsonObject() ? json.getAsJsonObject("pos") : json.getAsJsonObject("blockPosition");
+                    if (pos == null) {
+                        sendError(botId, action, "invalid_payload", "Missing position");
+                        return;
+                    }
+                    double x = pos.get("x").getAsDouble();
+                    double y = pos.get("y").getAsDouble();
+                    double z = pos.get("z").getAsDouble();
+                    boolean digSuccess = actionManager.dig(botId, x, y, z);
+                    sendActionSimple(botId, action, digSuccess, pos);
+                    break;
+
+                default:
+                    plugin.getLogger().warning("Unknown action type: " + action);
+                    sendError(botId, action, "unknown_action", "Unsupported action: " + action);
+            }
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to handle action payload", e);
+        }
+    }
+
+    private void sendActionSimple(String botId, String action, boolean success, JsonObject pos) {
+        JsonObject response = new JsonObject();
+        response.addProperty("type", success ? "actionComplete" : "actionFailed");
+        response.addProperty("action", action);
+        response.addProperty("botId", botId);
+        if (pos != null) {
+            response.add("pos", pos);
+        }
+        send(gson.toJson(response));
+    }
+
+    private void sendError(String botId, String action, String code, String message) {
+        JsonObject response = new JsonObject();
+        response.addProperty("type", "actionFailed");
+        response.addProperty("action", action);
+        response.addProperty("botId", botId);
+        response.addProperty("error", code);
+        response.addProperty("message", message);
+        send(gson.toJson(response));
+    }
+
+    private String[] extractItems(JsonObject json) {
+        if (json.has("items") && json.get("items").isJsonArray()) {
+            return gson.fromJson(json.get("items"), String[].class);
+        }
+        return new String[0];
+    }
+
+    private void sendActionAck(String action, String botId, JsonObject snap) {
+        boolean success = !snap.has("success") || snap.get("success").getAsBoolean();
+        if (snap != null) {
+            send(gson.toJson(snap));
+        }
+        JsonObject resp = new JsonObject();
+        resp.addProperty("type", success ? "actionComplete" : "actionFailed");
+        resp.addProperty("action", action);
+        resp.addProperty("botId", botId);
+        if (!success && snap != null && snap.has("error")) {
+            resp.addProperty("error", snap.get("error").getAsString());
+            if (snap.has("message")) {
+                resp.addProperty("message", snap.get("message").getAsString());
+            }
+        }
+        send(gson.toJson(resp));
+    }
+
     private void handleMoveBot(JsonObject json) {
         try {
             String botId = json.get("botId").getAsString();
@@ -132,6 +296,27 @@ public class FGDWebSocketClient extends WebSocketClient {
 
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to move bot", e);
+        }
+    }
+
+    private void handleNavigate(JsonObject json) {
+        try {
+            String botId = json.get("botId").getAsString();
+            JsonObject position = json.getAsJsonObject("position");
+            double x = position.get("x").getAsDouble();
+            double y = position.get("y").getAsDouble();
+            double z = position.get("z").getAsDouble();
+            double tol = json.has("tolerance") ? json.get("tolerance").getAsDouble() : 1.5;
+            long timeout = json.has("timeoutMs") ? json.get("timeoutMs").getAsLong() : 8000L;
+            boolean success = botManager.navigateBot(botId, x, y, z, tol, timeout);
+            JsonObject response = new JsonObject();
+            response.addProperty("type", "navigate_response");
+            response.addProperty("botId", botId);
+            response.addProperty("success", success);
+            response.add("position", position);
+            send(gson.toJson(response));
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to navigate bot", e);
         }
     }
 
@@ -350,6 +535,75 @@ public class FGDWebSocketClient extends WebSocketClient {
         JsonObject response = new JsonObject();
         response.addProperty("type", "pong");
         response.addProperty("timestamp", System.currentTimeMillis());
+        send(gson.toJson(response));
+    }
+
+    private void handleInventoryAction(String type, JsonObject json) {
+        try {
+            String botId = json.get("botId").getAsString();
+            switch (type) {
+                case "inventory:get": {
+                    JsonObject snap = actionManager.snapshotInventory(botId);
+                    send(gson.toJson(snap));
+                    JsonObject complete = new JsonObject();
+                    complete.addProperty("type", "actionComplete");
+                    complete.addProperty("action", "inventory:get");
+                    complete.addProperty("botId", botId);
+                    send(gson.toJson(complete));
+                    break;
+                }
+                case "inventory:move": {
+                    int from = json.get("from").getAsInt();
+                    int to = json.get("to").getAsInt();
+                    var result = actionManager.moveSlot(botId, from, to);
+                    emitActionResult("inventory:move", botId, result);
+                    break;
+                }
+                case "inventory:equip": {
+                    String item = json.has("item") ? json.get("item").getAsString() : null;
+                    Integer slot = json.has("slot") ? json.get("slot").getAsInt() : null;
+                    var result = actionManager.equip(botId, item, slot);
+                    emitActionResult("inventory:equip", botId, result);
+                    break;
+                }
+                case "inventory:useSlot": {
+                    int slot = json.get("slot").getAsInt();
+                    var result = actionManager.useSlot(botId, slot);
+                    emitActionResult("inventory:useSlot", botId, result);
+                    break;
+                }
+                case "inventory:drop": {
+                    int slot = json.get("slot").getAsInt();
+                    Integer count = json.has("count") ? json.get("count").getAsInt() : null;
+                    var result = actionManager.drop(botId, slot, count);
+                    emitActionResult("inventory:drop", botId, result);
+                    break;
+                }
+                default:
+                    plugin.getLogger().warning("Unsupported inventory op: " + type);
+            }
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to handle inventory action: " + type, e);
+        }
+    }
+
+    private void emitActionResult(String action, String botId, ActionManager.ActionResult result) {
+        if (result.getSnapshot() != null) {
+            send(gson.toJson(result.getSnapshot()));
+        }
+        JsonObject response = new JsonObject();
+        response.addProperty("type", result.isSuccess() ? "actionComplete" : "actionFailed");
+        response.addProperty("action", action);
+        response.addProperty("botId", botId);
+        if (result.getSnapshot() != null) {
+            response.add("snapshot", result.getSnapshot());
+        }
+        if (!result.isSuccess()) {
+            response.addProperty("error", result.getErrorCode());
+            if (result.getMessage() != null) {
+                response.addProperty("message", result.getMessage());
+            }
+        }
         send(gson.toJson(response));
     }
 

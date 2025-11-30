@@ -1,6 +1,4 @@
 import express from 'express';
-import path from 'path';
-import { ROOT_DIR } from '../config/constants.js';
 import { loadFusionData } from '../services/data.js';
 import { authenticate, requirePermission } from '../../middleware/auth.js';
 
@@ -13,11 +11,17 @@ export function initClusterRoutes(stateManager, npcSystem) {
 
   // Dashboard HTML routes
   router.get('/', (req, res) => {
-    res.sendFile(path.join(ROOT_DIR, 'dashboard.html'));
+    res.status(410).json({
+      message: 'The web dashboard has been removed.',
+      action: 'Use the Windows desktop app to manage the cluster.',
+    });
   });
 
   router.get('/admin', (req, res) => {
-    res.sendFile(path.join(ROOT_DIR, 'admin.html'));
+    res.status(410).json({
+      message: 'The admin web UI has been removed.',
+      action: 'Use the Windows desktop app to administer the system.',
+    });
   });
 
   // Cluster data endpoints
@@ -95,27 +99,6 @@ export function initClusterRoutes(stateManager, npcSystem) {
   });
 
   // Node details
-  router.get('/api/nodes/:id', (req, res) => {
-    const nodeId = parseInt(req.params.id);
-    const node = systemState.nodes[nodeId];
-    if (!node) return res.status(404).json({ error: 'Node not found' });
-
-    const detailedNode = {
-      ...node,
-      id: nodeId,
-      uptime: Math.floor(Math.random() * 86400000) + 3600000,
-      connections: Math.floor(Math.random() * 50) + 10,
-      packetsProcessed: Math.floor(Math.random() * 1000000) + 100000,
-      errors: Math.floor(Math.random() * 10),
-      lastHeartbeat: new Date().toISOString(),
-      version: '2.4.1',
-      region: ['US-East', 'EU-West', 'Asia-Pacific'][Math.floor(Math.random() * 3)],
-    };
-
-    res.json(detailedNode);
-  });
-
-  // Fusion data endpoint
   router.get('/data/fused_knowledge.json', async (req, res) => {
     try {
       const data = await loadFusionData();

@@ -1,0 +1,38 @@
+{
+  "providers": {
+    "openai": {
+      "command": "openai",
+      "args": ["chat", "completions", "create", "--model", "gpt-4o-mini", "--message"],
+      "enabled": true,
+      "timeout": 30000
+    },
+    "codex": {
+      "command": "codex",
+      "args": [],
+      "enabled": true,
+      "timeout": 60000
+    },
+    "gemini": {
+      "command": "gemini",
+      "args": [],
+      "enabled": true,
+      "timeout": 30000
+    },
+    "claude": {
+      "command": "claude",
+      "args": [],
+      "enabled": true,
+      "timeout": 60000
+    },
+    "grok": {
+      "command": "grok",
+      "args": [],
+      "enabled": true,
+      "timeout": 30000
+    }
+  },
+  "defaults": {
+    "provider": "openai",
+    "timeout": 30000
+  }
+}

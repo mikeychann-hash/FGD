@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>FGD Internal API Docs</title>
+    <link rel="stylesheet" href="swagger-ui.css" />
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="swagger-ui-bundle.js"></script>
+    <script>
+      window.onload = () => {
+        const url = new URL(window.location.href).searchParams.get('url') || 'swagger.json';
+        SwaggerUIBundle({ url, dom_id: '#swagger-ui' });
+      };
+    </script>
+  </body>
+</html>

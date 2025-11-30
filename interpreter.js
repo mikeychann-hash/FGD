@@ -56,7 +56,7 @@ function extractFirstCoordinateTriplet(text) {
 
       // Validate reasonable Minecraft coordinates
       if (Math.abs(coords.x) > CONSTANTS.MAX_MINECRAFT_COORDINATE ||
-          Math.abs(coords.z) > CONSTANTS.MAX_MINECRAFT_COORDINATE) {
+        Math.abs(coords.z) > CONSTANTS.MAX_MINECRAFT_COORDINATE) {
         continue; // Try next pattern or return null
       }
 
@@ -270,17 +270,24 @@ export async function interpretCommand(inputText, options = {}) {
 
   const {
     controlRatio,
-    mockLLMResponse
+    mockLLMResponse,
+    context
   } = options || {};
 
   const ratio = clampRatio(controlRatio);
   const effectiveRatio = typeof ratio === "number" ? ratio : DEFAULT_MODEL_CONTROL_RATIO;
   const hasMockLLM = mockLLMResponse != null;
   const useLLM = hasMockLLM || Boolean(process.env.OPENAI_API_KEY);
+
+  let systemContent = CONSTANTS.SYSTEM_PROMPT;
+  if (context) {
+    systemContent += `\n\nCurrent Context:\n${JSON.stringify(context, null, 2)}`;
+  }
+
   const messages = [
     {
       role: "system",
-      content: CONSTANTS.SYSTEM_PROMPT
+      content: systemContent
     },
     {
       role: "user",

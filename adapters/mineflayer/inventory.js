@@ -54,37 +54,24 @@ export class MineflayerInventoryAdapter {
    */
   _getInventory(bot) {
     try {
-      const inventory = [];
-      const cursorStack = bot.inventory.cursor();
+      const items = bot.inventory.items();
+      const inventory = items.map(item => ({
+        slot: item.slot,
+        itemName: item.name,
+        count: item.count,
+        metadata: item.metadata
+      }));
 
-      // Collect all items in inventory
-      for (let i = 0; i < bot.inventory.inventoryEnd; i++) {
-        const item = bot.inventory.slots[i];
-        if (item) {
-          inventory.push({
-            slot: i,
-            itemName: item.name,
-            count: item.count,
-            metadata: item.metadata
-          });
-        }
-      }
-
-      // Add cursor item if present
-      const cursorItem = {
-        slot: 'cursor',
-        itemName: cursorStack?.name || null,
-        count: cursorStack?.count || 0,
-        metadata: cursorStack?.metadata
-      };
-
+      // Check cursor if any (item being dragged)
+      // bot.inventory.cursor is sometimes null or undefined depending on version
+      // But items() usually returns everything in main inventory + hotbar + armor + offhand
+      
       return {
         success: true,
         data: {
           inventory,
-          cursorStack: cursorItem,
           totalSlots: bot.inventory.inventoryEnd,
-          occupiedSlots: inventory.length
+          occupiedSlots: items.length
         }
       };
     } catch (error) {
@@ -98,6 +85,9 @@ export class MineflayerInventoryAdapter {
    */
   async _equipItem(bot, params) {
     const itemName = params?.itemName;
+    // slot parameter in validation is 0-8 (hotbar)
+    // We can also infer destination from item type if not specified, 
+    // but for now we default to 'hand' if slot is a number or unspecified.
     const slot = params?.slot;
 
     if (!itemName) {
@@ -106,18 +96,17 @@ export class MineflayerInventoryAdapter {
 
     try {
       // Find item in inventory
-      const item = bot.inventory.findInventoryObject(itemName);
+      const item = bot.inventory.items().find(i => i.name === itemName);
       if (!item) {
         return { success: false, error: `Item ${itemName} not found in inventory` };
       }
 
-      // Equip to hand or specific slot
-      const destination = typeof slot === 'number' ? 'hand' : 'hand';
+      const destination = 'hand'; // Default to hand for basic 'equip'
 
       logger.info('Equipping item', {
         botId: bot.username,
         itemName,
-        slot: destination
+        destination
       });
 
       await bot.equip(item, destination);
@@ -142,15 +131,12 @@ export class MineflayerInventoryAdapter {
     const slot = params?.slot;
     const count = params?.count || 1;
 
-    if (typeof slot !== 'number' || slot < 0 || slot >= bot.inventory.inventoryEnd) {
+    if (typeof slot !== 'number') {
       return { success: false, error: `Invalid slot: ${slot}` };
     }
 
-    if (count < 1 || count > 64) {
-      return { success: false, error: 'Count must be between 1 and 64' };
-    }
-
     try {
+      // Note: bot.inventory.slots contains nulls for empty slots
       const item = bot.inventory.slots[slot];
       if (!item) {
         return { success: false, error: `Slot ${slot} is empty` };
@@ -165,14 +151,28 @@ export class MineflayerInventoryAdapter {
         count
       });
 
-      // Drop the item
-      await bot.drop(item, count);
+      // Use tossStack if available (drops the specific item object)
+      // If count is specified, we might need to separate it?
+      // bot.toss(type, metadata, count) is older API.
+      // bot.tossStack(item, callback) drops the whole stack usually?
+      // Actually bot.tossStack takes an Item object.
+      // To drop partial count, we might need clickWindow logic, but standard toss drops stack.
+      // Let's rely on bot.toss if it exists (older) or tossStack (newer).
+      
+      if (bot.tossStack) {
+        await bot.tossStack(item);
+      } else if (bot.toss) {
+         // Older API: toss(itemType, metadata, count)
+         await bot.toss(item.type, item.metadata, count);
+      } else {
+        throw new Error("No drop method available on bot");
+      }
 
       return {
         success: true,
         data: {
           dropped: itemName,
-          count,
+          count, // Note: if tossStack dropped all, this might be inaccurate if count < stack
           slot
         }
       };

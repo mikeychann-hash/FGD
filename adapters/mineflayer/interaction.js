@@ -6,6 +6,7 @@
  * - place_block: Place a block
  * - interact: Interact with a block (e.g., open chest)
  * - use_item: Use an item in bot's hand
+ * - eat: Consume food
  */
 
 import { logger } from '../../logger.js';
@@ -44,6 +45,9 @@ export class MineflayerInteractionAdapter {
         case 'use_item':
           return await this._useItem(bot, task.parameters);
 
+        case 'eat':
+          return await this._eat(bot, task.parameters);
+
         default:
           return { success: false, error: `Unknown interaction type: ${task.type}` };
       }
@@ -71,7 +75,6 @@ export class MineflayerInteractionAdapter {
     }
 
     try {
-      // Get block at position
       const block = bot.blockAt({ x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) });
       if (!block) {
         return { success: false, error: 'No block found at target position' };
@@ -89,30 +92,17 @@ export class MineflayerInteractionAdapter {
         position: { x, y, z }
       });
 
-      // Attempt to mine
-      return await new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          resolve({ success: false, error: 'Mining timeout' });
-        }, this.options.taskTimeoutMs || 30000);
+      await bot.dig(block);
 
-        bot.dig(block)
-          .then(() => {
-            clearTimeout(timeout);
-            resolve({
-              success: true,
-              data: {
-                mined: {
-                  blockType: block.name,
-                  position: { x, y, z }
-                }
-              }
-            });
-          })
-          .catch(err => {
-            clearTimeout(timeout);
-            resolve({ success: false, error: err.message });
-          });
-      });
+      return {
+        success: true,
+        data: {
+          mined: {
+            blockType: block.name,
+            position: { x, y, z }
+          }
+        }
+      };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -148,7 +138,9 @@ export class MineflayerInteractionAdapter {
 
     try {
       // Check bot has block in inventory
-      const itemInHand = bot.inventory.findInventoryObject(blockType);
+      // Note: findInventoryObject usually takes ID or name. We assume name here.
+      const itemInHand = bot.inventory.items().find(item => item.name === blockType);
+      
       if (!itemInHand) {
         return {
           success: false,
@@ -159,11 +151,22 @@ export class MineflayerInteractionAdapter {
       // Equip the block
       await bot.equip(itemInHand, 'hand');
 
-      // Place the block
-      const placementBlock = bot.blockAt({ x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) });
-      if (!placementBlock) {
+      // Calculate reference block to place against
+      const referenceBlock = bot.blockAt({ x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) });
+      if (!referenceBlock) {
         return { success: false, error: 'Cannot find block to place against' };
       }
+
+      // For Mineflayer placeBlock, we need a vector for the face direction
+      const faceVectors = {
+        top: { x: 0, y: 1, z: 0 },
+        bottom: { x: 0, y: -1, z: 0 },
+        north: { x: 0, y: 0, z: -1 },
+        south: { x: 0, y: 0, z: 1 },
+        east: { x: 1, y: 0, z: 0 },
+        west: { x: -1, y: 0, z: 0 }
+      };
+      const vec = faceVectors[face] || faceVectors.top;
 
       logger.info('Placing block', {
         botId: bot.username,
@@ -171,29 +174,17 @@ export class MineflayerInteractionAdapter {
         position: { x, y, z }
       });
 
-      return await new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          resolve({ success: false, error: 'Block placement timeout' });
-        }, this.options.taskTimeoutMs || 30000);
+      await bot.placeBlock(referenceBlock, vec);
 
-        bot.placeBlock(placementBlock, { face })
-          .then(() => {
-            clearTimeout(timeout);
-            resolve({
-              success: true,
-              data: {
-                placed: {
-                  blockType,
-                  position: { x, y, z }
-                }
-              }
-            });
-          })
-          .catch(err => {
-            clearTimeout(timeout);
-            resolve({ success: false, error: err.message });
-          });
-      });
+      return {
+        success: true,
+        data: {
+          placed: {
+            blockType,
+            position: { x, y, z }
+          }
+        }
+      };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -228,30 +219,17 @@ export class MineflayerInteractionAdapter {
         position: { x, y, z }
       });
 
-      // Activate the block (right-click)
-      return await new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          resolve({ success: false, error: 'Interaction timeout' });
-        }, this.options.taskTimeoutMs || 30000);
+      await bot.activateBlock(block);
 
-        bot.activateBlock(block)
-          .then(() => {
-            clearTimeout(timeout);
-            resolve({
-              success: true,
-              data: {
-                interacted: {
-                  blockType: block.name,
-                  position: { x, y, z }
-                }
-              }
-            });
-          })
-          .catch(err => {
-            clearTimeout(timeout);
-            resolve({ success: false, error: err.message });
-          });
-      });
+      return {
+        success: true,
+        data: {
+          interacted: {
+            blockType: block.name,
+            position: { x, y, z }
+          }
+        }
+      };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -268,8 +246,7 @@ export class MineflayerInteractionAdapter {
     }
 
     try {
-      // Find item in inventory
-      const item = bot.inventory.findInventoryObject(itemName);
+      const item = bot.inventory.items().find(i => i.name === itemName);
       if (!item) {
         return { success: false, error: `Item ${itemName} not found in inventory` };
       }
@@ -277,13 +254,13 @@ export class MineflayerInteractionAdapter {
       // Equip item
       await bot.equip(item, 'hand');
 
-      // Use the item (activate right-click action)
       logger.info('Using item', {
         botId: bot.username,
         itemName
       });
 
-      bot.activateItem();
+      // Simple activation
+      bot.activateItem(); 
 
       return {
         success: true,
@@ -293,6 +270,45 @@ export class MineflayerInteractionAdapter {
       };
     } catch (error) {
       return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Consume food
+   * @private
+   */
+  async _eat(bot, params) {
+    const itemName = params?.itemName;
+    
+    try {
+      let item;
+      if (itemName) {
+        item = bot.inventory.items().find(i => i.name === itemName);
+        if (!item) {
+          return { success: false, error: `Food ${itemName} not found` };
+        }
+      } else {
+        // Find best food (simplified)
+        const foods = bot.inventory.items().filter(i => i.name.includes('apple') || i.name.includes('bread') || i.name.includes('steak') || i.name.includes('porkchop'));
+        item = foods[0];
+        if (!item) {
+          return { success: false, error: "No food found in inventory" };
+        }
+      }
+
+      await bot.equip(item, 'hand');
+      await bot.consume();
+
+      return {
+        success: true,
+        data: {
+          eaten: item.name,
+          foodLevel: bot.food
+        }
+      };
+
+    } catch (error) {
+       return { success: false, error: error.message };
     }
   }
 }

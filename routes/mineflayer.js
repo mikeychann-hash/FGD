@@ -9,11 +9,11 @@ import express from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import {
   executeMineflayerTask,
-  spawnBotViaMinecraft,
   despawnBotViaMinecraft,
 } from '../src/services/mineflayer_initializer.js';
 import { TASK_ROUTING_TABLE } from '../adapters/mineflayer/router.js';
 import { logger } from '../logger.js';
+import { spawnBot, SpawnError } from '../src/services/spawn_pipeline.js';
 
 /**
  * Initialize Mineflayer bot routes
@@ -44,13 +44,6 @@ export function initMineflayerRoutes(npcSystem, io) {
    */
   router.post('/spawn', authenticate, authorize('write'), async (req, res) => {
     try {
-      if (!mineflayerBridge) {
-        return res.status(503).json({
-          success: false,
-          error: 'Mineflayer bridge not available',
-        });
-      }
-
       const { botId, username, version } = req.body;
 
       if (!botId) {
@@ -60,38 +53,36 @@ export function initMineflayerRoutes(npcSystem, io) {
         });
       }
 
-      logger.info('Spawning bot via Mineflayer', { botId, username });
-
-      const result = await spawnBotViaMinecraft(mineflayerBridge, botId, {
-        username: username || botId,
-        version,
+      logger.info('Spawning bot via Mineflayer route (delegated to canonical pipeline)', {
+        botId,
+        username,
       });
 
-      // Update NPC engine registry if available
-      if (npcEngine && npcEngine.npcs) {
-        if (!npcEngine.npcs.has(botId)) {
-          npcEngine.npcs.set(botId, {
-            id: botId,
-            type: 'mineflayer',
-            status: 'active',
-            position: result.position,
-            runtime: {
-              health: result.health,
-              food: result.food,
-            },
-            lastUpdate: new Date().toISOString(),
-          });
-        }
-      }
+      const result = await spawnBot(npcSystem, io, {
+        botId,
+        position: req.body?.position || null,
+        user: req.user,
+        source: 'mineflayer-route',
+      });
 
       res.json({
-        success: result.success,
-        botId: result.botId,
+        success: true,
+        botId,
+        redirectedTo: '/api/bots/:id/spawn',
         position: result.position,
-        health: result.health,
-        food: result.food,
+        spawned: result.spawned,
+        spawnResponse: result.spawnResponse || null,
       });
     } catch (err) {
+      if (err instanceof SpawnError) {
+        return res.status(err.status).json({
+          success: false,
+          error: err.meta?.error || 'Spawn failed',
+          message: err.message,
+          ...err.meta,
+        });
+      }
+
       logger.error('Failed to spawn bot', { error: err.message });
       res.status(500).json({
         success: false,

@@ -62,20 +62,20 @@ export class NPCEngine extends EventEmitter {
     this.spawner = options.spawner instanceof NPCSpawner
       ? options.spawner
       : new NPCSpawner({
-          engine: this,
-          registry: this.registry,
-          learningEngine: this.learningEngine,
-          autoSpawn: this.autoSpawn
-        });
+        engine: this,
+        registry: this.registry,
+        learningEngine: this.learningEngine,
+        autoSpawn: this.autoSpawn
+      });
     this.registryReady = this.registry ? this.registry.load().catch(err => {
       console.error("❌ Failed to load NPC registry:", err.message);
       return [];
     }) : Promise.resolve([]);
     this.learningReady = this.learningEngine
       ? this.learningEngine.initialize().catch(err => {
-          console.error("❌ Failed to initialize learning engine:", err.message);
-          return null;
-        })
+        console.error("❌ Failed to initialize learning engine:", err.message);
+        return null;
+      })
       : Promise.resolve(null);
 
     // Initialize manager modules
@@ -83,6 +83,11 @@ export class NPCEngine extends EventEmitter {
     this.queueManager = new QueueManager(this);
     this.dispatchManager = new DispatchManager(this);
     this.bridgeManager = new BridgeManager(this);
+    this.actionPipeline = null;
+    this.hungerState = new Map(); // botId -> { hunger, saturation }
+    this._hungerTimer = null;
+    this._chestTimer = null;
+    this._chestInFlight = new Set();
 
     if (this.bridge) {
       this.bridgeManager.attachBridgeListeners(this.bridge);
@@ -136,12 +141,13 @@ export class NPCEngine extends EventEmitter {
   }
 
   async spawnNPC(id, options = {}) {
-    if (this.mineflayerBridge && typeof this.mineflayerBridge.createBot === "function") {
-      const spawnOptions = {
-        username: options.username || id,
-        version: options.version || this.mineflayerBridge.options?.version
-      };
-      return this.mineflayerBridge.createBot(id, spawnOptions);
+    if (this.mineflayerBridge && typeof this.mineflayerBridge.spawnBot === "function") {
+      return this.mineflayerBridge.spawnBot({
+        botId: id,
+        position: options.position || null,
+        skin: options.appearance?.skin || null,
+        metadata: options.metadata || {},
+      });
     }
     return this.bridgeManager.spawnNPC(id, options);
   }
@@ -446,10 +452,135 @@ export class NPCEngine extends EventEmitter {
       this.emit("npc_bridge_move", payload);
     };
 
+    const onSpawned = payload => {
+      if (!payload?.botId) return;
+      const npc = this.npcs.get(payload.botId);
+      if (!npc) return;
+      const runtime = { ...(npc.runtime || {}) };
+      if (payload.position) {
+        runtime.position = { ...payload.position };
+        npc.position = { ...payload.position };
+      }
+      if (payload.uuid) {
+        runtime.entityId = payload.uuid;
+      }
+      npc.runtime = runtime;
+      this.npcs.set(payload.botId, npc);
+      this.ensureBotEntity(payload.botId, payload.position, payload.uuid);
+      this.emit("npc_spawned", payload);
+    };
+
+    const onActionComplete = payload => {
+      if (!payload?.botId) return;
+      const npc = this.npcs.get(payload.botId);
+      if (!npc) return;
+      const runtime = { ...(npc.runtime || {}) };
+      runtime.lastAction = payload.action;
+      runtime.lastActionAt = new Date(payload.timestamp || Date.now()).toISOString();
+      runtime.actionState = 'complete';
+      if (typeof payload.hunger === 'number') {
+        runtime.hunger = payload.hunger;
+        this.setHungerLevel(payload.botId, payload.hunger);
+      }
+      runtime.status = "idle";
+      npc.runtime = runtime;
+      npc.state = runtime.status;
+      this.npcs.set(payload.botId, npc);
+      if (this.registry?.upsert) {
+        this.registry.upsert({
+          id: payload.botId,
+          lastKnownPosition: npc.position || runtime.position || null,
+          metadata: {
+            ...(npc.metadata || {}),
+            lastAction: payload.action,
+            lastActionAt: runtime.lastActionAt,
+            actionState: runtime.actionState,
+          },
+        }).catch(err => console.error(`Failed to persist action complete for ${payload.botId}:`, err.message));
+      }
+      this.emit("npc_action_complete", payload);
+    };
+
+    const onActionFailed = payload => {
+      if (!payload?.botId) return;
+      const npc = this.npcs.get(payload.botId);
+      if (!npc) return;
+      const runtime = { ...(npc.runtime || {}) };
+      runtime.lastAction = payload.action;
+      runtime.lastActionAt = new Date(payload.timestamp || Date.now()).toISOString();
+      runtime.actionState = 'failed';
+      if (typeof payload.hunger === 'number') {
+        runtime.hunger = payload.hunger;
+        this.setHungerLevel(payload.botId, payload.hunger);
+      }
+      npc.runtime = runtime;
+      this.npcs.set(payload.botId, npc);
+      if (this.registry?.upsert) {
+        this.registry.upsert({
+          id: payload.botId,
+          metadata: {
+            ...(npc.metadata || {}),
+            lastAction: payload.action,
+            lastActionAt: runtime.lastActionAt,
+            actionState: runtime.actionState,
+            lastActionError: payload.error || 'failed',
+          },
+        }).catch(err => console.error(`Failed to persist action failure for ${payload.botId}:`, err.message));
+      }
+      this.emit("npc_action_failed", payload);
+    };
+
+    const onInventorySnapshot = payload => {
+      if (!payload?.botId) return;
+      const npc = this.npcs.get(payload.botId);
+      if (!npc) return;
+      const runtime = { ...(npc.runtime || {}) };
+      runtime.inventory = Array.isArray(payload.slots) ? payload.slots : [];
+      npc.runtime = runtime;
+      npc.metadata = { ...(npc.metadata || {}), inventory: runtime.inventory };
+      this.npcs.set(payload.botId, npc);
+      if (this.registry?.upsert) {
+        this.registry.upsert({
+          id: payload.botId,
+          metadata: { ...(npc.metadata || {}), inventory: runtime.inventory },
+          runtime: { ...(npc.runtime || {}), inventory: runtime.inventory },
+        }).catch(err => console.error(`Failed to persist inventory for ${payload.botId}:`, err.message));
+      }
+      this.emit("npc_inventory", payload);
+    };
+
+    const onChestSnapshot = payload => {
+      if (!payload?.botId) return;
+      const npc = this.npcs.get(payload.botId);
+      if (!npc) return;
+      const runtime = { ...(npc.runtime || {}) };
+      runtime.chest = {
+        chestPos: payload.chestPos || null,
+        slots: Array.isArray(payload.slots) ? payload.slots : [],
+        lastUpdated: new Date(payload.timestamp || Date.now()).toISOString(),
+      };
+      npc.runtime = runtime;
+      npc.metadata = { ...(npc.metadata || {}), chest: runtime.chest };
+      this.npcs.set(payload.botId, npc);
+      if (this.registry?.upsert) {
+        this.registry.upsert({
+          id: payload.botId,
+          metadata: { ...(npc.metadata || {}), chest: runtime.chest },
+          runtime: { ...(npc.runtime || {}), chest: runtime.chest },
+        }).catch(err => console.error(`Failed to persist chest for ${payload.botId}:`, err.message));
+      }
+      this.emit("npc_chest", payload);
+    };
+
     bridge.on("scanResult", onScan);
     bridge.on("botMoved", onMove);
+    bridge.on("bot_spawned", onSpawned);
+    bridge.on("bot_action_complete", onActionComplete);
+    bridge.on("bot_action_failed", onActionFailed);
+    bridge.on("inventory_snapshot", onInventorySnapshot);
+    bridge.on("chest_snapshot", onChestSnapshot);
 
-    this.bridgeSensors = { bridge, onScan, onMove };
+    this.bridgeSensors = { bridge, onScan, onMove, onSpawned, onActionComplete, onActionFailed, onInventorySnapshot, onChestSnapshot };
   }
 
   _unbindBridgeSensors() {
@@ -457,10 +588,118 @@ export class NPCEngine extends EventEmitter {
       return;
     }
 
-    const { bridge, onScan, onMove } = this.bridgeSensors;
+    const { bridge, onScan, onMove, onSpawned, onActionComplete, onActionFailed, onInventorySnapshot, onChestSnapshot } = this.bridgeSensors;
     this._removeBridgeListener(bridge, "scanResult", onScan);
     this._removeBridgeListener(bridge, "botMoved", onMove);
+    this._removeBridgeListener(bridge, "bot_spawned", onSpawned);
+    this._removeBridgeListener(bridge, "bot_action_complete", onActionComplete);
+    this._removeBridgeListener(bridge, "bot_action_failed", onActionFailed);
+    this._removeBridgeListener(bridge, "inventory_snapshot", onInventorySnapshot);
+    this._removeBridgeListener(bridge, "chest_snapshot", onChestSnapshot);
     this.bridgeSensors = null;
+  }
+
+  async runAction(botId, action) {
+    if (!this.bridge || typeof this.bridge.dispatchAction !== "function") {
+      throw new Error("Bridge not ready for actions");
+    }
+    return this.bridge.dispatchAction({ botId, ...action });
+  }
+
+  getHungerLevel(botId) {
+    const npc = this.npcs.get(botId);
+    if (npc?.runtime?.hunger != null) return npc.runtime.hunger;
+    if (npc?.metadata?.hunger != null) return npc.metadata.hunger;
+    if (this.hungerState.has(botId)) return this.hungerState.get(botId).hunger;
+    return 20;
+  }
+
+  setHungerLevel(botId, value) {
+    const hunger = Math.max(0, Math.min(20, Number.isFinite(value) ? value : 20));
+    this.hungerState.set(botId, { hunger });
+    const npc = this.npcs.get(botId);
+    if (npc) {
+      npc.runtime = { ...(npc.runtime || {}), hunger };
+      npc.metadata = { ...(npc.metadata || {}), hunger };
+      this.npcs.set(botId, npc);
+    }
+  }
+
+  setActionPipeline(pipeline) {
+    this.actionPipeline = pipeline;
+  }
+
+  startHungerMonitor(options = {}) {
+    const threshold = options.threshold ?? 12;
+    const goldenAppleHealth = options.goldenAppleHealth ?? 0.5;
+    const interval = options.intervalMs ?? 5000;
+    if (this._hungerTimer) clearInterval(this._hungerTimer);
+    this._hungerTimer = setInterval(async () => {
+      if (!this.actionPipeline) return;
+      for (const npc of this.npcs.values()) {
+        const hunger = this.getHungerLevel(npc.id);
+        const inCombat = npc.state === "combat" || npc.metadata?.inCombat;
+        if (inCombat) continue;
+        if (hunger < threshold) {
+          const allowGoldenApple = (npc.runtime?.health || npc.metadata?.health || 20) <= (20 * goldenAppleHealth);
+          try {
+            await this.actionPipeline.run(npc.id, { type: 'eat', allowGoldenApple });
+          } catch (err) {
+            this.emit("npc_error", { npcId: npc.id, payload: { message: err.message, stage: 'auto-eat' } });
+          }
+        }
+      }
+    }, interval);
+    if (this._hungerTimer.unref) this._hungerTimer.unref();
+  }
+
+  startChestMonitor(options = {}) {
+    const interval = options.intervalMs ?? 10000;
+    const threshold = options.threshold ?? 0.8; // 80% of slots used
+    const cooldownMs = options.cooldownMs ?? 15000;
+    if (this._chestTimer) clearInterval(this._chestTimer);
+    this._chestTimer = setInterval(async () => {
+      if (!this.actionPipeline) return;
+      for (const npc of this.npcs.values()) {
+        const botId = npc.id;
+        if (!botId || this._chestInFlight.has(botId)) continue;
+        const homeChest = npc.metadata?.homeChest || npc.metadata?.chestHome;
+        if (!homeChest || typeof homeChest.x !== "number") continue;
+        const inv = npc.runtime?.inventory || npc.metadata?.inventory || [];
+        const fill = this._inventoryFill(inv);
+        if (fill >= threshold) {
+          this._chestInFlight.add(botId);
+          this.actionPipeline
+            .run(botId, { type: "chest.interact", mode: "deposit", chestPos: homeChest })
+            .catch((err) => this.emit("npc_error", { npcId: botId, payload: { message: err.message, stage: "auto-chest" } }))
+            .finally(() => {
+              setTimeout(() => this._chestInFlight.delete(botId), cooldownMs);
+            });
+        }
+      }
+    }, interval);
+    if (this._chestTimer.unref) this._chestTimer.unref();
+  }
+
+  stopChestMonitor() {
+    if (this._chestTimer) {
+      clearInterval(this._chestTimer);
+      this._chestTimer = null;
+    }
+  }
+
+  _inventoryFill(inv) {
+    if (!Array.isArray(inv)) return 0;
+    const usedSlots = inv.length;
+    const capacity = 36;
+    return Math.min(1, usedSlots / capacity);
+  }
+
+  stopHungerMonitor() {
+    if (this._hungerTimer) {
+      clearInterval(this._hungerTimer);
+      this._hungerTimer = null;
+    }
   }
 
   _removeBridgeListener(bridge, event, handler) {
@@ -566,18 +805,18 @@ export class NPCEngine extends EventEmitter {
 
     const normalizedProfile = profile
       ? {
-          ...profile,
-          personality,
-          personalitySummary,
-          personalityTraits: personalityTraits ?? profile.personalityTraits,
-          metadata: {
-            ...metadataWithPersonality,
-            learning:
-              metadataWithPersonality.learning != null
-                ? metadataWithPersonality.learning
-                : profile.metadata?.learning
-          }
+        ...profile,
+        personality,
+        personalitySummary,
+        personalityTraits: personalityTraits ?? profile.personalityTraits,
+        metadata: {
+          ...metadataWithPersonality,
+          learning:
+            metadataWithPersonality.learning != null
+              ? metadataWithPersonality.learning
+              : profile.metadata?.learning
         }
+      }
       : null;
 
     const runtime = {
@@ -748,8 +987,8 @@ export class NPCEngine extends EventEmitter {
   // Task Handling
   // ============================================================================
 
-  async handleCommand(inputText, sender = "system") {
-    const interpreterOptions = { ...this.interpreterOptions };
+  async handleCommand(inputText, sender = "system", context = {}) {
+    const interpreterOptions = { ...this.interpreterOptions, context };
     if (typeof this.modelControlRatio === "number") {
       interpreterOptions.controlRatio = this.modelControlRatio;
     }
@@ -776,7 +1015,7 @@ export class NPCEngine extends EventEmitter {
       if (idleNPCs.length > 0 && normalizedTask.preferredNpcTypes.length > 0) {
         console.warn(
           `⏸️  No compatible NPC types available. Waiting for ${normalizedTask.preferredNpcTypes.join(", ")}.` +
-            ` Task queued at position ${position} (priority: ${normalizedTask.priority})`
+          ` Task queued at position ${position} (priority: ${normalizedTask.priority})`
         );
       } else {
         console.warn(
@@ -908,6 +1147,33 @@ export class NPCEngine extends EventEmitter {
     }
 
     return status;
+  }
+
+  /**
+   * Ensure runtime/registry entity metadata is attached
+   */
+  ensureBotEntity(botId, position = null, entityId = null) {
+    const npc = this.npcs.get(botId);
+    if (!npc) return;
+    const runtime = npc.runtime || {};
+    if (position) {
+      runtime.position = position;
+      npc.position = position;
+    }
+    if (entityId) {
+      runtime.entityId = entityId;
+    }
+    npc.runtime = runtime;
+    this.npcs.set(botId, npc);
+    if (this.registry && entityId) {
+      this.registry.upsert({
+        id: botId,
+        lastKnownPosition: position || npc.position || null,
+        metadata: { ...(npc.metadata || {}), entityId },
+      }).catch(err => {
+        console.error(`Failed to upsert entityId for ${botId}:`, err.message);
+      });
+    }
   }
 
   // ============================================================================

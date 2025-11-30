@@ -12,6 +12,7 @@ import { MovementTaskExecutor } from '../executors/MovementTaskExecutor.js';
 import { InventoryTaskExecutor } from '../executors/InventoryTaskExecutor.js';
 import { CombatTaskExecutor } from '../executors/CombatTaskExecutor.js';
 import { CraftTaskExecutor } from '../executors/CraftTaskExecutor.js';
+import minecraftData from 'minecraft-data';
 
 /**
  * Initialize Mineflayer bridge
@@ -75,13 +76,16 @@ export function createTaskExecutors(bridge) {
   }
 
   try {
+    const version = bridge.options.version || '1.20.1';
+    const mcData = minecraftData(version);
+
     const executors = {
       mine: new MineTaskExecutor(bridge),
       move: new MovementTaskExecutor(bridge),
       movement: new MovementTaskExecutor(bridge), // Alias
       inventory: new InventoryTaskExecutor(bridge),
       combat: new CombatTaskExecutor(bridge),
-      craft: new CraftTaskExecutor(bridge),
+      craft: new CraftTaskExecutor(bridge, mcData),
     };
 
     logger.info('Task executors created', { executors: Object.keys(executors) });
@@ -174,6 +178,11 @@ export function bridgeMineflayerEvents(bridge, npcEngine, io) {
     // Entity detected
     bridge.on('entity_detected', (data) => {
       if (io) io.emit('bot:entity_detected', data);
+    });
+
+    // Player moved
+    bridge.on('player_moved', (data) => {
+      npcEngine.emit('player_moved', data);
     });
 
     logger.info('Mineflayer events bridged to NPC system');

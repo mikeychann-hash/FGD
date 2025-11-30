@@ -1,0 +1,131 @@
+openapi: 3.1.0
+info:
+  title: FGD Internal API
+  version: "1.0.0"
+servers:
+  - url: http://localhost:3000
+paths:
+  /api/health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+  /api/minecraft/status:
+    get:
+      summary: Minecraft bridge/plugin heartbeat status
+      responses:
+        '200':
+          description: OK
+  /api/progression:
+    get:
+      summary: Current progression status
+      responses:
+        '200':
+          description: OK
+  /api/progression/phase:
+    put:
+      summary: Set progression phase
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phase:
+                  type: integer
+              required: [phase]
+      responses:
+        '200': { description: Phase updated }
+  /api/bots:
+    get:
+      summary: List bots
+      responses:
+        '200': { description: Bots listed }
+    post:
+      summary: Create bot
+      responses:
+        '201': { description: Bot created }
+  /api/bots/{id}/spawn:
+    post:
+      summary: Spawn bot via Golden Path
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Spawn accepted }
+  /api/bots/{id}/despawn:
+    post:
+      summary: Despawn bot
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Despawned }
+  /api/bots/spawn-all:
+    post:
+      summary: Spawn all bots
+      responses:
+        '200': { description: Spawn-all accepted }
+  /api/bots/{id}/action:
+    post:
+      summary: Dispatch in-world action for a bot
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type: { type: string }
+                block: { type: string }
+                position:
+                  $ref: '#/components/schemas/Position'
+              required: [type]
+      responses:
+        '200': { description: Action accepted }
+        '400': { description: Validation error }
+  /api/action:
+    post:
+      summary: Dispatch in-world action through UAF
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                botId: { type: string }
+                type: { type: string }
+                block: { type: string }
+                position:
+                  $ref: '#/components/schemas/Position'
+              required: [botId, type]
+      responses:
+        '200': { description: Action accepted }
+        '400': { description: Validation error }
+components:
+  schemas:
+    Position:
+      type: object
+      properties:
+        x: { type: number }
+        y: { type: number }
+        z: { type: number }
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+security:
+  - ApiKeyAuth: []

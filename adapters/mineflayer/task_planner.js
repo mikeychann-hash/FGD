@@ -14,6 +14,7 @@
  */
 
 import { logger } from '../../logger.js';
+import { generateLLMPlan } from './llm_planner.js';
 
 export class TaskPlanner {
   constructor(observer, registry, options = {}) {
@@ -74,15 +75,55 @@ export class TaskPlanner {
 
       // Look up goal template
       const template = this.goalTemplates[goal];
-      if (!template) {
-        return {
-          success: false,
-          error: `Unknown goal: ${goal}. Available: ${Object.keys(this.goalTemplates).join(', ')}`
-        };
-      }
+      let plan;
 
-      // Generate plan from template
-      let plan = template.planner(worldState, this.registry, context);
+      if (template) {
+        // Generate plan from template
+        plan = template.planner(worldState, this.registry, context);
+      } else {
+        // Try LLM fallback if enabled
+        if (this.options.enableLLMFallback !== false) {
+          logger.info('Using LLM planner fallback', { botId, goal });
+
+          // Add smart constraints based on state
+          const smartConstraints = [];
+          if (worldState.botState.health < 10) {
+            smartConstraints.push("Do not engage in combat. Avoid hostile mobs.");
+          }
+          if (worldState.botState.inventory.items.length > 30) {
+            smartConstraints.push("Inventory is nearly full. Do not mine or gather more items unless necessary.");
+          }
+          if (worldState.environment.time > 13000 && worldState.environment.time < 23000) {
+            smartConstraints.push("It is night time. Prioritize safety and light.");
+          }
+
+          const enhancedContext = {
+            ...context,
+            constraints: [
+              ...(context.constraints || []),
+              ...smartConstraints
+            ]
+          };
+
+          const llmResult = await generateLLMPlan(botId, goal, worldState, enhancedContext);
+
+          if (!llmResult.success) {
+            return {
+              success: false,
+              error: `LLM planning failed: ${llmResult.error}`
+            };
+          }
+          plan = llmResult.plan;
+          if (llmResult.rationale) {
+            logger.debug('LLM Planning rationale', { botId, goal, rationale: llmResult.rationale });
+          }
+        } else {
+          return {
+            success: false,
+            error: `Unknown goal: ${goal}. Available: ${Object.keys(this.goalTemplates).join(', ')}`
+          };
+        }
+      }
 
       // Validate plan structure
       const validation = this._validatePlan(plan);

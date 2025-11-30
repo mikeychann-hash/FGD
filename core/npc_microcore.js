@@ -131,6 +131,11 @@ class NPCMicrocore extends EventEmitter {
    * @param {number} deltaMs - Milliseconds since last tick
    */
   update(deltaMs) {
+    // If bridge handles movement, rely on bridge events for position updates
+    if (this.bridge?.moveToTarget) {
+      return;
+    }
+
     if (!this.state.target) {
       this.state.velocity = { x: 0, y: 0, z: 0 };
       return;
@@ -201,9 +206,29 @@ class NPCMicrocore extends EventEmitter {
    * @param {{x:number,y:number,z:number}} target
    */
   setMovementTarget(target) {
-    this.state.target = normalizePosition(target);
+    const normalizedTarget = normalizePosition(target);
+    this.state.target = normalizedTarget;
     this.bot.runtime.status = "moving";
     this.emit("statusUpdate", this.#buildStatusPayload("microcore:move_set"));
+
+    // If bridge supports native pathfinding, delegate to it
+    if (this.bridge?.moveToTarget) {
+      this.bridge.moveToTarget(this.bot.id, normalizedTarget)
+        .then(result => {
+          if (result.success) {
+            this.#completeMovement(normalizedTarget);
+          } else {
+             this.emit("error", { botId: this.bot.id, error: result.error });
+             this.bot.runtime.status = "idle";
+             this.state.target = null;
+          }
+        })
+        .catch(err => {
+          this.emit("error", { botId: this.bot.id, error: err.message });
+          this.bot.runtime.status = "idle";
+          this.state.target = null;
+        });
+    }
   }
 
   /**

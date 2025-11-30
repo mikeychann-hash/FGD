@@ -3,7 +3,6 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import compression from 'compression';
-import { ROOT_DIR } from './constants.js';
 
 /**
  * Creates and configures the Express app, HTTP server, and Socket.IO server
@@ -63,7 +62,6 @@ export function createAppServer() {
 
   // Middleware
   app.use(express.json());
-  app.use(express.static(ROOT_DIR));
 
   // CORS error handling middleware
   app.use((err, req, res, next) => {

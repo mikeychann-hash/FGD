@@ -1,0 +1,14 @@
+# FGD Proxy Player Plugin Configuration
+
+fgd:
+  # WebSocket server URL (FGD Node.js backend)
+  server-url: "ws://localhost:3000"
+
+  # Auto-connect to FGD server on plugin enable
+  auto-connect: true
+
+  # Auto-reconnect if connection is lost
+  auto-reconnect: true
+
+  # Debug mode
+  debug: false

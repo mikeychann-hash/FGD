@@ -71,6 +71,7 @@ FGD Backend (Node.js)               Paper Plugin
 - `scanArea` - Scan environment around bot
 - `spawnBot` - Spawn a new bot entity
 - `despawnBot` - Remove a bot entity
+- `action` - Unified action envelope (`eat`, `mine`, `dig`, etc.) with position/food payload
 
 ### From Plugin → FGD
 - `plugin_register` - Initial connection handshake
@@ -78,6 +79,7 @@ FGD Backend (Node.js)               Paper Plugin
 - `scanArea_response` - Scan results with blocks & entities
 - `spawnBot_response` - Spawn confirmation
 - `despawnBot_response` - Despawn confirmation
+- `actionComplete` / `actionFailed` - Action acknowledgement. `eat` returns `hunger`; failures carry `error` + `message`.
 
 ## Troubleshooting
 

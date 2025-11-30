@@ -43,7 +43,10 @@ export class NPCRegistry {
       this.npcs.clear();
       for (const entry of entries) {
         if (entry?.id) {
-          this.npcs.set(entry.id, this._normalizeEntry(entry));
+          const normalized = this._normalizeEntry(entry);
+          // Reset status to inactive on load (server restart implies no bots running)
+          normalized.status = "inactive";
+          this.npcs.set(entry.id, normalized);
         }
       }
       this.loaded = true;
@@ -366,7 +369,7 @@ export class NPCRegistry {
         ? [...entry.personalityTraits]
         : bundle.traits,
       description: entry.description || null,
-      status: entry.status || "active",
+      status: entry.status || "inactive",
       spawnCount: typeof entry.spawnCount === "number" ? entry.spawnCount : 0,
       lastSpawnedAt: entry.lastSpawnedAt || null,
       lastDespawnedAt: entry.lastDespawnedAt || null,
@@ -387,7 +390,7 @@ export class NPCRegistry {
     };
 
     const scheduled = this.saveQueue.then(run);
-    this.saveQueue = scheduled.catch(() => {});
+    this.saveQueue = scheduled.catch(() => { });
     return scheduled;
   }
 

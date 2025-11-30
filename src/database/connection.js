@@ -10,13 +10,6 @@ let pool = null;
  */
 const DB_PASSWORD = process.env.DB_PASSWORD;
 
-// Validate DB_PASSWORD is set (should be caught by startup validation)
-if (!DB_PASSWORD || DB_PASSWORD.trim() === '') {
-  throw new Error(
-    'CRITICAL: DB_PASSWORD environment variable must be set. Cannot connect to database without password.'
-  );
-}
-
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '5432'),
@@ -32,6 +25,14 @@ const dbConfig = {
  * Initialize database connection pool
  */
 export async function initDatabase() {
+  // Validate DB_PASSWORD is set
+  if (!DB_PASSWORD || DB_PASSWORD.trim() === '') {
+    // We throw here so the startup validator can catch it and decide whether to continue
+    throw new Error(
+      'DB_PASSWORD environment variable not set. Database connection skipped.'
+    );
+  }
+
   try {
     pool = new Pool(dbConfig);
 

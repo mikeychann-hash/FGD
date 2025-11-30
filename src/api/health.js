@@ -1,5 +1,7 @@
 import express from 'express';
 import { logger } from '../../logger.js';
+import { getServiceContainer, getServiceStatus } from '../services/service_container.js';
+import { getPool } from '../database/connection.js';
 
 /**
  * Initialize health check and metrics routes
@@ -7,16 +9,62 @@ import { logger } from '../../logger.js';
 export function initHealthRoutes(npcSystem, stateManager) {
   const router = express.Router();
 
-  function buildHealthPayload() {
+  async function buildHealthPayload() {
+    const serviceStatus = getServiceStatus();
+    const bridgeStatus = serviceStatus?.bridge || {};
+
+    // Database check
+    let database = 'not_configured';
+    try {
+      const pool = getPool();
+      const res = await pool.query('SELECT 1');
+      database = res?.rows ? 'ok' : 'error';
+    } catch (err) {
+      database = 'error';
+      logger.warn('Health check: database error', { error: err.message });
+    }
+
+    // Redis not configured in this stack
+    const redis = 'not_configured';
+
+    const minecraft =
+      bridgeStatus.rconConnected && bridgeStatus.pluginConnected ? 'ok' :
+      bridgeStatus.rconConnected ? 'degraded' :
+      'error';
+
+    const npcEngineReady = Boolean(npcSystem?.npcEngine);
+    const registryReady = Boolean(npcSystem?.npcRegistry);
+
     return {
-      status: 'healthy',
+      status: minecraft === 'ok' && database === 'ok' && npcEngineReady && registryReady ? 'ok' : 'error',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
+      database,
+      redis,
+      minecraft,
+      npcEngine: npcEngineReady ? 'ok' : 'error',
+      registry: registryReady ? 'ok' : 'error',
       components: {
-        npcRegistry: npcSystem.npcRegistry ? 'healthy' : 'not_initialized',
+        npcRegistry: registryReady ? 'healthy' : 'not_initialized',
         npcSpawner: npcSystem.npcSpawner ? 'healthy' : 'not_initialized',
         npcFinalizer: npcSystem.npcFinalizer ? 'healthy' : 'not_initialized',
         learningEngine: npcSystem.learningEngine ? 'healthy' : 'not_initialized',
+        minecraftBridge: npcSystem.minecraftBridge
+          ? npcSystem.minecraftBridge.isConnected?.() ? 'healthy' : 'disconnected'
+          : 'not_configured',
+        mineflayerBridge: npcSystem.mineflayerBridge
+          ? npcSystem.mineflayerBridge.isConnected?.() ? 'healthy' : 'disconnected'
+          : 'not_configured',
+        progressionEngine: getServiceContainer().progressionEngine ? 'healthy' : 'not_initialized',
+        policyEngine: getServiceContainer().policyEngine ? 'healthy' : 'not_initialized',
+      },
+      details: {
+        progressionPhase: serviceStatus?.progressionPhase ?? null,
+        deadLetterQueueSize: serviceStatus?.deadLetterQueueSize ?? 0,
+        bridge: {
+          ...bridgeStatus,
+          minecraft,
+        },
       },
       memory: {
         used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
@@ -29,21 +77,22 @@ export function initHealthRoutes(npcSystem, stateManager) {
   /**
    * Health check endpoint (preferred path: /api/health)
    */
-  router.get('/', (req, res) => {
-    sendHealth(res);
+  router.get('/', async (req, res) => {
+    await sendHealth(res);
   });
 
   /**
    * Legacy health path retained for compatibility (/api/health/health)
    */
-  router.get('/health', (req, res) => {
-    sendHealth(res);
+  router.get('/health', async (req, res) => {
+    await sendHealth(res);
   });
 
-  function sendHealth(res) {
-    const payload = buildHealthPayload();
-    const allHealthy = Object.values(payload.components).every((status) => status === 'healthy');
-    res.status(allHealthy ? 200 : 503).json(payload);
+  async function sendHealth(res) {
+    const payload = await buildHealthPayload();
+    payload.serviceStatus = getServiceStatus();
+    const ok = payload.status === 'ok';
+    res.status(ok ? 200 : 503).json(payload);
   }
 
   /**

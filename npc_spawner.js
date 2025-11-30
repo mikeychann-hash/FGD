@@ -179,13 +179,15 @@ export class NPCSpawner {
           appearance: profile.appearance,
           metadata: profile.metadata,
           profile
-        }) || this.bridge?.spawnEntity({
-          npcId: profile.id,
-          npcType: profile.npcType,
+        }) || this.bridge?.spawnBot({
+          botId: profile.id,
           position,
-          appearance: profile.appearance,
-          metadata: profile.metadata,
-          profile
+          skin: profile.appearance?.skin,
+          metadata: {
+            ...profile.metadata,
+            npcType: profile.npcType,
+            profile
+          }
         }));
 
         // Success - clear failure count
@@ -279,6 +281,25 @@ export class NPCSpawner {
    */
   getDeadLetterQueue() {
     return [...this.deadLetterQueue];
+  }
+
+  /**
+   * Drain and clear the dead letter queue
+   * @returns {Array} entries removed from the queue
+   */
+  drainDeadLetterQueue() {
+    const queue = [...this.deadLetterQueue];
+    this.deadLetterQueue = [];
+    return queue;
+  }
+
+  /**
+   * Requeue failed dead letter entries (preserves fail counts)
+   * @param {Array} entries
+   */
+  requeueDeadLetters(entries = []) {
+    if (!Array.isArray(entries)) return;
+    this.deadLetterQueue.push(...entries);
   }
 
   /**

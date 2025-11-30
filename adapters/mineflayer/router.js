@@ -99,6 +99,18 @@ export const TASK_ROUTING_TABLE = {
     requiresBot: true,
     dangerousAction: false,
     description: 'Drop items'
+  },
+  'combat': {
+    handler: 'combat',
+    requiresBot: true,
+    dangerousAction: true,
+    description: 'Perform combat action'
+  },
+  'craft': {
+    handler: 'craft',
+    requiresBot: true,
+    dangerousAction: false,
+    description: 'Perform crafting action'
   }
 };
 

@@ -139,6 +139,22 @@ export class NPCSystem {
       if (this.minecraftBridge) {
         this.minecraftBridge.setTelemetryChannel((event, payload) => {
           io.emit(event, payload);
+          if (event === "bot:spawned" && payload?.botId) {
+            io.emit("bot:spawned", payload);
+          }
+          if (event === "system:log" && payload) {
+            try {
+              stateManager.appendSystemLog({
+                level: payload.level || "info",
+                source: payload.source || "minecraft_bridge",
+                message: payload.message || "system log",
+                timestamp: payload.timestamp || Date.now(),
+                meta: payload,
+              });
+            } catch (err) {
+              logger.warn("Failed to append system log from telemetry", { error: err.message });
+            }
+          }
         });
       }
 

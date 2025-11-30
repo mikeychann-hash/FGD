@@ -131,6 +131,14 @@ const TASK_SCHEMAS = {
     }
   },
 
+  'eat': {
+    required: ['parameters'],
+    parameters: {
+      // Optional itemName, otherwise will pick best food
+      itemName: { type: 'string', maxLength: 32 }
+    }
+  },
+
   'get_inventory': {
     required: ['botId']
   },

@@ -3,7 +3,11 @@
 
 import express from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
-import { botCreationLimiter } from '../src/middleware/rateLimiter.js';
+import {
+  botCreationLimiter,
+  botSpawnLimiter,
+  botSpawnAllLimiter,
+} from '../src/middleware/rateLimiter.js';
 import { MAX_BOTS, WORLD_BOUNDS } from '../constants.js';
 import {
   createBotSchema,
@@ -13,6 +17,8 @@ import {
   botQuerySchema,
 } from '../src/validators/bot.schemas.js';
 import { validate, validateQuery } from '../src/middleware/validate.js';
+import { spawnBot, spawnAllBots, SpawnError, retryDeadLetters } from '../src/services/spawn_pipeline.js';
+import { createActionPipeline } from '../src/services/action_pipeline/index.js';
 
 /**
  * Count currently spawned bots
@@ -60,6 +66,13 @@ export function initBotRoutes(npcSystem, io) {
   }
 
   const npcSpawner = npcSystem?.npcSpawner || null;
+  const actionPipeline = npcSystem?.actionPipeline || createActionPipeline(npcSystem, io);
+  npcSystem.actionPipeline = actionPipeline;
+  if (npcEngine?.setActionPipeline) {
+    npcEngine.setActionPipeline(actionPipeline);
+    npcEngine.startHungerMonitor();
+    npcEngine.startChestMonitor();
+  }
 
   if (io) {
     npcEngine.on('npc_moved', (data) => io.emit('bot:moved', data));
@@ -67,6 +80,8 @@ export function initBotRoutes(npcSystem, io) {
     npcEngine.on('npc_task_completed', (data) => io.emit('bot:task_complete', data));
     npcEngine.on('npc_scan', (data) => io.emit('bot:scan', data));
     npcEngine.on('npc_error', (data) => io.emit('bot:error', data));
+    npcEngine.on('npc_inventory', (data) => io.emit('bot:inventory-update', data));
+    npcEngine.on('npc_chest', (data) => io.emit('bot:chest-update', data));
   }
 
   // ============================================================================
@@ -139,6 +154,7 @@ export function initBotRoutes(npcSystem, io) {
             lastSpawnedAt: bot.lastSpawnedAt,
             createdAt: bot.createdAt,
             updatedAt: bot.updatedAt,
+            behaviorPreset: bot.metadata?.behaviorPreset || 'default',
           };
         }),
       });
@@ -180,8 +196,8 @@ export function initBotRoutes(npcSystem, io) {
             successRate:
               learningProfile.tasksCompleted + learningProfile.tasksFailed > 0
                 ? (learningProfile.tasksCompleted /
-                    (learningProfile.tasksCompleted + learningProfile.tasksFailed)) *
-                  100
+                  (learningProfile.tasksCompleted + learningProfile.tasksFailed)) *
+                100
                 : 0,
             skills: learningProfile.skills,
             personality: learningProfile.personality,
@@ -194,14 +210,14 @@ export function initBotRoutes(npcSystem, io) {
 
       const runtimeSafe = runtime
         ? {
-            status: runtime.status,
-            position: runtime.position,
-            velocity: runtime.velocity,
-            tickCount: runtime.tickCount,
-            lastTickAt: runtime.lastTickAt,
-            memory: runtime.memory,
-            lastScan: runtime.lastScan,
-          }
+          status: runtime.status,
+          position: runtime.position,
+          velocity: runtime.velocity,
+          tickCount: runtime.tickCount,
+          lastTickAt: runtime.lastTickAt,
+          memory: runtime.memory,
+          lastScan: runtime.lastScan,
+        }
         : null;
 
       res.json({
@@ -233,111 +249,111 @@ export function initBotRoutes(npcSystem, io) {
     authorize('write'),
     validate(createBotSchema),
     async (req, res) => {
-    try {
-      const {
-        name,
-        role,
-        type,
-        personality,
-        appearance,
-        description,
-        position,
-        taskParameters,
-        behaviorPreset,
-        autoSpawn,
-      } = req.body;
+      try {
+        const {
+          name,
+          role,
+          type,
+          personality,
+          appearance,
+          description,
+          position,
+          taskParameters,
+          behaviorPreset,
+          autoSpawn,
+        } = req.body;
 
-      const shouldAutoSpawn = autoSpawn !== false;
+        const shouldAutoSpawn = autoSpawn !== false;
 
-      if (position && typeof position === 'object') {
-        const { y } = position;
-        if (typeof y === 'number' && (y < WORLD_BOUNDS.MIN_Y || y > WORLD_BOUNDS.MAX_Y)) {
+        if (position && typeof position === 'object') {
+          const { y } = position;
+          if (typeof y === 'number' && (y < WORLD_BOUNDS.MIN_Y || y > WORLD_BOUNDS.MAX_Y)) {
+            return res.status(400).json({
+              error: 'Invalid position',
+              message: `Y coordinate must be between ${WORLD_BOUNDS.MIN_Y} and ${WORLD_BOUNDS.MAX_Y}`,
+            });
+          }
+        }
+
+        // Always check spawn limit, regardless of bridge availability
+        // This prevents exceeding MAX_BOTS even if spawning is deferred
+        const limitError = checkSpawnLimit(npcEngine, 1);
+        if (limitError) {
+          return res.status(400).json(limitError);
+        }
+
+        if (!role && !type) {
           return res.status(400).json({
-            error: 'Invalid position',
-            message: `Y coordinate must be between ${WORLD_BOUNDS.MIN_Y} and ${WORLD_BOUNDS.MAX_Y}`,
+            error: 'Bad request',
+            message: 'Role or type is required',
           });
         }
-      }
 
-      // Always check spawn limit, regardless of bridge availability
-      // This prevents exceeding MAX_BOTS even if spawning is deferred
-      const limitError = checkSpawnLimit(npcEngine, 1);
-      if (limitError) {
-        return res.status(400).json(limitError);
-      }
+        const botRole = role || type;
+        const botType = type || role;
 
-      if (!role && !type) {
-        return res.status(400).json({
-          error: 'Bad request',
-          message: 'Role or type is required',
+        // Create the bot
+        const bot = await npcEngine.createNPC({
+          baseName: name || botRole,
+          role: botRole,
+          npcType: botType,
+          personality: personality || undefined,
+          appearance: appearance || undefined,
+          description: description || undefined,
+          position: position || undefined,
+          metadata: {
+            taskParameters: taskParameters || {},
+            behaviorPreset: behaviorPreset || 'default',
+            createdBy: req.user.username,
+            createdByRole: req.user.role,
+          },
+          autoSpawn: shouldAutoSpawn,
         });
-      }
 
-      const botRole = role || type;
-      const botType = type || role;
+        const spawnResponse = bot?.lastSpawnResponse || null;
+        const spawned = Boolean(spawnResponse && spawnResponse.success !== false);
 
-      // Create the bot
-      const bot = await npcEngine.createNPC({
-        baseName: name || botRole,
-        role: botRole,
-        npcType: botType,
-        personality: personality || undefined,
-        appearance: appearance || undefined,
-        description: description || undefined,
-        position: position || undefined,
-        metadata: {
-          taskParameters: taskParameters || {},
-          behaviorPreset: behaviorPreset || 'default',
-          createdBy: req.user.username,
-          createdByRole: req.user.role,
-        },
-        autoSpawn: shouldAutoSpawn,
-      });
+        // Emit WebSocket event
+        if (io) {
+          io.emit('bot:created', {
+            bot: {
+              id: bot.id,
+              role: bot.role,
+              type: bot.npcType,
+              personalitySummary: bot.personalitySummary,
+            },
+            createdBy: req.user.username,
+            timestamp: new Date().toISOString(),
+          });
+        }
 
-      const spawnResponse = bot?.lastSpawnResponse || null;
-      const spawned = Boolean(spawnResponse && spawnResponse.success !== false);
+        console.log(`✅ Bot ${bot.id} created by ${req.user.username} (${req.user.role})`);
 
-      // Emit WebSocket event
-      if (io) {
-        io.emit('bot:created', {
+        res.status(201).json({
+          success: true,
+          message: spawned
+            ? `Bot ${bot.id} created and spawned successfully`
+            : `Bot ${bot.id} created successfully`,
           bot: {
             id: bot.id,
             role: bot.role,
             type: bot.npcType,
             personalitySummary: bot.personalitySummary,
+            personalityTraits: bot.personalityTraits,
+            description: bot.description,
+            position: bot.spawnPosition,
           },
-          createdBy: req.user.username,
-          timestamp: new Date().toISOString(),
+          spawned,
+          spawnResponse: spawnResponse || undefined,
+        });
+      } catch (error) {
+        console.error('Error creating bot:', error);
+        res.status(500).json({
+          error: 'Internal server error',
+          message: error.message,
         });
       }
-
-      console.log(`✅ Bot ${bot.id} created by ${req.user.username} (${req.user.role})`);
-
-      res.status(201).json({
-        success: true,
-        message: spawned
-          ? `Bot ${bot.id} created and spawned successfully`
-          : `Bot ${bot.id} created successfully`,
-        bot: {
-          id: bot.id,
-          role: bot.role,
-          type: bot.npcType,
-          personalitySummary: bot.personalitySummary,
-          personalityTraits: bot.personalityTraits,
-          description: bot.description,
-          position: bot.spawnPosition,
-        },
-        spawned,
-        spawnResponse: spawnResponse || undefined,
-      });
-    } catch (error) {
-      console.error('Error creating bot:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        message: error.message,
-      });
-    }
-  });
+    });
 
   /**
    * PUT /api/bots/:id
@@ -466,70 +482,52 @@ export function initBotRoutes(npcSystem, io) {
 
   /**
    * POST /api/bots/:id/spawn
-   * Spawn a bot in Minecraft
+   * Spawn a bot in Minecraft via the canonical pipeline
    */
   router.post(
     '/:id/spawn',
     authenticate,
     authorize('spawn'),
+    botSpawnLimiter,
     validate(spawnPositionSchema),
     async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { position } = req.body;
+      try {
+        const { id } = req.params;
+        const { position } = req.body;
 
-      if (!npcEngine.mineflayerBridge) {
-        return res.status(503).json({
-          error: 'Service unavailable',
-          message: 'Minecraft bridge not configured',
-        });
-      }
-
-      const bot = npcEngine.registry.get(id);
-      if (!bot) {
-        return res.status(404).json({
-          error: 'Not found',
-          message: `Bot ${id} not found`,
-        });
-      }
-
-      // Check if bot is already spawned
-      const spawnCount = bot.status === 'active' ? 0 : 1;
-
-      // Check spawn limit
-      const limitError = checkSpawnLimit(npcEngine, spawnCount);
-      if (limitError) {
-        return res.status(400).json(limitError);
-      }
-
-      const spawnPosition = position || bot.lastKnownPosition || bot.spawnPosition;
-      await npcEngine.spawnNPC(id, { position: spawnPosition });
-
-      // Emit WebSocket event
-      if (io) {
-        io.emit('bot:spawned', {
+        const result = await spawnBot(npcSystem, io, {
           botId: id,
-          position: spawnPosition,
-          spawnedBy: req.user.username,
-          timestamp: new Date().toISOString(),
+          position,
+          user: req.user,
+          source: 'rest:spawn',
+        });
+
+        res.json({
+          success: true,
+          message: result.spawned
+            ? `Bot ${id} spawned successfully`
+            : `Bot ${id} spawn dispatched`,
+          position: result.position,
+          spawned: result.spawned,
+          spawnResponse: result.spawnResponse || null,
+        });
+      } catch (error) {
+        if (error instanceof SpawnError) {
+          return res.status(error.status).json({
+            error: error.meta?.error || 'Spawn failed',
+            message: error.message,
+            ...error.meta,
+          });
+        }
+
+        console.error(`Error spawning bot ${req.params.id}:`, error);
+        res.status(500).json({
+          error: 'Internal server error',
+          message: error.message,
         });
       }
-
-      console.log(`✅ Bot ${id} spawned by ${req.user.username} at`, spawnPosition);
-
-      res.json({
-        success: true,
-        message: `Bot ${id} spawned successfully`,
-        position: spawnPosition,
-      });
-    } catch (error) {
-      console.error(`Error spawning bot ${req.params.id}:`, error);
-      res.status(500).json({
-        error: 'Internal server error',
-        message: error.message,
-      });
     }
-  });
+  );
 
   /**
    * POST /api/bots/:id/despawn
@@ -566,6 +564,58 @@ export function initBotRoutes(npcSystem, io) {
         error: 'Internal server error',
         message: error.message,
       });
+    }
+  });
+
+  /**
+   * POST /api/bots/:id/action
+   * Dispatch an in-world action via UAF
+   */
+  router.post('/:id/action', authenticate, authorize('command'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { type, ...payload } = req.body || {};
+      if (!type) {
+        return res.status(400).json({ error: 'Action type is required' });
+      }
+      const result = await actionPipeline.run(id, { type, ...payload });
+      res.json({
+        success: true,
+        botId: id,
+        action: type,
+        plan: result.plan,
+        result: result.result || null,
+      });
+    } catch (error) {
+      const status = error.status || 400;
+      res.status(status).json({ error: error.message || 'Action failed' });
+    }
+  });
+
+  // Action dead-letter queue visibility/retry
+  router.get('/action/dead-letter', authenticate, authorize('read'), (req, res) => {
+    try {
+      const queue = actionPipeline.getDeadLetters();
+      res.json({ success: true, count: queue.length, queue });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to read action dead letter queue' });
+    }
+  });
+
+  router.post('/action/dead-letter/retry', authenticate, authorize('write'), async (req, res) => {
+    try {
+      const results = await actionPipeline.retryDeadLetters();
+      if (io) {
+        io.emit('system:log', {
+          level: 'info',
+          source: 'action-dead-letter',
+          message: `Action DLQ retry ${results.successes.length} successes, ${results.failures.length} failures`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      res.json({ success: true, ...results });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to retry action dead letter queue', message: err.message });
     }
   });
 
@@ -634,46 +684,28 @@ export function initBotRoutes(npcSystem, io) {
    * POST /api/bots/spawn-all
    * Spawn all active bots
    */
-  router.post('/spawn-all', authenticate, authorize('spawn'), async (req, res) => {
+  router.post('/spawn-all', authenticate, authorize('spawn'), botSpawnAllLimiter, async (req, res) => {
     try {
-      if (!npcEngine.mineflayerBridge) {
-        return res.status(503).json({
-          error: 'Service unavailable',
-          message: 'Minecraft bridge not configured',
-        });
-      }
-
-      // Count how many bots would be spawned
-      const allBots = npcEngine.registry.getAll();
-      const inactiveBots = allBots.filter((bot) => bot.status !== 'active');
-
-      // Check spawn limit
-      const limitError = checkSpawnLimit(npcEngine, inactiveBots.length);
-      if (limitError) {
-        return res.status(400).json(limitError);
-      }
-
-      const results = await npcEngine.spawnAllKnownNPCs();
-
-      // Emit WebSocket event
-      if (io) {
-        io.emit('bot:spawn_all', {
-          count: results.length,
-          bots: results.map((r) => r.id),
-          spawnedBy: req.user.username,
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      console.log(`✅ ${results.length} bots spawned by ${req.user.username}`);
+      const result = await spawnAllBots(npcSystem, io, {
+        user: req.user,
+        source: 'rest:spawn-all',
+      });
 
       res.json({
         success: true,
-        message: `Spawned ${results.length} bots`,
-        count: results.length,
-        bots: results.map((r) => ({ id: r.id, role: r.role })),
+        message: 'Spawned ' + result.count + ' bots',
+        count: result.count,
+        bots: result.bots.map((r) => ({ id: r.id, role: r.role })),
       });
     } catch (error) {
+      if (error instanceof SpawnError) {
+        return res.status(error.status).json({
+          error: error.meta?.error || 'Spawn-all failed',
+          message: error.message,
+          ...error.meta,
+        });
+      }
+
       console.error('Error spawning all bots:', error);
       res.status(500).json({
         error: 'Internal server error',
@@ -770,7 +802,20 @@ export function initBotRoutes(npcSystem, io) {
 
     router.post('/dead-letter/retry', authenticate, authorize('write'), async (req, res) => {
       try {
-        const results = await npcSpawner.retryDeadLetterQueue();
+        const results = await retryDeadLetters(npcSystem, io, {
+          user: req.user,
+          source: 'rest:dead-letter-retry',
+        });
+
+        if (io) {
+          io.emit('system:log', {
+            level: 'info',
+            source: 'dead-letter',
+            message: `Dead letter retry executed (${results.successes.length} successes, ${results.failures.length} failures)`,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
         res.json({ success: true, ...results });
       } catch (error) {
         console.error('Failed to retry dead letter queue:', error);
@@ -780,6 +825,41 @@ export function initBotRoutes(npcSystem, io) {
       }
     });
   }
+
+  // Unified action endpoint (inventory inclusive)
+  router.post('/:id/action', authenticate, authorize('write'), async (req, res) => {
+    const botId = req.params.id;
+    const payload = req.body || {};
+    if (!payload.type) {
+      return res.status(400).json({ error: 'type required', message: 'Action type is required' });
+    }
+    try {
+      const result = await actionPipeline.run(botId, payload);
+      const runtime = npcEngine.npcs instanceof Map ? npcEngine.npcs.get(botId) : null;
+      const inventory = runtime?.runtime?.inventory || runtime?.metadata?.inventory || null;
+      res.json({
+        success: true,
+        plan: result.plan,
+        result: result.result,
+        inventory,
+      });
+    } catch (err) {
+      const status = err instanceof SpawnError && err.status ? err.status : 500;
+      res.status(status).json({ error: 'Action failed', message: err.message });
+    }
+  });
+
+  router.get('/:id/inventory', authenticate, authorize('read'), async (req, res) => {
+    const botId = req.params.id;
+    try {
+      await actionPipeline.run(botId, { type: 'inventory', op: 'get' });
+      const runtime = npcEngine.npcs instanceof Map ? npcEngine.npcs.get(botId) : null;
+      const inventory = runtime?.runtime?.inventory || runtime?.metadata?.inventory || [];
+      res.json({ success: true, botId, inventory });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch inventory', message: err.message });
+    }
+  });
 
   return router;
 }

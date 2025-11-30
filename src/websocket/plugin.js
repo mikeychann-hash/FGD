@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Plugin Interface for FGDProxyPlayer
  */
 export class PluginInterface {
@@ -6,6 +6,7 @@ export class PluginInterface {
     this.socket = null;
     this.connected = false;
     this.lastHeartbeatAt = null;
+    this.bridge = null;
   }
 
   async moveBot({ botId, position }) {
@@ -170,6 +171,31 @@ export class PluginInterface {
     });
   }
 
+  async spawnBot({ botId, position, skin, metadata }) {
+    return new Promise((resolve, reject) => {
+      if (!this.socket || !this.connected) {
+        reject(new Error('Plugin not connected'));
+        return;
+      }
+      this.socket.emit('spawnBot', { action: 'spawnBot', botId, position, skin, metadata });
+      resolve({ success: true });
+    });
+  }
+
+  /**
+   * Dispatch generic action
+   */
+  async dispatchAction(payload) {
+    return new Promise((resolve, reject) => {
+      if (!this.socket || !this.connected) {
+        reject(new Error('Plugin not connected'));
+        return;
+      }
+      this.socket.emit('plugin_action', payload);
+      resolve({ success: true });
+    });
+  }
+
   /**
    * Set up plugin response handlers
    */
@@ -217,6 +243,7 @@ export class PluginInterface {
   handleDisconnect() {
     this.connected = false;
     this.socket = null;
+    this.bridge = null;
     console.log('❌ FGDProxyPlayer plugin disconnected');
   }
 
@@ -239,18 +266,36 @@ export class PluginInterface {
   register(socket, minecraftBridge) {
     this.socket = socket;
     this.connected = true;
-    console.log('✅ FGDProxyPlayer plugin connected');
+    this.bridge = minecraftBridge || null;
+    console.log("âœ… FGDProxyPlayer plugin connected");
 
-    // Wire plugin to minecraft bridge
     if (minecraftBridge) {
       minecraftBridge.setPluginInterface(this);
-      console.log('🔗 Plugin interface wired to MinecraftBridge');
+      console.log("ðŸ¤– Plugin interface wired to MinecraftBridge");
     }
 
-    // Set up response handlers
     this.setupResponseHandlers(socket);
 
-    // Handle disconnect
+    socket.on("plugin_message", (msg = {}) => {
+      if (msg.type === "botSpawned" && this.bridge) {
+        this.bridge.emit("plugin_bot_spawned", msg);
+      }
+      if (msg.type === "actionComplete" && this.bridge) {
+        this.bridge.emit("plugin_action_complete", msg);
+      }
+      if (msg.type === "actionFailed" && this.bridge) {
+        this.bridge.emit("plugin_action_failed", msg);
+      }
+      if (msg.type === "inventory:snapshot" && this.bridge) {
+        this.bridge.emit("plugin_inventory_snapshot", msg);
+      }
+      if (msg.type === "chest:snapshot" && this.bridge) {
+        this.bridge.emit("plugin_chest_snapshot", msg);
+      }
+    });
+
     socket.on('disconnect', () => this.handleDisconnect());
   }
 }
+
+

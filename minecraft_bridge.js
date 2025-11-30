@@ -44,6 +44,15 @@ export class MinecraftBridge extends EventEmitter {
     this.currentPhase = 1; // Track current progression phase
     this.lastHeartbeatAt = null;
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 15000;
+    this.pluginStatus = "unknown";
+    this.blockSpawnsOnPluginError = options.blockSpawnsOnPluginError ?? true;
+    this.pluginHeartbeatThreshold = options.pluginHeartbeatThreshold ?? 30;
+    this.pendingSpawns = new Map();
+    this.pluginStatus = "unknown";
+    this.blockSpawnsOnPluginError = options.blockSpawnsOnPluginError ?? true;
+    this.pluginHeartbeatThreshold = options.pluginHeartbeatThreshold ?? 30;
+    this.pendingSpawns = new Map();
+    this.pendingActions = new Map();
   }
 
   #sanitizeCommand(command) {
@@ -127,21 +136,61 @@ export class MinecraftBridge extends EventEmitter {
     }
   }
 
-  async spawnEntity({ npcId }) {
+  /**
+   * Explicit spawnBot contract for plugin or RCON fallback
+   * @param {Object} payload
+   * @param {string} payload.botId
+   * @param {Object} payload.position
+   * @param {string} payload.skin
+   * @param {Object} payload.metadata
+   */
+  async spawnBot({ botId, position = null, skin = null, metadata = {} }) {
+    const age = this.getHeartbeatAgeSeconds();
+    if (this.blockSpawnsOnPluginError && this.pluginStatus === "error") {
+      throw new Error("Plugin unhealthy: refusing new spawns");
+    }
+
+    // Prefer plugin interface
+    if (this.pluginInterface?.spawnBot) {
+      return this._spawnViaPlugin({ botId, position, skin, metadata });
+    }
+
+    // RCON fallback (legacy)
     try {
-      const createCmd = `npc create ${npcId} --type player`;
+      const createCmd = `npc create ${botId} --type player`;
       await this.sendCommand(createCmd);
-      const tpCmd = `npc tp ${npcId} <player>`;
+      const tpCmd = position
+        ? `npc tp ${botId} ${position.x} ${position.y} ${position.z}`
+        : `npc tp ${botId} <player>`;
       await this.sendCommand(tpCmd);
-      console.log(`🤖 Spawned NPC '${npcId}' at player location`);
-      this.emit("npcSpawned", { npcId });
-      this.botPositions.set(npcId, null);
-      return { success: true, npcId };
+      console.log(`🤖 Spawned NPC '${botId}' via RCON`);
+      this.emit("bot_spawned", { botId, position: position || null, transport: "rcon" });
+      this.botPositions.set(botId, position || null);
+      return { success: true, botId, position: position || null };
     } catch (err) {
       console.error("❌ Failed to spawn NPC:", err.message);
       this.emit("error", err);
       throw err;
     }
+  }
+
+  async _spawnViaPlugin({ botId, position, skin, metadata }) {
+    const pending = new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingSpawns.delete(botId);
+        resolve({ success: true, botId, position, pendingConfirmation: true });
+      }, 8000);
+      this.pendingSpawns.set(botId, { resolve, timer });
+    });
+
+    await this.pluginInterface.spawnBot({
+      botId,
+      position,
+      skin,
+      metadata,
+    });
+
+    return pending;
   }
 
   async despawnEntity({ npcId }) {
@@ -161,16 +210,173 @@ export class MinecraftBridge extends EventEmitter {
 
   setPluginInterface(pluginInterface) {
     this.pluginInterface = pluginInterface || null;
+    if (this.pluginInterface) {
+    this.on("plugin_bot_spawned", (msg) => this._onPluginBotSpawned(msg));
+    this.on("plugin_action_complete", (msg) => this._onPluginActionComplete(msg));
+    this.on("plugin_action_failed", (msg) => this._onPluginActionFailed(msg));
+    this.on("plugin_inventory_snapshot", (msg) => this._onPluginInventorySnapshot(msg));
+    this.on("plugin_chest_snapshot", (msg) => this._onPluginChestSnapshot(msg));
+  }
   }
 
   setTelemetryChannel(channel) {
     this.telemetryChannel = channel || null;
   }
 
+  _onPluginBotSpawned(msg = {}) {
+    const botId = msg.botId;
+    const position = msg.position || null;
+    const uuid = msg.uuid || null;
+    if (botId) {
+      this.botPositions.set(botId, position);
+    }
+    const pending = this.pendingSpawns.get(botId);
+    if (pending) {
+      clearTimeout(pending.timer);
+      this.pendingSpawns.delete(botId);
+      pending.resolve({ success: true, botId, position, uuid, confirmed: true });
+    }
+    const payload = { botId, position, uuid, transport: "plugin" };
+    this.emit("bot_spawned", payload);
+    this._broadcastTelemetry("bot:spawned", payload);
+  }
+
+  _broadcastTelemetry(event, payload) {
+    if (!this.telemetryChannel) return;
+    if (typeof this.telemetryChannel === "function") {
+      this.telemetryChannel(event, payload);
+    } else if (typeof this.telemetryChannel.emit === "function") {
+      this.telemetryChannel.emit(event, payload);
+    }
+  }
+
+  async dispatchAction(plan) {
+    const { action, botId } = plan || {};
+    if (this.blockSpawnsOnPluginError && this.pluginStatus === "error") {
+      throw new Error("Plugin unhealthy: refusing actions");
+    }
+
+    const payload = {
+      type: "action",
+      action,
+      botId,
+      target: plan.target || plan.item || plan.block || null,
+      pos: plan.position || plan.pos || null,
+      metadata: plan,
+      food: plan.food || null,
+      chestPos: plan.chestPos || plan.position || null,
+      items: plan.items || null,
+      fromSlot: plan.fromSlot,
+      toSlot: plan.toSlot,
+      count: plan.count,
+    };
+
+    const pending = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingActions.delete(`${botId}:${action}`);
+        reject(new Error("Action confirmation timeout"));
+      }, 12000);
+      this.pendingActions.set(`${botId}:${action}`, { resolve, reject, timer });
+    });
+
+    if (this.pluginInterface?.dispatchAction) {
+      await this.pluginInterface.dispatchAction(payload);
+    } else if (this.pluginInterface?.socket) {
+      this.pluginInterface.socket.emit("plugin_action", payload);
+    } else {
+      this.emit("bot_action_dispatched", payload);
+    }
+
+    return pending;
+  }
+
+  /**
+   * Navigate bot toward a position (plugin-based smooth nav)
+   * @param {string} botId
+   * @param {{x:number,y:number,z:number}} position
+   * @param {number} tolerance
+   */
+  async navigateTo(botId, position, tolerance = 2) {
+    if (!botId || !position) throw new Error("navigateTo requires botId and position");
+    if (this.pluginInterface?.socket) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("navigate timeout")), 8000);
+        this.pluginInterface.socket.once(`navigate_response_${botId}`, (resp) => {
+          clearTimeout(timer);
+          if (resp?.success) resolve(true);
+          else reject(new Error(resp?.error || "navigate failed"));
+        });
+        this.pluginInterface.socket.emit("navigateTo", { botId, position, tolerance });
+      });
+    }
+    // Fallback: direct move
+    await this.moveBot(botId, 0, 0, 0, { nextPosition: position });
+    return true;
+  }
+
+  _onPluginActionComplete(msg = {}) {
+    const botId = msg.botId;
+    const action = msg.action || msg.type;
+    const key = `${botId}:${action}`;
+    const pending = this.pendingActions.get(key);
+    if (pending) {
+      clearTimeout(pending.timer);
+      this.pendingActions.delete(key);
+      pending.resolve({ success: true, botId, action, hunger: msg.hunger, snapshot: msg.snapshot });
+    }
+    const payload = { botId, action, hunger: msg.hunger, timestamp: Date.now(), snapshot: msg.snapshot };
+    this.emit("bot_action_complete", payload);
+    this._broadcastTelemetry("bot:actionComplete", payload);
+    if (typeof msg.hunger === "number") {
+      this._broadcastTelemetry("bot:hunger-update", { botId, hunger: msg.hunger, timestamp: payload.timestamp });
+    }
+    if (msg.snapshot) {
+      this._onPluginInventorySnapshot(msg.snapshot);
+    }
+  }
+
+  _onPluginActionFailed(msg = {}) {
+    const botId = msg.botId;
+    const action = msg.action || msg.type;
+    const key = `${botId}:${action}`;
+    const pending = this.pendingActions.get(key);
+    if (pending) {
+      clearTimeout(pending.timer);
+      this.pendingActions.delete(key);
+      pending.reject(new Error(msg.error || "Action failed"));
+    }
+    const payload = { botId, action, error: msg.error || "Action failed", hunger: msg.hunger, timestamp: Date.now() };
+    this.emit("bot_action_failed", payload);
+    this._broadcastTelemetry("bot:actionFailed", payload);
+  }
+
+  _onPluginInventorySnapshot(msg = {}) {
+    const botId = msg.botId;
+    const slots = msg.slots || [];
+    if (!botId) return;
+    const payload = { botId, slots, timestamp: Date.now() };
+    this.emit("inventory_snapshot", payload);
+    this._broadcastTelemetry("bot:inventory-update", payload);
+  }
+
+  _onPluginChestSnapshot(msg = {}) {
+    const botId = msg.botId;
+    if (!botId) return;
+    const payload = {
+      botId,
+      chestPos: msg.chestPos || msg.position || null,
+      slots: msg.slots || [],
+      timestamp: Date.now(),
+    };
+    this.emit("chest_snapshot", payload);
+    this._broadcastTelemetry("bot:chest-update", payload);
+  }
+
   recordHeartbeat(source = "plugin") {
     this.lastHeartbeatAt = Date.now();
     const ageSeconds = 0;
     updateHeartbeatAge(ageSeconds);
+    this.pluginStatus = "ok";
     this.emit("heartbeat", { source, timestamp: this.lastHeartbeatAt });
   }
 
@@ -180,7 +386,41 @@ export class MinecraftBridge extends EventEmitter {
     }
     const age = Math.max(0, (Date.now() - this.lastHeartbeatAt) / 1000);
     updateHeartbeatAge(age);
+    if (age > this.pluginHeartbeatThreshold) {
+      if (this.pluginStatus !== "error") {
+        this.pluginStatus = "error";
+        this.emit("plugin_unhealthy", { ageSeconds: age });
+        this._broadcastTelemetry("system:warning", {
+          source: "minecraft_bridge",
+          message: "Plugin heartbeat stale",
+          ageSeconds: age,
+        });
+        this._broadcastTelemetry("system:log", {
+          level: "warn",
+          source: "minecraft_bridge",
+          message: "Plugin heartbeat stale",
+          ageSeconds: age,
+          timestamp: Date.now(),
+        });
+      }
+    } else {
+      this.pluginStatus = "ok";
+    }
     return age;
+  }
+
+  /**
+   * Lightweight connection summary for health checks
+   */
+  checkConnection() {
+    const heartbeatAgeSeconds = this.getHeartbeatAgeSeconds();
+    return {
+      rconConnected: this.isConnected(),
+      pluginConnected: heartbeatAgeSeconds !== null && heartbeatAgeSeconds < 30,
+      pluginHeartbeatAgeSeconds: heartbeatAgeSeconds,
+      pluginStatus: heartbeatAgeSeconds !== null && heartbeatAgeSeconds < 30 ? "ok" : "error",
+      lastHeartbeatAt: this.lastHeartbeatAt || null,
+    };
   }
 
   async moveBot(bot, dx = 0, dy = 0, dz = 0, options = {}) {

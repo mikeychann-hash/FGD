@@ -44,6 +44,8 @@ export class MineflayerBridge extends EventEmitter {
     };
 
     this.bots = new Map(); // botId -> mineflayer bot instance
+    // Map of botId -> { tickInterval, scanInterval }
+    this.sessionIntervals = new Map();
     this.botStates = new Map(); // botId -> {position, health, food, inventory}
     this.isInitialized = false;
 
@@ -763,6 +765,56 @@ export class MineflayerBridge extends EventEmitter {
   // Private Helper Methods
   // ============================================================================
 
+  /**
+   * Start a control session for a bot, emitting state updates at ~10Hz and nearby scans.
+   * @param {string} botId - Bot identifier.
+   */
+  startControlSession(botId) {
+    const bot = this.bots.get(botId);
+    if (!bot) throw new Error(`Bot ${botId} not found`);
+    if (this.sessionIntervals.has(botId)) {
+      this.stopControlSession(botId);
+    }
+    const tickInterval = setInterval(() => {
+      this.emit('bot:state_update', {
+        botId,
+        position: this._getPosition(bot),
+        velocity: bot.entity?.velocity || {},
+        yaw: bot.entity?.yaw,
+        pitch: bot.entity?.pitch,
+        health: bot.health,
+        food: bot.food,
+        timestamp: Date.now()
+      });
+    }, 100); // 10Hz
+    const scanInterval = setInterval(() => {
+      const entities = this.findEntities(botId, { maxDistance: 32 });
+      const blocks = this.getBlocksInView(botId, 5);
+      this.emit('bot:nearby_update', {
+        botId,
+        entities: entities.map(e => ({ id: e.id, type: e.type, position: e.position })),
+        blocks: blocks.map(b => ({ position: b.position, type: b.type })),
+        timestamp: Date.now()
+      });
+    }, 500);
+    this.sessionIntervals.set(botId, { tickInterval, scanInterval });
+    this.emit('session:start', { botId });
+  }
+
+  /**
+   * Stop the control session for a bot.
+   * @param {string} botId - Bot identifier.
+   */
+  stopControlSession(botId) {
+    const entry = this.sessionIntervals.get(botId);
+    if (entry) {
+      clearInterval(entry.tickInterval);
+      clearInterval(entry.scanInterval);
+      this.sessionIntervals.delete(botId);
+      this.emit('session:stop', { botId });
+    }
+  }
+
   _getPosition(bot) {
     if (!bot?.entity?.position) return { x: 0, y: 0, z: 0 };
     return {
@@ -790,6 +842,19 @@ export class MineflayerBridge extends EventEmitter {
         position
       });
       this.emit('bot_moved', { botId, position });
+
+      // Also emit state update for streaming if session active
+      if (this.sessionIntervals.has(botId)) {
+        this.emit('bot:state_update', {
+          botId,
+          position,
+          yaw: bot.entity?.yaw,
+          pitch: bot.entity?.pitch,
+          health: bot.health,
+          food: bot.food,
+          timestamp: Date.now()
+        });
+      }
     });
 
     // Health updates
@@ -806,6 +871,7 @@ export class MineflayerBridge extends EventEmitter {
       logger.warn('Bot disconnected', { botId });
       this.bots.delete(botId);
       this.botStates.delete(botId);
+      this.stopControlSession(botId);
       this.emit('bot_disconnected', { botId });
     });
 
@@ -819,6 +885,26 @@ export class MineflayerBridge extends EventEmitter {
     bot.on('entitySpawn', (entity) => {
       if (entity.id !== bot.entity.id) {
         this.emit('entity_detected', { botId, entity: entity.name, position: entity.position });
+      }
+    });
+
+    // Player movement tracking
+    bot.on('entityMoved', (entity) => {
+      if (entity.type === 'player' && entity.id !== bot.entity.id) {
+        this.emit('player_moved', {
+          botId,
+          username: entity.username,
+          position: {
+            x: entity.position.x,
+            y: entity.position.y,
+            z: entity.position.z
+          },
+          velocity: {
+            x: entity.velocity.x,
+            y: entity.velocity.y,
+            z: entity.velocity.z
+          }
+        });
       }
     });
   }

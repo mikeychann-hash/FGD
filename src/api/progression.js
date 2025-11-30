@@ -5,7 +5,7 @@ import { progressionEngine } from '../../core/progression_engine.js';
 /**
  * Initialize progression system routes
  */
-export function initProgressionRoutes() {
+export function initProgressionRoutes(broadcastPhaseChange = null) {
   const router = express.Router();
 
   /**
@@ -46,6 +46,12 @@ export function initProgressionRoutes() {
       }
 
       await progressionEngine.setPhase(phase);
+      if (req.app?.locals?.npcSystem?.minecraftBridge?.setPhase) {
+        req.app.locals.npcSystem.minecraftBridge.setPhase(phase);
+      }
+      if (typeof broadcastPhaseChange === 'function') {
+        broadcastPhaseChange({ phase, timestamp: Date.now() });
+      }
       logger.info('Phase manually updated', { phase });
 
       res.json({

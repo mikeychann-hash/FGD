@@ -214,6 +214,18 @@ export function attachNpcEngineTelemetry(
     });
   });
 
+  npcEngine.on('npc_moved', (payload) => {
+    io.emit('bot:move', payload);
+  });
+
+  npcEngine.on('npc_bridge_move', (payload) => {
+    io.emit('bot:move', payload);
+  });
+
+  npcEngine.on('player_moved', (payload) => {
+    io.emit('player:move', payload);
+  });
+
   npcEngine.on('npc_scan', (payload) => {
     appendLogCallback({
       level: 'info',

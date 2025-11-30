@@ -10,6 +10,11 @@
 import { logger } from '../../logger.js';
 import { validateCoordinates } from './validation.js';
 
+// We assume mineflayer-pathfinder is injected by the bridge
+// But we might need the goals class from it
+import pathfinderPkg from 'mineflayer-pathfinder';
+const { goals } = pathfinderPkg;
+
 export class MineflayerMovementAdapter {
   constructor(bridge, options = {}) {
     this.bridge = bridge;
@@ -67,69 +72,51 @@ export class MineflayerMovementAdapter {
     }
 
     try {
-      // Use pathfinder if available
-      if (bot.pathfinder) {
-        const { goals } = require('mineflayer-pathfinder');
-        const goal = new goals.GoalXZ(x, z);
-        bot.pathfinder.setGoal(goal);
+      if (!bot.pathfinder) {
+        return { success: false, error: 'Pathfinder plugin not loaded on bot' };
+      }
 
-        // Wait for pathfinding to complete (with timeout)
-        return await new Promise((resolve) => {
-          const timeout = setTimeout(() => {
-            resolve({
-              success: false,
-              error: 'Pathfinding timeout'
-            });
-          }, this.options.taskTimeoutMs || 30000);
+      const goal = new goals.GoalBlock(x, y, z);
+      bot.pathfinder.setGoal(goal);
 
-          bot.once('goal_reached', () => {
-            clearTimeout(timeout);
-            resolve({
-              success: true,
-              data: {
-                moved_to: { x, y, z },
-                distance: 0
-              }
-            });
+      // Wait for pathfinding to complete (with timeout)
+      return await new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          bot.pathfinder.stop(); // Stop if timed out
+          resolve({
+            success: false,
+            error: 'Pathfinding timeout'
           });
-        });
-      } else {
-        // Fallback: Simple velocity-based movement
-        const currentPos = bot.entity.position;
-        const distance = currentPos.distanceTo({ x, y, z });
+        }, this.options.taskTimeoutMs || 30000);
 
-        if (distance < 1) {
-          return { success: true, data: { already_at: { x, y, z } } };
-        }
+        const onGoalReached = () => {
+          cleanup();
+          resolve({
+            success: true,
+            data: {
+              moved_to: { x, y, z },
+              distance: 0
+            }
+          });
+        };
 
-        // Attempt movement (naive implementation)
-        const direction = { x, y, z };
-        direction.x -= currentPos.x;
-        direction.y -= currentPos.y;
-        direction.z -= currentPos.z;
-
-        const len = Math.sqrt(direction.x ** 2 + direction.y ** 2 + direction.z ** 2);
-        if (len === 0) {
-          return { success: true, data: { already_at: { x, y, z } } };
-        }
-
-        direction.x /= len;
-        direction.y /= len;
-        direction.z /= len;
-
-        // Move towards target (simplified)
-        bot.setControlState('forward', true);
-        await new Promise(r => setTimeout(r, 1000));
-        bot.setControlState('forward', false);
-
-        return {
-          success: true,
-          data: {
-            moved_towards: { x, y, z },
-            distance_remaining: distance
+        const onPathUpdate = (r) => {
+          if (r.status === 'noPath') {
+             cleanup();
+             resolve({ success: false, error: 'No path to target' });
           }
         };
-      }
+        
+        const cleanup = () => {
+           clearTimeout(timeout);
+           bot.removeListener('goal_reached', onGoalReached);
+           bot.removeListener('path_update', onPathUpdate);
+        };
+
+        bot.on('goal_reached', onGoalReached);
+        bot.on('path_update', onPathUpdate);
+      });
+
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -157,26 +144,29 @@ export class MineflayerMovementAdapter {
 
       const targetEntity = nearbyEntities[0];
 
-      // Use pathfinder to follow
-      if (bot.pathfinder) {
-        const { goals } = require('mineflayer-pathfinder');
-        const goal = new goals.GoalFollow(targetEntity, 2);
-        bot.pathfinder.setGoal(goal);
-
-        return {
-          success: true,
-          data: {
-            following: entityName,
-            targetPosition: {
-              x: targetEntity.position.x,
-              y: targetEntity.position.y,
-              z: targetEntity.position.z
-            }
-          }
-        };
-      } else {
-        return { success: false, error: 'Pathfinder plugin not available' };
+      if (!bot.pathfinder) {
+         return { success: false, error: 'Pathfinder plugin not loaded on bot' };
       }
+
+      const goal = new goals.GoalFollow(targetEntity, 2);
+      bot.pathfinder.setGoal(goal, true); // true = dynamic goal
+
+      // For 'follow', we might not return immediately, or we return "started following"
+      // The task execution model expects a result. 
+      // We can return immediately saying we are following.
+      
+      return {
+        success: true,
+        data: {
+          following: entityName,
+          targetPosition: {
+            x: targetEntity.position.x,
+            y: targetEntity.position.y,
+            z: targetEntity.position.z
+          }
+        }
+      };
+
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -205,6 +195,7 @@ export class MineflayerMovementAdapter {
 
       for (let i = 0; i < waypoints.length; i++) {
         const wp = waypoints[i];
+        // We can reuse _moveTo logic
         const result = await this._moveTo(bot, { target: wp });
 
         if (!result.success) {

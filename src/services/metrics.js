@@ -1,6 +1,13 @@
 const METRICS = {
   queueDepth: 0,
   heartbeatAgeSeconds: 0,
+  pluginHeartbeatAgeSeconds: 0,
+  botSpawnsTotal: 0,
+  botSpawnFailuresTotal: 0,
+  botSpawnsById: new Map(),
+  botSpawnFailuresById: new Map(),
+  actionTotal: new Map(),
+  actionFailuresTotal: new Map(),
   latencyBuckets: new Map([
     [0.5, 0],
     [1, 0],
@@ -24,7 +31,58 @@ function recordLatency(value) {
 }
 
 export function updateHeartbeatAge(ageSeconds) {
-  METRICS.heartbeatAgeSeconds = typeof ageSeconds === 'number' ? ageSeconds : 0;
+  const age = typeof ageSeconds === 'number' ? ageSeconds : 0;
+  METRICS.heartbeatAgeSeconds = age;
+  METRICS.pluginHeartbeatAgeSeconds = age;
+}
+
+function incrementMapCounter(map, key, count) {
+  const current = map.get(key) || 0;
+  map.set(key, current + count);
+}
+
+export function incrementSpawnSuccess(count = 1, botId = null) {
+  METRICS.botSpawnsTotal += count;
+  if (botId) incrementMapCounter(METRICS.botSpawnsById, botId, count);
+}
+
+export function incrementSpawnFailure(count = 1, botId = null) {
+  METRICS.botSpawnFailuresTotal += count;
+  if (botId) incrementMapCounter(METRICS.botSpawnFailuresById, botId, count);
+}
+
+export function resetMetrics() {
+  METRICS.queueDepth = 0;
+  METRICS.heartbeatAgeSeconds = 0;
+  METRICS.pluginHeartbeatAgeSeconds = 0;
+  METRICS.botSpawnsTotal = 0;
+  METRICS.botSpawnFailuresTotal = 0;
+  METRICS.actionTotal.clear();
+  METRICS.actionFailuresTotal.clear();
+  METRICS.botSpawnsById.clear();
+  METRICS.botSpawnFailuresById.clear();
+  METRICS.latencyBuckets = new Map([
+    [0.5, 0],
+    [1, 0],
+    [2, 0],
+    [4, 0],
+    [8, 0],
+    ['+Inf', 0],
+  ]);
+  METRICS.latencySum = 0;
+  METRICS.latencyCount = 0;
+}
+
+function actionKey(action, botId) {
+  return `${action || 'unknown'}|${botId || 'unknown'}`;
+}
+
+export function incrementAction(action, botId = null, count = 1) {
+  incrementMapCounter(METRICS.actionTotal, actionKey(action, botId), count);
+}
+
+export function incrementActionFailure(action, botId = null, count = 1) {
+  incrementMapCounter(METRICS.actionFailuresTotal, actionKey(action, botId), count);
 }
 
 export function bindMetricsToNpcEngine(npcEngine, stateManager) {
@@ -93,6 +151,33 @@ export function getPrometheusRegistry() {
       lines.push('# HELP fgd_bridge_heartbeat_age_seconds Seconds since last plugin heartbeat');
       lines.push('# TYPE fgd_bridge_heartbeat_age_seconds gauge');
       lines.push(`fgd_bridge_heartbeat_age_seconds ${METRICS.heartbeatAgeSeconds}`);
+      lines.push('# HELP fgd_minecraft_plugin_heartbeat_age_seconds Seconds since last plugin heartbeat (bridge view)');
+      lines.push('# TYPE fgd_minecraft_plugin_heartbeat_age_seconds gauge');
+      lines.push(`fgd_minecraft_plugin_heartbeat_age_seconds ${METRICS.pluginHeartbeatAgeSeconds}`);
+      lines.push('# HELP fgd_bot_spawns_total Total bot spawn attempts (successful)');
+      lines.push('# TYPE fgd_bot_spawns_total counter');
+      lines.push(`fgd_bot_spawns_total ${METRICS.botSpawnsTotal}`);
+      for (const [botId, value] of METRICS.botSpawnsById.entries()) {
+        lines.push(`fgd_bot_spawns_total{botId="${botId}"} ${value}`);
+      }
+      lines.push('# HELP fgd_bot_spawn_failures_total Total bot spawn failures');
+      lines.push('# TYPE fgd_bot_spawn_failures_total counter');
+      lines.push(`fgd_bot_spawn_failures_total ${METRICS.botSpawnFailuresTotal}`);
+      for (const [botId, value] of METRICS.botSpawnFailuresById.entries()) {
+        lines.push(`fgd_bot_spawn_failures_total{botId="${botId}"} ${value}`);
+      }
+      lines.push('# HELP fgd_action_total Total in-world actions executed');
+      lines.push('# TYPE fgd_action_total counter');
+      for (const [key, value] of METRICS.actionTotal.entries()) {
+        const [action, bot] = key.split('|');
+        lines.push(`fgd_action_total{action="${action}",bot="${bot}"} ${value}`);
+      }
+      lines.push('# HELP fgd_action_failures_total Failed in-world actions');
+      lines.push('# TYPE fgd_action_failures_total counter');
+      for (const [key, value] of METRICS.actionFailuresTotal.entries()) {
+        const [action, bot] = key.split('|');
+        lines.push(`fgd_action_failures_total{action="${action}",bot="${bot}"} ${value}`);
+      }
       lines.push(formatHistogram().trimEnd());
       return `${lines.join('\n')}\n`;
     },
@@ -103,4 +188,9 @@ export default {
   bindMetricsToNpcEngine,
   getPrometheusRegistry,
   updateHeartbeatAge,
+  incrementSpawnSuccess,
+  incrementSpawnFailure,
+  incrementAction,
+  incrementActionFailure,
+  resetMetrics,
 };

@@ -222,6 +222,14 @@ export class MineflayerBridge {
   }
 
   /**
+   * Lightweight connection summary for health checks
+   * @returns {boolean}
+   */
+  isConnected() {
+    return this.bots.size > 0;
+  }
+
+  /**
    * Check if bot is connected and alive
    * @param {string} botId - Bot ID
    * @returns {boolean}

@@ -3,6 +3,7 @@
 
 import express from 'express';
 import { authenticate, authorize, ROLES } from '../middleware/auth.js';
+import { spawnBot, spawnAllBots } from '../src/services/spawn_pipeline.js';
 
 const router = express.Router();
 
@@ -10,8 +11,13 @@ const router = express.Router();
  * Command parser for natural language inputs
  */
 class LLMCommandParser {
-  constructor(npcEngine) {
-    this.engine = npcEngine;
+  constructor(npcSystem, io) {
+    this.npcSystem = npcSystem;
+    this.engine = npcSystem?.npcEngine;
+    this.io = io;
+
+
+
 
     // Command patterns
     this.patterns = [
@@ -55,7 +61,7 @@ class LLMCommandParser {
    * @param {Object} user - User executing the command
    * @returns {Promise<Object>} Command result
    */
-  async parse(input, user) {
+  async parse(input, user, context = {}) {
     const cleanInput = input.trim();
 
     // Try to match against patterns
@@ -63,7 +69,7 @@ class LLMCommandParser {
       const match = cleanInput.match(regex);
       if (match) {
         try {
-          return await handler(match, user);
+          return await handler(match, user, context);
         } catch (error) {
           return {
             success: false,
@@ -76,7 +82,7 @@ class LLMCommandParser {
 
     // If no pattern matched, try the interpreter
     try {
-      const result = await this.engine.handleCommand(cleanInput, user.username);
+      const result = await this.engine.handleCommand(cleanInput, user.username, context);
       if (result) {
         return {
           success: true,
@@ -120,13 +126,23 @@ class LLMCommandParser {
       autoSpawn: false,
     });
 
+    const spawnResult = await spawnBot(this.npcSystem, this.io, {
+      botId: bot.id,
+      position: bot.spawnPosition,
+      user,
+      source: 'llm-command',
+    });
+
     return {
       success: true,
-      message: `Created bot ${bot.id} as ${role}`,
+      message: `Created bot ${bot.id} as ${role}` +
+        (spawnResult.spawned ? ' and spawned' : ' (spawn queued)'),
       bot: {
         id: bot.id,
         role: bot.role,
         personality: bot.personalitySummary,
+        position: spawnResult.position,
+        spawned: spawnResult.spawned,
       },
     };
   }
@@ -261,31 +277,26 @@ class LLMCommandParser {
   }
 
   async handleSpawnAll(match, user) {
-    if (!this.engine.bridge) {
-      return {
-        success: false,
-        error: 'Minecraft bridge not configured',
-      };
-    }
-
-    const results = await this.engine.spawnAllKnownNPCs();
+    const results = await spawnAllBots(this.npcSystem, this.io, {
+      user,
+      source: 'llm-command',
+    });
 
     return {
       success: true,
-      message: `Spawned ${results.length} bots`,
-      count: results.length,
+      message: `Spawned ${results.count} bots`,
+      count: results.count,
     };
   }
 }
 
 /**
  * Initialize LLM routes
- * @param {NPCEngine} npcEngine - The NPC engine instance
+ * @param {NPCSystem} npcSystem - The NPC system instance
  * @param {Server} io - Socket.io server instance
  */
-export function initLLMRoutes(npcEngine, io) {
-  const parser = new LLMCommandParser(npcEngine);
-
+export function initLLMRoutes(npcSystem, io) {
+  const parser = new LLMCommandParser(npcSystem, io);
   /**
    * POST /api/llm/command
    * Execute a natural language command
@@ -303,7 +314,7 @@ export function initLLMRoutes(npcEngine, io) {
 
       console.log(`🤖 LLM command from ${req.user.username}: ${command}`);
 
-      const result = await parser.parse(command, req.user);
+      const result = await parser.parse(command, req.user, context);
 
       // Emit WebSocket event
       if (io) {

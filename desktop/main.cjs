@@ -1,13 +1,70 @@
-const { app, BrowserWindow, ipcMain, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, session, dialog, shell } = require('electron');
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const path = require('path');
 const Store = require('electron-store');
 
+// Enable sandbox for all renderers created after this call.
+app.enableSandbox();
+
 const store = new Store();
+const secretsStore = new Store({ name: 'fgd-secrets' });
+
 const backendPort = process.env.PORT || process.env.FGD_DESKTOP_PORT || 3000;
 const isDev = process.argv.includes('--dev');
+
 let backendProcess = null;
 let minecraftProcess = null;
+let restartAttempts = 0;
+let lastRestartAt = 0;
+const MAX_RESTART_ATTEMPTS = 3;
+const RESTART_RESET_MS = 5 * 60 * 1000;
+
+function genSecret(bytes = 32) {
+  return crypto.randomBytes(bytes).toString('hex');
+}
+
+function genStrongPassword() {
+  const raw = crypto.randomBytes(24).toString('base64').replace(/[+/=]/g, '');
+  return `A1${raw}`;
+}
+
+function ensureSecrets() {
+  const current = secretsStore.store || {};
+  const updates = {};
+  if (!current.ADMIN_API_KEY) updates.ADMIN_API_KEY = genSecret();
+  if (!current.LLM_API_KEY) updates.LLM_API_KEY = genSecret();
+  if (!current.JWT_SECRET) updates.JWT_SECRET = genSecret(64);
+  if (!current.ADMIN_PASSWORD) updates.ADMIN_PASSWORD = genStrongPassword();
+  if (!current.RCON_PASSWORD) updates.RCON_PASSWORD = genSecret(16);
+  if (Object.keys(updates).length > 0) {
+    secretsStore.set(updates);
+  }
+  return { ...current, ...updates };
+}
+
+function regenerateSecrets() {
+  secretsStore.clear();
+  return ensureSecrets();
+}
+
+function buildBackendEnv() {
+  const secrets = ensureSecrets();
+  return {
+    ...process.env,
+    NODE_ENV: process.env.NODE_ENV || (isDev ? 'development' : 'production'),
+    PORT: backendPort,
+    FGD_DESKTOP: '1',
+    FGD_BIND_ADDRESS: '127.0.0.1',
+    FGD_DATA_DIR: path.join(app.getPath('userData'), 'data'),
+    LOG_DIR: app.getPath('logs'),
+    ADMIN_API_KEY: secrets.ADMIN_API_KEY,
+    LLM_API_KEY: secrets.LLM_API_KEY,
+    JWT_SECRET: secrets.JWT_SECRET,
+    ADMIN_PASSWORD: secrets.ADMIN_PASSWORD,
+    RCON_PASSWORD: secrets.RCON_PASSWORD,
+  };
+}
 
 function startBackend() {
   if (backendProcess) {
@@ -16,10 +73,7 @@ function startBackend() {
 
   const serverPath = path.join(__dirname, '..', 'server.js');
   backendProcess = spawn(process.execPath, [serverPath], {
-    env: {
-      ...process.env,
-      PORT: backendPort,
-    },
+    env: buildBackendEnv(),
     stdio: 'inherit',
     windowsHide: true,
   });
@@ -28,23 +82,50 @@ function startBackend() {
     BrowserWindow.getAllWindows().forEach((win) => {
       win.webContents.send('fgd:backend-exit', { reason: err.message });
     });
-    if (!app.isQuitting) {
-      app.quit();
-    }
+    scheduleRestartOrQuit(err.message);
   });
 
   backendProcess.on('exit', (code, signal) => {
     backendProcess = null;
-    const reason = signal || code;
 
+    if (app.isQuitting) {
+      return;
+    }
+
+    const reason = signal || `code=${code}`;
     BrowserWindow.getAllWindows().forEach((win) => {
       win.webContents.send('fgd:backend-exit', { reason });
     });
 
-    if (!app.isQuitting) {
-      app.quit();
-    }
+    scheduleRestartOrQuit(reason);
   });
+}
+
+function scheduleRestartOrQuit(reason) {
+  const now = Date.now();
+  if (now - lastRestartAt > RESTART_RESET_MS) {
+    restartAttempts = 0;
+  }
+
+  if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
+    dialog.showErrorBox(
+      'FGD backend crashed',
+      `The FGD backend has exited ${MAX_RESTART_ATTEMPTS} times in a row and will not be restarted.\n\n` +
+        `Last reason: ${reason}\n\nCheck logs at: ${app.getPath('logs')}`
+    );
+    app.quit();
+    return;
+  }
+
+  const delayMs = [1000, 4000, 16000][restartAttempts] || 16000;
+  restartAttempts += 1;
+  lastRestartAt = now;
+
+  setTimeout(() => {
+    if (!app.isQuitting) {
+      startBackend();
+    }
+  }, delayMs);
 }
 
 function stopBackend() {
@@ -53,6 +134,29 @@ function stopBackend() {
   }
   backendProcess.kill();
   backendProcess = null;
+}
+
+function installContentSecurityPolicy() {
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    `connect-src 'self' http://127.0.0.1:${backendPort} ws://127.0.0.1:${backendPort}`,
+    "img-src 'self' data:",
+    "font-src 'self' data:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    });
+  });
 }
 
 function createWindow() {
@@ -74,11 +178,12 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
     },
     show: false,
   });
 
-  // Load from Vite dev server in development, or built files in production
   if (isDev) {
     win.loadURL('http://localhost:5173');
     win.webContents.openDevTools();
@@ -86,13 +191,30 @@ function createWindow() {
     win.loadFile(path.join(__dirname, 'dist', 'index.html'));
   }
 
-  // Apply Windows 11 Mica effect if available
+  // Block arbitrary navigation away from the app shell.
+  win.webContents.on('will-navigate', (event, url) => {
+    const allowed = isDev
+      ? ['http://localhost:5173', `http://127.0.0.1:${backendPort}`]
+      : [`http://127.0.0.1:${backendPort}`];
+    if (!allowed.some((prefix) => url.startsWith(prefix))) {
+      event.preventDefault();
+    }
+  });
+
+  // External links open in the user's default browser; no new Electron windows.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//.test(url)) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
   win.once('ready-to-show', () => {
     win.show();
     if (process.platform === 'win32') {
       try {
         win.setBackgroundMaterial('mica');
-      } catch (e) {
+      } catch (_e) {
         // Mica not available on this Windows version
       }
     }
@@ -164,16 +286,12 @@ function stopMinecraftServer() {
   }
 
   try {
-    // Send stop command to Minecraft server
     minecraftProcess.stdin.write('stop\n');
-
-    // Force kill after 30 seconds if it doesn't stop gracefully
     setTimeout(() => {
       if (minecraftProcess) {
         minecraftProcess.kill('SIGTERM');
       }
     }, 30000);
-
     return { success: true, message: 'Stop command sent to server' };
   } catch (error) {
     return { success: false, message: error.message };
@@ -187,11 +305,26 @@ function getMinecraftServerStatus() {
   };
 }
 
-// IPC Handlers
+// IPC Handlers — never expose secrets to the renderer.
 ipcMain.handle('fgd:get-config', () => ({
   port: backendPort,
-  apiBaseUrl: `http://localhost:${backendPort}`,
+  apiBaseUrl: `http://127.0.0.1:${backendPort}`,
 }));
+
+// Admin-only: expose the admin API key to the renderer via a gated channel.
+// The renderer uses this to call the local backend without shipping a key in its bundle.
+ipcMain.handle('fgd:get-admin-key', () => {
+  const secrets = ensureSecrets();
+  return { apiKey: secrets.ADMIN_API_KEY };
+});
+
+ipcMain.handle('fgd:regenerate-secrets', async () => {
+  regenerateSecrets();
+  stopBackend();
+  // Small delay so the backend fully exits before restart
+  setTimeout(() => startBackend(), 500);
+  return { success: true };
+});
 
 ipcMain.handle('minecraft:start', () => startMinecraftServer());
 ipcMain.handle('minecraft:stop', () => stopMinecraftServer());
@@ -220,8 +353,23 @@ app.setName('FGD Desktop');
 nativeTheme.themeSource = 'dark';
 
 app.whenReady().then(() => {
+  installContentSecurityPolicy();
+  ensureSecrets();
   startBackend();
   createWindow();
+
+  // Optional auto-updater; only runs in packaged builds.
+  if (!isDev && app.isPackaged) {
+    try {
+      const { autoUpdater } = require('electron-updater');
+      autoUpdater.logger = console;
+      autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+        console.warn('Auto-update check failed:', err && err.message);
+      });
+    } catch (err) {
+      console.warn('electron-updater not available:', err && err.message);
+    }
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -81,12 +81,13 @@ export function validateCriticalEnvVars() {
 
   const errors = [];
   const validated = {};
+  const isProd = process.env.NODE_ENV === 'production';
 
-  // Validate database password (Optional for local dev)
+  // Validate database password (required in prod, optional for local dev)
   try {
     validated.DB_PASSWORD = validateEnvVar('DB_PASSWORD', {
-      required: false, // Changed to false for local dev
-      checkWeak: false,
+      required: isProd,
+      checkWeak: isProd,
       label: 'Database Password'
     });
     if (validated.DB_PASSWORD) {
@@ -98,11 +99,11 @@ export function validateCriticalEnvVars() {
     errors.push(error.message);
   }
 
-  // Validate admin API key (Optional for local dev)
+  // Validate admin API key (required in prod, optional for local dev)
   try {
     validated.ADMIN_API_KEY = validateEnvVar('ADMIN_API_KEY', {
-      required: false, // Changed to false for local dev
-      checkWeak: false,
+      required: isProd,
+      checkWeak: isProd,
       label: 'Admin API Key'
     });
     if (validated.ADMIN_API_KEY) {
@@ -114,17 +115,49 @@ export function validateCriticalEnvVars() {
     errors.push(error.message);
   }
 
-  // Validate LLM API key (Optional for local dev with CLI)
+  // Validate LLM API key (required in prod, optional for local dev with CLI)
   try {
     validated.LLM_API_KEY = validateEnvVar('LLM_API_KEY', {
-      required: false, // Changed to false for local dev
-      checkWeak: false,
+      required: isProd,
+      checkWeak: isProd,
       label: 'LLM API Key'
     });
     if (validated.LLM_API_KEY) {
       console.log('✅ LLM_API_KEY: Valid and secure');
     } else {
       console.log('⚠️  LLM_API_KEY: Not set (Authentication bypassed for LLM or using CLI)');
+    }
+  } catch (error) {
+    errors.push(error.message);
+  }
+
+  // Admin password + RCON password are required in production.
+  try {
+    validated.ADMIN_PASSWORD = validateEnvVar('ADMIN_PASSWORD', {
+      required: isProd,
+      checkWeak: isProd,
+      label: 'Admin Password'
+    });
+    if (validated.ADMIN_PASSWORD) {
+      console.log('✅ ADMIN_PASSWORD: Valid and secure');
+    } else {
+      console.log('⚠️  ADMIN_PASSWORD: Not set (development mode; ephemeral password will be generated)');
+    }
+  } catch (error) {
+    errors.push(error.message);
+  }
+
+  try {
+    const rconVar = process.env.RCON_PASSWORD ? 'RCON_PASSWORD' : 'MINECRAFT_RCON_PASSWORD';
+    validated.RCON_PASSWORD = validateEnvVar(rconVar, {
+      required: isProd,
+      checkWeak: isProd,
+      label: 'RCON Password'
+    });
+    if (validated.RCON_PASSWORD) {
+      console.log(`✅ ${rconVar}: Valid and secure`);
+    } else {
+      console.log('⚠️  RCON_PASSWORD: Not set (development mode only; RCON bridge will refuse to start)');
     }
   } catch (error) {
     errors.push(error.message);

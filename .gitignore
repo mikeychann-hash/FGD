@@ -4,6 +4,9 @@ node_modules/
 .env
 dist/
 build/
+dist-build/
+desktop/dist/
+
 # Dependencies
 node_modules/
 npm-debug.log*
@@ -24,3 +27,11 @@ Thumbs.db
 *.log
 logs/
 *.corrupt.*
+
+# Runtime state (never commit live state — example files only)
+data/*.json
+!data/npc_registry.example.json
+!data/.gitkeep
+
+# Coverage artifacts
+coverage/

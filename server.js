@@ -54,14 +54,14 @@ async function initializeAPIRoutes() {
   app.get("/api/auth/me", authenticate, getCurrentUser);
 
   // Refresh token endpoint
-  app.post("/api/auth/refresh", authLimiter, (req, res) => {
+  app.post("/api/auth/refresh", authLimiter, async (req, res) => {
     const { refreshToken } = req.body;
 
     if (!refreshToken) {
       return res.status(400).json({ error: 'Refresh token required' });
     }
 
-    const newAccessToken = refreshAccessToken(refreshToken);
+    const newAccessToken = await refreshAccessToken(refreshToken);
 
     if (!newAccessToken) {
       return res.status(401).json({ error: 'Invalid or expired refresh token' });
@@ -76,9 +76,9 @@ async function initializeAPIRoutes() {
   });
 
   // Logout endpoint
-  app.post("/api/auth/logout", authenticate, (req, res) => {
+  app.post("/api/auth/logout", authenticate, async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
-    logout(token);
+    await logout(token);
     res.json({ success: true, message: 'Logged out successfully' });
   });
 
@@ -382,29 +382,50 @@ export async function startServer() {
     // Surface any secret configuration warnings
     logSecretWarnings(logger);
 
-    // Expose Prometheus metrics endpoint (before server starts)
-    app.get('/metrics', async (req, res) => {
-      try {
-        const registry = getPrometheusRegistry();
-        res.set('Content-Type', registry.contentType);
-        res.end(await registry.metrics());
-      } catch (err) {
-        res.status(500).send(err.message);
+    // Expose Prometheus metrics endpoint (before server starts).
+    // Gate behind auth + admin role; allow a loopback bypass for scrapers
+    // that run on the same host (e.g. sidecar exporters) controlled by env.
+    const metricsAllowLoopback = process.env.METRICS_ALLOW_LOOPBACK === 'true';
+    app.get('/metrics',
+      (req, res, next) => {
+        if (metricsAllowLoopback) {
+          const ip = req.ip || req.socket.remoteAddress || '';
+          if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') {
+            return next();
+          }
+        }
+        return authenticate(req, res, (err) => {
+          if (err) return next(err);
+          if (req.user && req.user.role === 'admin') return next();
+          return res.status(403).json({ error: 'Forbidden' });
+        });
+      },
+      async (_req, res) => {
+        try {
+          const registry = getPrometheusRegistry();
+          res.set('Content-Type', registry.contentType);
+          res.end(await registry.metrics());
+        } catch (err) {
+          res.status(500).send(err.message);
+        }
       }
-    });
+    );
 
-    // Start HTTP server
+    // Start HTTP server. When running inside Electron (FGD_DESKTOP=1) bind to
+    // loopback only so the end user's dashboard is never exposed on the LAN.
     const PORT = process.env.PORT || DEFAULT_PORT;
-    httpServer.listen(PORT, () => {
-      logger.info('AICraft Cluster Control Panel started');
+    const BIND = process.env.FGD_BIND_ADDRESS
+      || (process.env.FGD_DESKTOP === '1' ? '127.0.0.1' : '0.0.0.0');
+    httpServer.listen(PORT, BIND, () => {
+      logger.info('AICraft Cluster Control Panel started', { port: PORT, bind: BIND });
       console.log('╔══════════════════════════════════════════╗');
       console.log('║   AICraft Cluster Control Panel         ║');
       console.log('╚══════════════════════════════════════════╝');
-      console.log(`🚀 Server: http://localhost:${PORT}`);
+      console.log(`🚀 Server: http://${BIND}:${PORT}`);
       console.log(`🔌 WebSocket: Real-time updates enabled`);
-      console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-      console.log(`📈 Metrics: http://localhost:${PORT}/api/metrics/system`);
-      console.log(`🤖 NPC API: http://localhost:${PORT}/api/npcs`);
+      console.log(`📊 Health check: http://${BIND}:${PORT}/api/health`);
+      console.log(`📈 Metrics: http://${BIND}:${PORT}/metrics (admin)`);
+      console.log(`🤖 NPC API: http://${BIND}:${PORT}/api/npcs`);
     });
   } catch (err) {
     logger.error('Failed to start server', { error: err.message });
@@ -421,6 +442,12 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('uncaughtException', (err) => {
   console.error('❌ Uncaught Exception:', err);
   gracefulShutdown('UNCAUGHT_EXCEPTION');
+});
+
+// Surface unhandled promise rejections so async errors aren't silently swallowed.
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.stack || reason.message : String(reason);
+  console.error('❌ Unhandled Rejection:', message);
 });
 
 // Start the server

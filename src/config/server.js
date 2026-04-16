@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import compression from 'compression';
+import helmet from 'helmet';
 
 /**
  * Creates and configures the Express app, HTTP server, and Socket.IO server
@@ -46,6 +47,27 @@ export function createAppServer() {
     },
   });
 
+  // Security headers. CSP is disabled here because the Electron renderer
+  // injects its own CSP (see desktop/main.cjs) and the dashboard uses inline
+  // handlers that would otherwise break.
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+    })
+  );
+
+  // Enable HSTS only when the operator opts into HTTPS (behind a reverse proxy).
+  if (process.env.FORCE_HTTPS === 'true') {
+    app.use(
+      helmet.hsts({
+        maxAge: Number(process.env.HSTS_MAX_AGE || 31536000),
+        includeSubDomains: true,
+        preload: false,
+      })
+    );
+  }
+
   // Compression middleware (must come BEFORE static file serving)
   app.use(
     compression({
@@ -60,8 +82,8 @@ export function createAppServer() {
     })
   );
 
-  // Middleware
-  app.use(express.json());
+  // Middleware — cap body size to keep JSON parsing bounded.
+  app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '100kb' }));
 
   // CORS error handling middleware
   app.use((err, req, res, next) => {

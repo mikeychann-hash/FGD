@@ -5,14 +5,18 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
+import { tokenStore } from '../src/services/token_store.js';
 
 // Generate a secure secret if not provided
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
 
-// Refresh token storage (use Redis in production)
-const refreshTokens = new Map();
-const tokenBlacklist = new Set();
+// Refresh token + access-token blacklist backed by a pluggable store
+// (in-memory for servers, file-backed for Electron, redis optional).
+const REFRESH_PREFIX = 'refresh:';
+const BLACKLIST_PREFIX = 'blacklist:';
+const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const ACCESS_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 // Bcrypt configuration
 const SALT_ROUNDS = 12;
@@ -54,25 +58,50 @@ export function validatePassword(password) {
   };
 }
 
-// API Keys - Optional for local/open mode
+// API Keys - Required in production, optional in development/test
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
 const LLM_API_KEY = process.env.LLM_API_KEY;
+const IS_PROD = process.env.NODE_ENV === 'production';
 
-// Log warning instead of throwing error
 if (!ADMIN_API_KEY || ADMIN_API_KEY.trim() === '') {
-  console.warn('WARNING: ADMIN_API_KEY not set. Authentication will be bypassed for admin routes.');
+  if (IS_PROD) {
+    throw new Error(
+      'CRITICAL SECURITY ERROR: ADMIN_API_KEY must be set in production. ' +
+      'Refusing to start with auth bypass enabled.'
+    );
+  }
+  console.warn('WARNING: ADMIN_API_KEY not set. Authentication will be bypassed for admin routes (development mode only).');
 }
 if (!LLM_API_KEY || LLM_API_KEY.trim() === '') {
-  console.warn('WARNING: LLM_API_KEY not set. Authentication will be bypassed for LLM routes.');
+  if (IS_PROD) {
+    throw new Error(
+      'CRITICAL SECURITY ERROR: LLM_API_KEY must be set in production. ' +
+      'Refusing to start with auth bypass enabled.'
+    );
+  }
+  console.warn('WARNING: LLM_API_KEY not set. Authentication will be bypassed for LLM routes (development mode only).');
 }
 
-// Hash passwords on initialization
-// Default admin password: AdminPass123 (CHANGE IN PRODUCTION!)
+// Require ADMIN_PASSWORD in production; refuse to fall back to any default.
+const adminPassword = process.env.ADMIN_PASSWORD;
+if (!adminPassword || adminPassword.trim() === '') {
+  if (IS_PROD) {
+    throw new Error(
+      'CRITICAL SECURITY ERROR: ADMIN_PASSWORD must be set in production. ' +
+      'Refusing to fall back to a default value.'
+    );
+  }
+  console.warn('WARNING: ADMIN_PASSWORD not set. Using an ephemeral random password (development only).');
+}
+const effectiveAdminPassword = adminPassword && adminPassword.trim() !== ''
+  ? adminPassword
+  : crypto.randomBytes(24).toString('hex');
+
 const USERS = {
   admin: {
     id: 'admin',
     username: 'admin',
-    passwordHash: bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'AdminPass123', SALT_ROUNDS),
+    passwordHash: bcrypt.hashSync(effectiveAdminPassword, SALT_ROUNDS),
     role: ROLES.ADMIN,
     apiKey: ADMIN_API_KEY,
   },
@@ -112,7 +141,7 @@ export function generateToken(user) {
  * @param {Object} user - User object
  * @returns {Object} Object containing accessToken and refreshToken
  */
-export function generateTokens(user) {
+export async function generateTokens(user) {
   const accessToken = jwt.sign(
     { id: user.id, username: user.username, role: user.role },
     JWT_SECRET,
@@ -120,10 +149,11 @@ export function generateTokens(user) {
   );
 
   const refreshToken = uuidv4();
-  refreshTokens.set(refreshToken, {
-    userId: user.id,
-    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000  // 7 days
-  });
+  await tokenStore.set(
+    REFRESH_PREFIX + refreshToken,
+    { userId: user.id },
+    REFRESH_TTL_MS
+  );
 
   return { accessToken, refreshToken };
 }
@@ -133,16 +163,10 @@ export function generateTokens(user) {
  * @param {string} refreshToken - Refresh token
  * @returns {string|null} New access token or null if invalid
  */
-export function refreshAccessToken(refreshToken) {
-  const tokenData = refreshTokens.get(refreshToken);
+export async function refreshAccessToken(refreshToken) {
+  const tokenData = await tokenStore.get(REFRESH_PREFIX + refreshToken);
 
   if (!tokenData) {
-    return null;
-  }
-
-  // Check if refresh token is expired
-  if (Date.now() > tokenData.expiresAt) {
-    refreshTokens.delete(refreshToken);
     return null;
   }
 
@@ -167,14 +191,10 @@ export function refreshAccessToken(refreshToken) {
  * Logout user by blacklisting their access token
  * @param {string} token - Access token to blacklist
  */
-export function logout(token) {
+export async function logout(token) {
   if (token) {
-    tokenBlacklist.add(token);
-
-    // Set a timeout to remove from blacklist after token would expire anyway (1 hour)
-    setTimeout(() => {
-      tokenBlacklist.delete(token);
-    }, 60 * 60 * 1000);
+    // Store until the access-token TTL elapses; the backing store enforces expiry.
+    await tokenStore.set(BLACKLIST_PREFIX + token, true, ACCESS_TTL_MS);
   }
 }
 
@@ -215,7 +235,7 @@ export function hasPermission(role, permission) {
 /**
  * Express middleware for JWT authentication
  */
-export function authenticateJWT(req, res, next) {
+export async function authenticateJWT(req, res, next) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
@@ -236,8 +256,7 @@ export function authenticateJWT(req, res, next) {
 
   const token = parts[1];
 
-  // Check if token is blacklisted
-  if (tokenBlacklist.has(token)) {
+  if (await tokenStore.has(BLACKLIST_PREFIX + token)) {
     return res.status(401).json({
       error: 'Unauthorized',
       message: 'Token has been revoked',
@@ -441,7 +460,7 @@ export async function handleLogin(req, res) {
   }
 
   // Generate both access and refresh tokens
-  const { accessToken, refreshToken } = generateTokens(user);
+  const { accessToken, refreshToken } = await generateTokens(user);
 
   res.json({
     success: true,

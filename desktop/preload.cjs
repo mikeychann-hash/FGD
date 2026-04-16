@@ -2,6 +2,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('fgdDesktop', {
   getConfig: () => ipcRenderer.invoke('fgd:get-config'),
+  getAdminKey: () => ipcRenderer.invoke('fgd:get-admin-key'),
+  regenerateSecrets: () => ipcRenderer.invoke('fgd:regenerate-secrets'),
   onBackendExit: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('fgd:backend-exit', listener);

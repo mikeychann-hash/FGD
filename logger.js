@@ -25,7 +25,12 @@ const LEVEL_NAMES = Object.keys(LOG_LEVELS);
 class Logger {
   constructor(options = {}) {
     this.level = options.level || LOG_LEVELS.INFO;
-    this.logDir = options.logDir || path.join(__dirname, 'logs');
+    // Prefer explicit options, then LOG_DIR env var (Electron sets this to
+    // app.getPath('logs')), then a repo-local ./logs directory.
+    this.logDir = options.logDir
+      || (process.env.LOG_DIR && process.env.LOG_DIR.trim() !== ''
+        ? process.env.LOG_DIR
+        : path.join(__dirname, 'logs'));
     this.consoleOutput = options.consoleOutput !== false; // Default true
     this.fileOutput = options.fileOutput !== false; // Default true
     this.context = options.context || {};

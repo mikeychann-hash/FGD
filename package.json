@@ -6,6 +6,9 @@
   "private": true,
   "license": "GPL-3.0",
   "description": "AICraft Federation unified admin and system dashboard with persistent backend and live monitoring.",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
@@ -24,6 +27,7 @@
     "test:integration": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js tests/integration",
     "test:coverage": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --coverage",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
+    "typecheck:backend": "tsc -p tsconfig.backend.json",
     "test:spawn-e2e": "set ADMIN_API_KEY=test-key && set LLM_API_KEY=test-key && node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runTestsByPath tests/integration/spawn.e2e.test.js --passWithNoTests",
     "test:spawn-live": "node scripts/test_spawn_live.js",
     "policy:heal": "node scripts/policy_self_heal.js"
@@ -38,14 +42,15 @@
     "electron-updater": "^6.1.4",
     "express": "^4.19.0",
     "express-rate-limit": "^8.2.1",
+    "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "lodash": "^4.17.21",
-    "minecraft-data": "^3.100.0",
-    "mineflayer": "^4.0.0",
-    "mineflayer-auto-eat": "^3.3.6",
-    "mineflayer-collectblock": "^1.6.0",
-    "mineflayer-pathfinder": "^2.4.5",
-    "mineflayer-pvp": "^1.3.2",
+    "minecraft-data": "3.100.0",
+    "mineflayer": "4.20.1",
+    "mineflayer-auto-eat": "3.3.6",
+    "mineflayer-collectblock": "1.6.0",
+    "mineflayer-pathfinder": "2.4.5",
+    "mineflayer-pvp": "1.3.2",
     "moment": "^2.29.4",
     "pg": "^8.11.3",
     "react": "^18.2.0",
@@ -98,6 +103,7 @@
       "desktop/dist/**/*",
       "server.js",
       "core_runtime.js",
+      "logger.js",
       "npc_engine.js",
       "minecraft_bridge.js",
       "minecraft_bridge_mineflayer.js",
@@ -109,13 +115,28 @@
       "middleware/**/*",
       "security/**/*",
       "tasks/**/*",
-      "data/**/*",
+      "data/npc_registry.example.json",
       "node_modules/**/*",
       "package.json"
     ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "mikeychann-hash",
+        "repo": "fgd"
+      }
+    ],
     "win": {
       "target": "nsis",
-      "icon": "desktop/icon.ico"
+      "icon": "desktop/icon.ico",
+      "signingHashAlgorithms": ["sha256"]
+    },
+    "mac": {
+      "target": "dmg",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "desktop/entitlements.mac.plist",
+      "entitlementsInherit": "desktop/entitlements.mac.plist"
     },
     "nsis": {
       "oneClick": false,

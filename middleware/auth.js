@@ -5,10 +5,11 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
+import { AUTH_LIMITS } from '../src/config/limits.js';
 
 // Generate a secure secret if not provided
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
+const JWT_EXPIRES_IN = AUTH_LIMITS.JWT_EXPIRES_IN;
 
 // Refresh token storage (still in-memory; move to Redis when refresh flow
 // is needed across restarts).
@@ -19,7 +20,7 @@ const refreshTokens = new Map();
 // when Redis is not configured or temporarily unavailable.
 const tokenBlacklist = new Set();
 const BLACKLIST_KEY_PREFIX = 'auth:blacklist:';
-const DEFAULT_BLACKLIST_TTL_SEC = 60 * 60; // 1 hour, matches default JWT TTL
+const DEFAULT_BLACKLIST_TTL_SEC = AUTH_LIMITS.BLACKLIST_TTL_SEC;
 let _redisClientPromise = null;
 
 async function getBlacklistRedisClient() {
@@ -63,7 +64,7 @@ async function isTokenBlacklisted(token) {
 }
 
 // Bcrypt configuration
-const SALT_ROUNDS = 12;
+const SALT_ROUNDS = AUTH_LIMITS.BCRYPT_SALT_ROUNDS;
 
 // User roles
 export const ROLES = {
@@ -177,7 +178,7 @@ export function generateTokens(user) {
   const refreshToken = uuidv4();
   refreshTokens.set(refreshToken, {
     userId: user.id,
-    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000  // 7 days
+    expiresAt: Date.now() + AUTH_LIMITS.REFRESH_TOKEN_TTL_MS
   });
 
   return { accessToken, refreshToken };

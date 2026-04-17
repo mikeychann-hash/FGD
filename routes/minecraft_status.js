@@ -2,6 +2,7 @@
 // Lightweight Minecraft bridge/plugin status endpoints
 
 import express from 'express';
+import { fail } from '../src/middleware/response.js';
 
 export function initMinecraftStatusRoutes(npcSystem) {
   const router = express.Router();
@@ -39,7 +40,7 @@ export function initMinecraftStatusRoutes(npcSystem) {
 
       res.json(status);
     } catch (err) {
-      res.status(500).json({ error: 'Failed to get Minecraft status', message: err.message });
+      return fail(res, 500, 'Failed to get Minecraft status', err.message);
     }
   });
 

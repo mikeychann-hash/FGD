@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate, requirePermission } from '../../middleware/auth.js';
+import { fail } from '../middleware/response.js';
 
 export function initServerControlRoutes(serverControls) {
     const router = express.Router();
@@ -23,7 +24,7 @@ export function initServerControlRoutes(serverControls) {
                 if (restartServer) restartServer();
             }, 1000);
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            return fail(res, 500, err.message);
         }
     });
 
@@ -34,7 +35,7 @@ export function initServerControlRoutes(serverControls) {
                 if (stopServer) stopServer();
             }, 1000);
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            return fail(res, 500, err.message);
         }
     });
 

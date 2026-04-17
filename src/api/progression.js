@@ -1,6 +1,7 @@
 import express from 'express';
 import { logger } from '../../logger.js';
 import { progressionEngine } from '../../core/progression_engine.js';
+import { fail } from '../middleware/response.js';
 
 /**
  * Initialize progression system routes
@@ -17,7 +18,7 @@ export function initProgressionRoutes(broadcastPhaseChange = null) {
       res.json(status);
     } catch (err) {
       logger.error('Failed to get progression status', { error: err.message });
-      res.status(500).json({ error: 'Failed to get progression status' });
+      return fail(res, 500, 'Failed to get progression status', err.message);
     }
   });
 
@@ -30,7 +31,7 @@ export function initProgressionRoutes(broadcastPhaseChange = null) {
       res.json(phaseInfo);
     } catch (err) {
       logger.error('Failed to get phase info', { error: err.message });
-      res.status(500).json({ error: 'Failed to get phase info' });
+      return fail(res, 500, 'Failed to get phase info', err.message);
     }
   });
 
@@ -42,7 +43,7 @@ export function initProgressionRoutes(broadcastPhaseChange = null) {
       const { phase } = req.body;
 
       if (typeof phase !== 'number' || phase < 1 || phase > 6) {
-        return res.status(400).json({ error: 'Phase must be a number between 1 and 6' });
+        return fail(res, 400, 'Phase must be a number between 1 and 6');
       }
 
       await progressionEngine.setPhase(phase);
@@ -61,7 +62,7 @@ export function initProgressionRoutes(broadcastPhaseChange = null) {
       });
     } catch (err) {
       logger.error('Failed to set phase', { error: err.message });
-      res.status(500).json({ error: 'Failed to set phase' });
+      return fail(res, 500, 'Failed to set phase', err.message);
     }
   });
 
@@ -73,7 +74,7 @@ export function initProgressionRoutes(broadcastPhaseChange = null) {
       const metrics = req.body;
 
       if (!metrics || typeof metrics !== 'object') {
-        return res.status(400).json({ error: 'Invalid metrics object' });
+        return fail(res, 400, 'Invalid metrics object');
       }
 
       const phaseAdvanced = await progressionEngine.updateFederationState(metrics);
@@ -87,7 +88,7 @@ export function initProgressionRoutes(broadcastPhaseChange = null) {
       });
     } catch (err) {
       logger.error('Failed to update metrics', { error: err.message });
-      res.status(500).json({ error: 'Failed to update metrics' });
+      return fail(res, 500, 'Failed to update metrics', err.message);
     }
   });
 
@@ -104,7 +105,7 @@ export function initProgressionRoutes(broadcastPhaseChange = null) {
       } else if (value !== undefined) {
         progressionEngine.updateMetric(name, value);
       } else {
-        return res.status(400).json({ error: 'Must provide either value or increment' });
+        return fail(res, 400, 'Must provide either value or increment');
       }
 
       logger.info('Metric updated', { name, value, increment });
@@ -116,7 +117,7 @@ export function initProgressionRoutes(broadcastPhaseChange = null) {
       });
     } catch (err) {
       logger.error('Failed to update metric', { error: err.message, metric: req.params.name });
-      res.status(500).json({ error: 'Failed to update metric' });
+      return fail(res, 500, 'Failed to update metric', err.message);
     }
   });
 
@@ -135,7 +136,7 @@ export function initProgressionRoutes(broadcastPhaseChange = null) {
       });
     } catch (err) {
       logger.error('Failed to reset progression', { error: err.message });
-      res.status(500).json({ error: 'Failed to reset progression' });
+      return fail(res, 500, 'Failed to reset progression', err.message);
     }
   });
 
@@ -154,7 +155,7 @@ export function initProgressionRoutes(broadcastPhaseChange = null) {
       });
     } catch (err) {
       logger.error('Failed to get recommended tasks', { error: err.message });
-      res.status(500).json({ error: 'Failed to get recommended tasks' });
+      return fail(res, 500, 'Failed to get recommended tasks', err.message);
     }
   });
 

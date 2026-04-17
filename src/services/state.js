@@ -7,6 +7,13 @@ export class SystemStateManager {
   constructor(io) {
     this.io = io;
     this.state = { ...DEFAULT_SYSTEM_STATE };
+    // Coalesce bursts of recompute requests into a single emit per tick.
+    // Many telemetry events can fire a recompute in the same microtask
+    // window; without this, we'd emit N `stats:update` events carrying
+    // essentially the same payload and in an order that depends on
+    // scheduler quirks. The flag serializes those into one.
+    this._recomputePending = false;
+    this._recomputeLastEngine = null;
   }
 
   /**
@@ -30,9 +37,22 @@ export class SystemStateManager {
   }
 
   /**
-   * Recompute system statistics
+   * Recompute system statistics. Coalesces bursts via `queueMicrotask` so
+   * several back-to-back recompute triggers (common during telemetry
+   * fan-in) produce at most one `stats:update` emit per tick, against the
+   * most recently supplied engine snapshot.
    */
   recomputeSystemStats(npcEngine) {
+    this._recomputeLastEngine = npcEngine ?? this._recomputeLastEngine;
+    if (this._recomputePending) return;
+    this._recomputePending = true;
+    queueMicrotask(() => {
+      this._recomputePending = false;
+      this._doRecompute(this._recomputeLastEngine);
+    });
+  }
+
+  _doRecompute(npcEngine) {
     const nodes = Array.isArray(this.state.nodes) ? this.state.nodes : [];
     const healthyNodes = nodes.filter((node) => node && node.status === 'healthy');
 

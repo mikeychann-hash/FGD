@@ -4,6 +4,7 @@
 import express from 'express';
 import { authenticate, authorize, ROLES } from '../middleware/auth.js';
 import { spawnBot, spawnAllBots } from '../src/services/spawn_pipeline.js';
+import { fail } from '../src/middleware/response.js';
 
 const router = express.Router();
 
@@ -312,10 +313,7 @@ export function initLLMRoutes(npcSystem, io) {
       const { command, context } = req.body;
 
       if (!command || typeof command !== 'string') {
-        return res.status(400).json({
-          error: 'Bad request',
-          message: 'Command must be a non-empty string',
-        });
+        return fail(res, 400, 'Bad request', 'Command must be a non-empty string');
       }
 
       console.log(`🤖 LLM command from ${req.user.username}: ${command}`);
@@ -340,10 +338,7 @@ export function initLLMRoutes(npcSystem, io) {
       }
     } catch (error) {
       console.error('Error executing LLM command:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        message: error.message,
-      });
+      return fail(res, 500, 'Internal server error', error.message);
     }
   });
 
@@ -356,10 +351,7 @@ export function initLLMRoutes(npcSystem, io) {
       const { commands } = req.body;
 
       if (!Array.isArray(commands)) {
-        return res.status(400).json({
-          error: 'Bad request',
-          message: 'Commands must be an array',
-        });
+        return fail(res, 400, 'Bad request', 'Commands must be an array');
       }
 
       console.log(`🤖 LLM batch (${commands.length} commands) from ${req.user.username}`);
@@ -395,10 +387,7 @@ export function initLLMRoutes(npcSystem, io) {
       });
     } catch (error) {
       console.error('Error executing LLM batch:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        message: error.message,
-      });
+      return fail(res, 500, 'Internal server error', error.message);
     }
   });
 

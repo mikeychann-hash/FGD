@@ -147,10 +147,10 @@ async function initializeAPIRoutes() {
 
     // Initialize Mineflayer routes if bridge available
     if (npcSystem.mineflayerBridge) {
-      // v1: Direct bot control without policy approval
+      // v1: Direct bot control without policy approval. DEPRECATED — use v2.
       mineflayerRouterV1 = initMineflayerRoutes(npcSystem, io);
-      logger.info('Mineflayer v1 routes initialized (direct control)');
-      console.log('✅ Mineflayer v1 routes initialized (direct control)');
+      logger.warn('Mineflayer v1 routes initialized (DEPRECATED — prefer /api/v2/mineflayer)');
+      console.warn('⚠️  Mineflayer v1 routes initialized — DEPRECATED. Migrate clients to /api/v2/mineflayer for policy-gated actions.');
 
       // v2: Policy-based approval flow for bot actions
       policyService = new MineflayerPolicyService(npcSystem);
@@ -160,8 +160,8 @@ async function initializeAPIRoutes() {
         logger.info('Mineflayer v2 routes initialized (with policy enforcement)');
         console.log('✅ Mineflayer v2 routes initialized (with policy enforcement)');
       } else {
-        logger.warn('Policy service failed to initialize, v2 routes unavailable');
-        console.warn('⚠️  Policy service initialization failed');
+        logger.error('Policy service failed to initialize; v2 routes unavailable — v1 WILL NOT silently back-fill /api/mineflayer');
+        console.error('❌ Policy service initialization failed. /api/mineflayer will return 503 until the policy service recovers.');
       }
     }
   } else {
@@ -185,7 +185,7 @@ async function initializeAPIRoutes() {
       router.use("/action", actionRouter);
     }
     if (mineflayerRouterV1) {
-      router.use("/mineflayer", mineflayerRouterV1);
+      router.use("/mineflayer", mineflayerV1Deprecation, mineflayerRouterV1);
     }
     if (llmRouter) {
       router.use("/llm", llmRouter);
@@ -256,18 +256,47 @@ async function initializeAPIRoutes() {
     }
   }
 
-  // Backward compatibility: default to v2 routes for critical endpoints
-  // This allows old clients to work with policy enforcement
+  // Unversioned /api/mineflayer always resolves to the policy-gated v2 surface.
+  // If v2 is unavailable we return 503 rather than silently falling back to v1,
+  // because v1 bypasses policy approval and that is never the right default.
   if (mineflayerRouterV2) {
     app.use("/api/mineflayer", mineflayerRouterV2);
-  } else if (mineflayerRouterV1) {
-    // Fallback to v1 if v2 policy service failed to initialize
-    app.use("/api/mineflayer", mineflayerRouterV1);
+  } else {
+    app.use("/api/mineflayer", (_req, res) => {
+      res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Mineflayer v2 (policy-gated) routes are not initialized. Use /api/v1/mineflayer for the deprecated direct-control surface.',
+      });
+    });
   }
 
   // Error handlers
   app.use('/data', notFoundHandler);
   app.use(globalErrorHandler);
+}
+
+/**
+ * Express middleware that marks every response from the Mineflayer v1 surface
+ * with deprecation headers and emits a one-time log per (method, path, client)
+ * combination so operators can track migration progress.
+ */
+const _v1WarnedKeys = new Set();
+const V1_SUNSET_DATE = 'Wed, 01 Jul 2026 00:00:00 GMT';
+function mineflayerV1Deprecation(req, res, next) {
+  res.setHeader('Deprecation', 'true');
+  res.setHeader('Sunset', V1_SUNSET_DATE);
+  res.setHeader('Link', '</api/v2/mineflayer>; rel="successor-version"');
+  const warnKey = `${req.method} ${req.baseUrl}${req.path} from ${req.ip}`;
+  if (!_v1WarnedKeys.has(warnKey)) {
+    _v1WarnedKeys.add(warnKey);
+    logger.warn('Mineflayer v1 endpoint used (deprecated)', {
+      method: req.method,
+      path: `${req.baseUrl}${req.path}`,
+      client: req.ip,
+      sunset: V1_SUNSET_DATE,
+    });
+  }
+  next();
 }
 
 /**

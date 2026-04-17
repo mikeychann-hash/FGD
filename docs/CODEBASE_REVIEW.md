@@ -122,7 +122,7 @@ Three parallel reviews were conducted (security, code quality, API/config). Find
 
 ### 🟡 MEDIUM
 
-- **Mineflayer v1/v2 overlap** — both routers mounted at the same paths; v1 silently falls back to v2 if policy service fails. Deprecate v1 with a clear timeline. (`routes/mineflayer.js`, `routes/mineflayer_v2.js`, `server.js:116-130`, `server.js:228-231`)
+- ~~**Mineflayer v1/v2 overlap**~~ — **RESOLVED** (commit on this branch): v1 now emits `Deprecation: true` / `Sunset: 2026-07-01` / `Link: </api/v2/mineflayer>; rel="successor-version"` headers, logs a warning on first use per (method, path, client), and is no longer silently substituted for v2 on `/api/mineflayer`. If v2's policy service fails, `/api/mineflayer` returns 503 instead of falling back to the direct-control surface.
 - **Mineflayer bot listener leak** — `disconnectBot()` doesn't `bot.off()` the 6 attached listeners (move, health, end, error, entitySpawn, entityMoved). After ~10 disconnects, ~60 orphaned listeners accumulate. (`minecraft_bridge_mineflayer.js:836-909`, `minecraft_bridge_mineflayer.js:135-150`)
 - **Inconsistent API response envelopes** — `routes/mineflayer.js` returns `{success, bot/task, result}`, `routes/bot.js` returns `{success, count, bots}`, `src/api/npcs.js` returns raw `{npcs, total, limit, offset}` with no `success` field. Standardize on `{success, error?, data, pagination?}`.
 - **Missing input validation (no Zod)** on `routes/command.js` mine/craft/attack/build endpoints. Apply a `validate()` middleware.

@@ -382,7 +382,7 @@ DB_PASSWORD=<secure_password>  # REQUIRED - no default
 ADMIN_API_KEY=<secure_key>     # REQUIRED - no default
 LLM_API_KEY=<secure_key>       # REQUIRED - no default
 JWT_SECRET=<secure_secret>     # Auto-generated if not set
-ADMIN_PASSWORD=<password>      # Default: AdminPass123
+ADMIN_PASSWORD=<password>      # REQUIRED in production; dev has a clearly-warned fallback
 
 # Minecraft
 MINECRAFT_HOST=localhost

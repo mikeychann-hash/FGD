@@ -48,10 +48,6 @@ export class MinecraftBridge extends EventEmitter {
     this.blockSpawnsOnPluginError = options.blockSpawnsOnPluginError ?? true;
     this.pluginHeartbeatThreshold = options.pluginHeartbeatThreshold ?? 30;
     this.pendingSpawns = new Map();
-    this.pluginStatus = "unknown";
-    this.blockSpawnsOnPluginError = options.blockSpawnsOnPluginError ?? true;
-    this.pluginHeartbeatThreshold = options.pluginHeartbeatThreshold ?? 30;
-    this.pendingSpawns = new Map();
     this.pendingActions = new Map();
   }
 

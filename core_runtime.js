@@ -12,10 +12,14 @@ export const runtimeEvents = new EventEmitter();
 console.log("🔧 Initializing AICraft Federation runtime...");
 
 // --- Initialize Minecraft Bridge ---
+const rconPassword = process.env.RCON_PASSWORD;
+if (!rconPassword) {
+  throw new Error("RCON_PASSWORD must be set before loading core_runtime.js");
+}
 export const bridge = new MinecraftBridge({
-  host: "127.0.0.1",
-  port: 25575,
-  password: "mikelind",
+  host: process.env.MINECRAFT_HOST || "127.0.0.1",
+  port: parseInt(process.env.MINECRAFT_PORT || "25575", 10),
+  password: rconPassword,
   connectOnCreate: true,
   enableUpdateServer: false,
   commandPrefix: "aicraft",

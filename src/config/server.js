@@ -46,6 +46,19 @@ export function createAppServer() {
     },
   });
 
+  // Baseline security headers (helmet-equivalent, no extra dependency)
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '0');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+  });
+
   // Compression middleware (must come BEFORE static file serving)
   app.use(
     compression({
@@ -60,8 +73,10 @@ export function createAppServer() {
     })
   );
 
-  // Middleware
-  app.use(express.json());
+  // Parse JSON bodies with an explicit size cap to mitigate large-payload DoS.
+  const bodyLimit = process.env.HTTP_BODY_LIMIT || '1mb';
+  app.use(express.json({ limit: bodyLimit }));
+  app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
 
   // CORS error handling middleware
   app.use((err, req, res, next) => {

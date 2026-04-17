@@ -66,13 +66,20 @@ if (!LLM_API_KEY || LLM_API_KEY.trim() === '') {
   console.warn('WARNING: LLM_API_KEY not set. Authentication will be bypassed for LLM routes.');
 }
 
-// Hash passwords on initialization
-// Default admin password: AdminPass123 (CHANGE IN PRODUCTION!)
+// Require ADMIN_PASSWORD in production; fall back to a dev-only default otherwise
+// and emit a prominent warning so the fallback cannot ship unnoticed.
+const adminPassword = process.env.ADMIN_PASSWORD;
+if (!adminPassword) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('ADMIN_PASSWORD must be set in production');
+  }
+  console.warn('🚨 SECURITY WARNING: ADMIN_PASSWORD not set; using a dev-only default. Set ADMIN_PASSWORD before deploying.');
+}
 const USERS = {
   admin: {
     id: 'admin',
     username: 'admin',
-    passwordHash: bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'AdminPass123', SALT_ROUNDS),
+    passwordHash: bcrypt.hashSync(adminPassword || 'dev-only-change-me', SALT_ROUNDS),
     role: ROLES.ADMIN,
     apiKey: ADMIN_API_KEY,
   },

@@ -24,7 +24,12 @@ const io = new SocketServer(server, { cors: { origin: "*" } });
 app.use(express.json());
 app.use(express.static(__dirname));
 
-const API_KEY = process.env.FGD_API_KEY || "admin123";
+const API_KEY = process.env.FGD_API_KEY;
+if (!API_KEY || API_KEY.trim() === "" || API_KEY === "admin123") {
+  throw new Error(
+    "FGD_API_KEY must be set to a non-default value before starting this entry point"
+  );
+}
 
 app.use((req, res, next) => {
   if (

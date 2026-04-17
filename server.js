@@ -1,8 +1,10 @@
 import commandRouter from "./routes/command.js";
+import { initMineflayerRoutes } from "./routes/mineflayer.js";
 import { initMineflayerRoutesV2 } from "./routes/mineflayer_v2.js";
 import { MineflayerPolicyService } from "./src/services/mineflayer_policy_service.js";
 import { initLLMRoutes } from "./routes/llm.js";
 import { initActionRoutes } from "./routes/action.js";
+import { initBotRoutes } from "./routes/bot.js";
 import { logSecretWarnings } from "./security/secrets.js";
 import { runStartupValidation } from "./src/services/startup.js";
 import { initDatabase, closeDatabase } from "./src/database/connection.js";
@@ -13,6 +15,35 @@ import { initializeClusterServices } from "./src/services/init_cluster.js";
 import { getServiceContainer } from "./src/services/service_container.js";
 import { initMinecraftStatusRoutes } from "./routes/minecraft_status.js";
 import { initAutonomyRoutes } from "./src/api/autonomy.js";
+import { initClusterRoutes } from "./src/api/cluster.js";
+import { initHealthRoutes } from "./src/api/health.js";
+import { initNPCRoutes } from "./src/api/npcs.js";
+import { initProgressionRoutes } from "./src/api/progression.js";
+import { NPCSystem } from "./src/services/npc_initializer.js";
+import { SystemStateManager } from "./src/services/state.js";
+import {
+  startTelemetryPipeline,
+  attachNpcEngineTelemetry,
+  cleanupTelemetry
+} from "./src/services/telemetry.js";
+import {
+  ensureDataDirectory,
+  loadSystemData,
+  setupFileWatcher
+} from "./src/services/data.js";
+import { createAppServer } from "./src/config/server.js";
+import { DEFAULT_PORT } from "./src/config/constants.js";
+import { initializeWebSocketHandlers } from "./src/websocket/handlers.js";
+import { notFoundHandler, globalErrorHandler } from "./src/middleware/errorHandlers.js";
+import { apiLimiter, authLimiter } from "./src/middleware/rateLimiter.js";
+import {
+  authenticate,
+  handleLogin,
+  getCurrentUser,
+  refreshAccessToken,
+  logout
+} from "./middleware/auth.js";
+import { logger } from "./logger.js";
 import express from "express";
 import path from "path";
 import controlRouter from "./routes/control.js";
@@ -421,6 +452,12 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('uncaughtException', (err) => {
   console.error('❌ Uncaught Exception:', err);
   gracefulShutdown('UNCAUGHT_EXCEPTION');
+});
+
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.stack || reason.message : String(reason);
+  console.error('❌ Unhandled Rejection:', message);
+  gracefulShutdown('UNHANDLED_REJECTION');
 });
 
 // Start the server

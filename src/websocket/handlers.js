@@ -1,6 +1,20 @@
 import { PluginInterface } from './plugin.js';
 import { runSelfCheck } from '../services/init_cluster.js';
 import { setServiceContainer, getServiceStatus } from '../services/service_container.js';
+import { verifyApiKey, verifyToken, ROLES } from '../../middleware/auth.js';
+
+function isAuthorizedPluginRegistration(socket, data = {}) {
+  if (socket.user && socket.user.role === ROLES.ADMIN) {
+    return true;
+  }
+  const providedKey = data.apiKey || data.token;
+  if (!providedKey) return false;
+  const apiKeyUser = verifyApiKey(providedKey);
+  if (apiKeyUser && apiKeyUser.role === ROLES.ADMIN) return true;
+  const decoded = verifyToken(providedKey);
+  if (decoded && decoded.role === ROLES.ADMIN) return true;
+  return false;
+}
 
 const MAX_REPLAY_EVENTS = 50;
 
@@ -73,11 +87,16 @@ export function initializeWebSocketHandlers(io, stateManager, npcSystem) {
   io.on('connection', (socket) => {
     console.log(`🔌 Client connected: ${socket.id}`);
 
-    // Check if this is the FGD plugin
-    socket.on('plugin_register', (data) => {
-      if (data.plugin === 'FGDProxyPlayer') {
-        pluginInterface.register(socket, npcSystem.minecraftBridge);
+    // Check if this is the FGD plugin. Registration is privileged — require either
+    // a pre-authenticated admin socket or an admin API key / JWT in the payload.
+    socket.on('plugin_register', (data = {}) => {
+      if (data.plugin !== 'FGDProxyPlayer') return;
+      if (!isAuthorizedPluginRegistration(socket, data)) {
+        console.warn(`🚨 Rejected unauthenticated plugin_register from socket ${socket.id}`);
+        socket.emit('plugin_register_error', { error: 'Authentication required' });
+        return;
       }
+      pluginInterface.register(socket, npcSystem.minecraftBridge);
     });
 
     socket.on('plugin_heartbeat', (payload = {}) => {

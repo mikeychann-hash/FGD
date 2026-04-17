@@ -1,6 +1,9 @@
 import express from 'express';
 const router = express.Router();
 import { botCommandManager } from '../src/services/bot_command_manager.js';
+import { authenticate, authorize } from '../middleware/auth.js';
+
+router.use(authenticate, authorize('write'));
 
 // Mine command
 router.post('/:botId/mine', async (req, res) => {

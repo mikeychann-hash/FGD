@@ -107,9 +107,13 @@ async function initializeAPIRoutes() {
   });
 
   // Logout endpoint
-  app.post("/api/auth/logout", authenticate, (req, res) => {
+  app.post("/api/auth/logout", authenticate, async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
-    logout(token);
+    try {
+      await logout(token);
+    } catch (err) {
+      logger.warn('Logout blacklist write failed', { error: err.message });
+    }
     res.json({ success: true, message: 'Logged out successfully' });
   });
 

@@ -91,8 +91,6 @@ FGD is a sophisticated **Minecraft NPC swarm management system** that provides a
 ```
 FGD-main/
 ├── server.js                    # Main entry point (production)
-├── index.js                     # Alternative entry (legacy)
-├── core_runtime.js              # Unified runtime setup
 ├── package.json                 # Dependencies & scripts
 │
 ├── adapters/                    # External system adapters

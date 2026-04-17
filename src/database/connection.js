@@ -87,7 +87,19 @@ export async function query(text, params = []) {
     logger.debug('Query executed', { duration, rows: result.rowCount });
     return result;
   } catch (err) {
-    logger.error('Query failed', { error: err.message, query: text });
+    // Avoid logging the raw query (it may embed credentials in inline literals)
+    // or full error objects (which can include the offending row's values).
+    const redactedQuery = typeof text === 'string'
+      ? text
+          .replace(/(password\s*=\s*)'[^']*'/gi, "$1'***'")
+          .replace(/(token\s*=\s*)'[^']*'/gi, "$1'***'")
+          .replace(/(secret\s*=\s*)'[^']*'/gi, "$1'***'")
+      : '<non-string-query>';
+    logger.error('Query failed', {
+      error: err.message,
+      code: err.code,
+      query: redactedQuery.length > 200 ? `${redactedQuery.slice(0, 200)}…` : redactedQuery,
+    });
     throw err;
   }
 }

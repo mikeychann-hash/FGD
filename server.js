@@ -296,6 +296,25 @@ async function gracefulShutdown(signal, isRestart = false) {
     // Cleanup telemetry
     cleanupTelemetry();
 
+    // Release engine-owned resources (bridge listeners, monitor intervals,
+    // pending task timeouts) so no handles outlive the process shutdown.
+    if (npcSystem?.npcEngine?.shutdown) {
+      try {
+        npcSystem.npcEngine.shutdown();
+      } catch (err) {
+        logger.error('Error shutting down NPC engine', { error: err.message });
+      }
+    }
+
+    // Stop Socket.IO dashboard interval set up in initializeWebSocketHandlers.
+    if (io?.__dashboardCleanup) {
+      try {
+        io.__dashboardCleanup();
+      } catch (err) {
+        logger.error('Error cleaning up websocket intervals', { error: err.message });
+      }
+    }
+
     await closeDatabase().catch(err => {
       logger.error('Error closing database during shutdown', { error: err.message });
     });

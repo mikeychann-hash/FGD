@@ -94,10 +94,16 @@ export class NPCEngine extends EventEmitter {
       this._bindBridgeSensors(this.bridge);
     }
 
-    if (this.registry && this.autoRegisterFromRegistry) {
-      Promise.all([this.registryReady, this.learningReady])
-        .then(() => {
-          const entries = this.registry.getAll().filter(entry => entry.status !== "inactive");
+    // Expose a single `ready` promise that resolves once registry + learning
+    // engine have loaded and the auto-registration pass has completed. Callers
+    // (e.g. the HTTP server) should await this before accepting requests so
+    // route handlers don't race against engine initialization.
+    this.ready = Promise.all([this.registryReady, this.learningReady])
+      .then(() => {
+        if (this.registry && this.autoRegisterFromRegistry) {
+          const entries = this.registry
+            .getAll()
+            .filter(entry => entry.status !== "inactive");
           for (const entry of entries) {
             this.registerNPC(entry.id, entry.npcType, {
               position: entry.spawnPosition || this.defaultSpawnPosition,
@@ -116,11 +122,11 @@ export class NPCEngine extends EventEmitter {
               persist: false
             });
           }
-        })
-        .catch(err => {
-          console.error("❌ Failed to initialize NPC registry entries:", err.message);
-        });
-    }
+        }
+      })
+      .catch(err => {
+        console.error("❌ Failed to initialize NPC registry entries:", err.message);
+      });
   }
 
   // ============================================================================
@@ -700,6 +706,23 @@ export class NPCEngine extends EventEmitter {
       clearInterval(this._hungerTimer);
       this._hungerTimer = null;
     }
+  }
+
+  /**
+   * Release all engine-owned resources: bridge listeners, monitor intervals,
+   * and pending task timeouts. Safe to call more than once.
+   */
+  shutdown() {
+    this.stopHungerMonitor();
+    this.stopChestMonitor();
+    this._unbindBridgeSensors();
+    if (this.taskTimeouts) {
+      for (const timeout of this.taskTimeouts.values()) {
+        clearTimeout(timeout);
+      }
+      this.taskTimeouts.clear();
+    }
+    this.removeAllListeners();
   }
 
   _removeBridgeListener(bridge, event, handler) {

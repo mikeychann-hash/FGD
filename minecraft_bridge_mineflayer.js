@@ -140,6 +140,9 @@ export class MineflayerBridge extends EventEmitter {
       }
 
       logger.info('Disconnecting bot', { botId });
+      // Detach the listeners we attached in _attachBotListeners so they
+      // don't accumulate across reconnects.
+      this._detachBotListeners(bot);
       bot.quit();
       this.bots.delete(botId);
       this.botStates.delete(botId);
@@ -151,6 +154,13 @@ export class MineflayerBridge extends EventEmitter {
     } catch (err) {
       logger.error('Failed to disconnect bot', { botId, error: err.message });
       return { success: false, error: err.message };
+    }
+  }
+
+  _detachBotListeners(bot) {
+    if (!bot || typeof bot.removeAllListeners !== 'function') return;
+    for (const event of ['move', 'health', 'end', 'error', 'entitySpawn', 'entityMoved']) {
+      bot.removeAllListeners(event);
     }
   }
 

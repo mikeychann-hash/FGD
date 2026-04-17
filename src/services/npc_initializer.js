@@ -168,6 +168,11 @@ export class NPCSystem {
 
       await this.npcEngine.registryReady;
       await this.npcEngine.learningReady;
+      // Ensure auto-registration of registry entries has completed before
+      // route handlers start calling methods like getIdleNPCs().
+      if (this.npcEngine.ready) {
+        await this.npcEngine.ready;
+      }
 
       logger.info('NPC Engine initialized');
       console.log('✅ NPC Engine initialized');

@@ -1,131 +1,1063 @@
 openapi: 3.1.0
 info:
-  title: FGD Internal API
-  version: "1.0.0"
+  title: FGD (Federation Governance Dashboard) API
+  version: "2.1.0"
+  description: |
+    REST interface for FGD, the Minecraft NPC swarm management system.
+    Routes are mounted as follows:
+      - Unversioned surface: `/api/*` — currently served by the v1 route
+        tree. `/api/mineflayer` is a special case that always resolves to
+        the policy-gated v2 Mineflayer surface (or 503 if the policy
+        service failed to initialize).
+      - `/api/v1/*` — legacy direct-control surface. Mineflayer endpoints
+        under `/api/v1/mineflayer` are DEPRECATED (sunset 2026-07-01).
+      - `/api/v2/*` — current surface, including the policy-gated
+        Mineflayer routes at `/api/v2/mineflayer`.
+
+    Authentication: protected routes accept either a Bearer JWT
+    (`Authorization: Bearer <token>`) or an API key (`X-API-Key`).
+
 servers:
   - url: http://localhost:3000
-paths:
-  /api/health:
-    get:
-      summary: Health check
-      responses:
-        '200':
-          description: OK
-  /api/minecraft/status:
-    get:
-      summary: Minecraft bridge/plugin heartbeat status
-      responses:
-        '200':
-          description: OK
-  /api/progression:
-    get:
-      summary: Current progression status
-      responses:
-        '200':
-          description: OK
-  /api/progression/phase:
-    put:
-      summary: Set progression phase
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                phase:
-                  type: integer
-              required: [phase]
-      responses:
-        '200': { description: Phase updated }
-  /api/bots:
-    get:
-      summary: List bots
-      responses:
-        '200': { description: Bots listed }
-    post:
-      summary: Create bot
-      responses:
-        '201': { description: Bot created }
-  /api/bots/{id}/spawn:
-    post:
-      summary: Spawn bot via Golden Path
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: Spawn accepted }
-  /api/bots/{id}/despawn:
-    post:
-      summary: Despawn bot
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: Despawned }
-  /api/bots/spawn-all:
-    post:
-      summary: Spawn all bots
-      responses:
-        '200': { description: Spawn-all accepted }
-  /api/bots/{id}/action:
-    post:
-      summary: Dispatch in-world action for a bot
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                type: { type: string }
-                block: { type: string }
-                position:
-                  $ref: '#/components/schemas/Position'
-              required: [type]
-      responses:
-        '200': { description: Action accepted }
-        '400': { description: Validation error }
-  /api/action:
-    post:
-      summary: Dispatch in-world action through UAF
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                botId: { type: string }
-                type: { type: string }
-                block: { type: string }
-                position:
-                  $ref: '#/components/schemas/Position'
-              required: [botId, type]
-      responses:
-        '200': { description: Action accepted }
-        '400': { description: Validation error }
+    description: Local development
+
+tags:
+  - name: Auth
+  - name: Health
+  - name: Bots
+  - name: NPCs
+  - name: Actions
+  - name: Commands
+  - name: Control
+  - name: LLM
+  - name: Mineflayer v2
+  - name: Mineflayer v1 (deprecated)
+  - name: Autonomy
+  - name: Progression
+  - name: Cluster
+  - name: Server control
+
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
   schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          const: true
+      required: [success]
+    ErrorEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          type: string
+        message:
+          type: string
+      required: [success, error]
     Position:
       type: object
       properties:
         x: { type: number }
         y: { type: number }
         z: { type: number }
-  securitySchemes:
-    ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: X-API-Key
+      required: [x, y, z]
+    Bot:
+      type: object
+      properties:
+        id: { type: string }
+        role: { type: string }
+        npcType: { type: string }
+        status:
+          type: string
+          enum: [active, idle, inactive, error]
+        spawnPosition: { $ref: '#/components/schemas/Position' }
+        lastKnownPosition: { $ref: '#/components/schemas/Position' }
+        metadata: { type: object, additionalProperties: true }
+    NPC:
+      allOf:
+        - $ref: '#/components/schemas/Bot'
+        - type: object
+          properties:
+            learning: { type: object, additionalProperties: true }
+    DeadLetterEntry:
+      type: object
+      properties:
+        profile: { type: object }
+        position: { $ref: '#/components/schemas/Position' }
+        error: { type: string }
+        failCount: { type: integer }
+        timestamp: { type: string, format: date-time }
+    Task:
+      type: object
+      properties:
+        action: { type: string }
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 10
+        details: { type: object, additionalProperties: true }
+      required: [action]
+
 security:
+  - BearerAuth: []
   - ApiKeyAuth: []
+
+paths:
+  # ----- Auth ----------------------------------------------------------
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Exchange credentials for an access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string }
+                password: { type: string }
+              required: [username, password]
+      responses:
+        '200':
+          description: Access + refresh tokens issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  accessToken: { type: string }
+                  refreshToken: { type: string }
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get the currently authenticated user
+      responses:
+        '200':
+          description: Current user
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Exchange a refresh token for a new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken: { type: string }
+              required: [refreshToken]
+      responses:
+        '200': { description: New access token issued }
+        '401': { description: Invalid or expired refresh token }
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the current access token (Redis-backed blacklist)
+      responses:
+        '200': { description: Logged out }
+
+  # ----- Health --------------------------------------------------------
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Readiness + liveness probe
+      security: []
+      responses:
+        '200': { description: Healthy }
+        '503': { description: Unhealthy }
+
+  /api/health/metrics/system:
+    get:
+      tags: [Health]
+      summary: System-level metrics snapshot
+      responses:
+        '200': { description: Metrics }
+
+  /api/minecraft/status:
+    get:
+      tags: [Health]
+      summary: Minecraft bridge + plugin status
+      security: []
+      responses:
+        '200': { description: Bridge status }
+
+  /metrics:
+    get:
+      tags: [Health]
+      summary: Prometheus metrics exposition
+      security: []
+      responses:
+        '200':
+          description: Prometheus text format
+          content:
+            text/plain: {}
+
+  # ----- NPCs (CRUD) ---------------------------------------------------
+  /api/npcs:
+    get:
+      tags: [NPCs]
+      summary: List NPCs with pagination
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 100 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0 }
+      responses:
+        '200': { description: Paged NPC list }
+    post:
+      tags: [NPCs]
+      summary: Create an NPC
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: { type: string }
+                role: { type: string }
+                npcType: { type: string }
+                appearance: { type: object }
+                personality: { type: object }
+                position: { $ref: '#/components/schemas/Position' }
+                autoSpawn: { type: boolean, default: false }
+      responses:
+        '201': { description: Created }
+        '400': { description: Missing role or npcType }
+
+  /api/npcs/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [NPCs]
+      summary: Fetch one NPC (optionally enriched with learning profile)
+      responses:
+        '200': { description: NPC found }
+        '404': { description: Not found }
+    put:
+      tags: [NPCs]
+      summary: Update NPC profile
+      responses:
+        '200': { description: Updated }
+        '404': { description: Not found }
+    delete:
+      tags: [NPCs]
+      summary: Finalize an NPC (archive and optionally remove from world)
+      parameters:
+        - in: query
+          name: preserve
+          schema: { type: boolean }
+        - in: query
+          name: removeFromWorld
+          schema: { type: boolean }
+      responses:
+        '200': { description: Finalized }
+
+  /api/npcs/archive/all:
+    get:
+      tags: [NPCs]
+      summary: List archived NPCs
+      responses:
+        '200': { description: Archive entries }
+
+  /api/npcs/deadletter/queue:
+    get:
+      tags: [NPCs]
+      summary: Inspect the NPC-spawner dead-letter queue
+      responses:
+        '200': { description: Queue entries }
+
+  /api/npcs/deadletter/retry:
+    post:
+      tags: [NPCs]
+      summary: Retry all queued dead-lettered spawns
+      responses:
+        '200': { description: Per-entry successes and failures }
+
+  # ----- Bots (REST spawn surface) -------------------------------------
+  /api/bots:
+    get:
+      tags: [Bots]
+      summary: List bots
+      responses:
+        '200': { description: Bot list }
+    post:
+      tags: [Bots]
+      summary: Create a new bot (rate-limited by botCreationLimiter)
+      responses:
+        '201': { description: Created }
+
+  /api/bots/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Bots]
+      summary: Fetch a bot
+      responses:
+        '200': { description: Bot }
+        '404': { description: Not found }
+    put:
+      tags: [Bots]
+      summary: Update bot profile
+      responses:
+        '200': { description: Updated }
+    delete:
+      tags: [Bots]
+      summary: Deactivate a bot
+      responses:
+        '200': { description: Deactivated }
+
+  /api/bots/{id}/spawn:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Bots]
+      summary: Spawn a bot via the canonical Golden Path
+      description: Rate-limited by botSpawnLimiter.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                position: { $ref: '#/components/schemas/Position' }
+      responses:
+        '200': { description: Spawned }
+        '400': { description: Validation or budget error }
+
+  /api/bots/{id}/despawn:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Bots]
+      summary: Despawn a bot
+      responses:
+        '200': { description: Despawned }
+
+  /api/bots/spawn-all:
+    post:
+      tags: [Bots]
+      summary: Spawn all registered inactive bots (budget-gated)
+      description: Rate-limited by botSpawnAllLimiter.
+      responses:
+        '200': { description: Spawn-all results }
+        '400': { description: Would exceed MAX_BOTS }
+
+  /api/bots/{id}/action:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Bots]
+      summary: Execute an action through the Unified Action Framework
+      responses:
+        '200': { description: Action dispatched }
+        '400': { description: Validation error }
+        '503': { description: Bridge unavailable }
+
+  /api/bots/{id}/task:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Bots]
+      summary: Assign a task to a bot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Task' }
+      responses:
+        '200': { description: Task assigned }
+
+  /api/bots/{id}/inventory:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Bots]
+      summary: Current inventory snapshot
+      responses:
+        '200': { description: Inventory }
+
+  /api/bots/action/dead-letter:
+    get:
+      tags: [Bots]
+      summary: Action-pipeline dead letters
+      responses:
+        '200': { description: Queue }
+
+  /api/bots/action/dead-letter/retry:
+    post:
+      tags: [Bots]
+      summary: Retry queued action dead letters
+      responses:
+        '200': { description: Retry results }
+
+  /api/bots/dead-letter:
+    get:
+      tags: [Bots]
+      summary: Spawn dead letters (mirror of /api/npcs/deadletter/queue)
+      responses:
+        '200': { description: Queue }
+
+  /api/bots/dead-letter/retry:
+    post:
+      tags: [Bots]
+      summary: Retry queued spawn dead letters
+      responses:
+        '200': { description: Retry results }
+
+  /api/bots/status:
+    get:
+      tags: [Bots]
+      summary: Aggregate bot status summary
+      responses:
+        '200': { description: Status }
+
+  /api/bots/learning:
+    get:
+      tags: [Bots]
+      summary: Learning engine snapshot
+      responses:
+        '200': { description: Learning data }
+
+  /api/bots/health:
+    get:
+      tags: [Bots]
+      summary: Bot router health
+      security: []
+      responses:
+        '200': { description: Healthy }
+
+  # ----- Actions (top-level pipeline surface) --------------------------
+  /api/action:
+    post:
+      tags: [Actions]
+      summary: Dispatch any Unified Action Framework action
+      responses:
+        '200': { description: Dispatched }
+        '400': { description: Validation error }
+
+  # ----- Commands (natural-language bot commands) ----------------------
+  /api/command/{botId}/mine:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Commands]
+      summary: Mine a target block
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                block: { type: string, maxLength: 64 }
+                count: { type: integer, minimum: 1, maximum: 1000 }
+              required: [block]
+      responses:
+        '200': { description: Mined }
+        '400': { description: Validation error }
+
+  /api/command/{botId}/craft:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Commands]
+      summary: Craft a recipe
+      responses:
+        '200': { description: Crafted }
+
+  /api/command/{botId}/attack:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Commands]
+      summary: Attack a target entity
+      responses:
+        '200': { description: Attacked }
+
+  /api/command/{botId}/explore:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Commands]
+      summary: Explore an area with a radius
+      responses:
+        '200': { description: Exploring }
+
+  /api/command/{botId}/build:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Commands]
+      summary: Execute a blueprint of placements
+      responses:
+        '200': { description: Building }
+
+  # ----- Control (interactive sessions) --------------------------------
+  /api/control/{botId}/session/start:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Control]
+      summary: Open a realtime control session for a bot
+      responses:
+        '200': { description: Session started }
+
+  /api/control/{botId}/session/stop:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Control]
+      summary: Close the realtime control session
+      responses:
+        '200': { description: Session stopped }
+
+  /api/control/{botId}/state:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Control]
+      summary: Current control-session state
+      responses:
+        '200': { description: State }
+
+  # ----- LLM -----------------------------------------------------------
+  /api/llm/command:
+    post:
+      tags: [LLM]
+      summary: Execute a natural-language command
+      responses:
+        '200': { description: Result }
+
+  /api/llm/batch:
+    post:
+      tags: [LLM]
+      summary: Execute a batch of natural-language commands
+      responses:
+        '200': { description: Batch results }
+
+  /api/llm/help:
+    get:
+      tags: [LLM]
+      summary: List supported command patterns
+      security: []
+      responses:
+        '200': { description: Help text }
+
+  # ----- Mineflayer v2 (policy-gated; default /api/mineflayer) --------
+  /api/mineflayer:
+    get:
+      tags: [Mineflayer v2]
+      summary: List connected Mineflayer bots (v2)
+      responses:
+        '200': { description: List }
+        '503':
+          description: Policy service unavailable — v2 routes not loaded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/v2/mineflayer/policy/status:
+    get:
+      tags: [Mineflayer v2]
+      summary: Policy service status
+      responses:
+        '200': { description: Status }
+
+  /api/v2/mineflayer/policy/approvals:
+    get:
+      tags: [Mineflayer v2]
+      summary: Pending action approvals
+      responses:
+        '200': { description: Pending approvals }
+
+  /api/v2/mineflayer/policy/approve/{token}:
+    parameters:
+      - in: path
+        name: token
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Mineflayer v2]
+      summary: Approve a pending action
+      responses:
+        '200': { description: Approved }
+        '404': { description: Token not found }
+
+  /api/v2/mineflayer/policy/reject/{token}:
+    parameters:
+      - in: path
+        name: token
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Mineflayer v2]
+      summary: Reject a pending action
+      responses:
+        '200': { description: Rejected }
+
+  /api/v2/mineflayer/{botId}/task:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Mineflayer v2]
+      summary: Assign a policy-gated task
+      responses:
+        '200': { description: Task assigned }
+
+  /api/v2/mineflayer/{botId}/move:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Mineflayer v2]
+      summary: Move bot (policy-gated)
+      responses:
+        '200': { description: Moved }
+
+  /api/v2/mineflayer/{botId}/mine:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Mineflayer v2]
+      summary: Mine (policy-gated)
+      responses:
+        '200': { description: Mining }
+
+  /api/v2/mineflayer/{botId}/chat:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Mineflayer v2]
+      summary: Send a chat message (policy-gated)
+      responses:
+        '200': { description: Sent }
+
+  /api/v2/mineflayer/health:
+    get:
+      tags: [Mineflayer v2]
+      summary: Mineflayer v2 health
+      security: []
+      responses:
+        '200': { description: Healthy }
+
+  /api/v2/mineflayer/stats:
+    get:
+      tags: [Mineflayer v2]
+      summary: Mineflayer v2 aggregate stats
+      responses:
+        '200': { description: Stats }
+
+  /api/v2/mineflayer/stats/reset:
+    post:
+      tags: [Mineflayer v2]
+      summary: Reset Mineflayer v2 stats
+      responses:
+        '200': { description: Reset }
+
+  # ----- Mineflayer v1 (DEPRECATED) -----------------------------------
+  /api/v1/mineflayer:
+    get:
+      tags: [Mineflayer v1 (deprecated)]
+      deprecated: true
+      summary: List connected Mineflayer bots (v1, deprecated)
+      description: |
+        Sunset 2026-07-01. Migrate clients to /api/v2/mineflayer for
+        policy-gated action approval. Responses carry Deprecation: true
+        and Sunset headers.
+      responses:
+        '200':
+          description: List
+          headers:
+            Deprecation: { schema: { type: string }, description: "true" }
+            Sunset: { schema: { type: string, format: http-date } }
+            Link: { schema: { type: string } }
+
+  /api/v1/mineflayer/spawn:
+    post:
+      tags: [Mineflayer v1 (deprecated)]
+      deprecated: true
+      summary: Spawn a Mineflayer bot (bypasses policy approval)
+      responses:
+        '200': { description: Spawned }
+
+  /api/v1/mineflayer/{botId}:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Mineflayer v1 (deprecated)]
+      deprecated: true
+      summary: Fetch bot state
+      responses:
+        '200': { description: Bot }
+    delete:
+      tags: [Mineflayer v1 (deprecated)]
+      deprecated: true
+      summary: Disconnect a bot
+      responses:
+        '200': { description: Disconnected }
+
+  /api/v1/mineflayer/{botId}/move:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Mineflayer v1 (deprecated)]
+      deprecated: true
+      summary: Move bot (direct, no policy)
+      responses:
+        '200': { description: Moved }
+
+  /api/v1/mineflayer/{botId}/mine:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Mineflayer v1 (deprecated)]
+      deprecated: true
+      summary: Mine (direct, no policy)
+      responses:
+        '200': { description: Mined }
+
+  /api/v1/mineflayer/{botId}/inventory:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Mineflayer v1 (deprecated)]
+      deprecated: true
+      summary: Fetch inventory
+      responses:
+        '200': { description: Inventory }
+
+  /api/v1/mineflayer/{botId}/combat:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Mineflayer v1 (deprecated)]
+      deprecated: true
+      summary: Combat action
+      responses:
+        '200': { description: OK }
+
+  /api/v1/mineflayer/{botId}/craft:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Mineflayer v1 (deprecated)]
+      deprecated: true
+      summary: Crafting action
+      responses:
+        '200': { description: Crafted }
+
+  /api/v1/mineflayer/tasks:
+    get:
+      tags: [Mineflayer v1 (deprecated)]
+      deprecated: true
+      summary: Active tasks across bots
+      responses:
+        '200': { description: Tasks }
+
+  # ----- Autonomy ------------------------------------------------------
+  /api/autonomy/goal:
+    post:
+      tags: [Autonomy]
+      summary: Declare an autonomy goal
+      responses:
+        '200': { description: Goal accepted }
+
+  /api/autonomy/start:
+    post:
+      tags: [Autonomy]
+      summary: Start the autonomy loop
+      responses:
+        '200': { description: Started }
+
+  /api/autonomy/stop:
+    post:
+      tags: [Autonomy]
+      summary: Stop the autonomy loop
+      responses:
+        '200': { description: Stopped }
+
+  /api/autonomy/stats:
+    get:
+      tags: [Autonomy]
+      summary: Aggregate autonomy stats
+      responses:
+        '200': { description: Stats }
+    delete:
+      tags: [Autonomy]
+      summary: Reset autonomy stats
+      responses:
+        '200': { description: Reset }
+
+  /api/autonomy/stats/{botId}:
+    parameters:
+      - in: path
+        name: botId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Autonomy]
+      summary: Per-bot autonomy stats
+      responses:
+        '200': { description: Stats }
+
+  /api/autonomy/history:
+    get:
+      tags: [Autonomy]
+      summary: Autonomy history
+      responses:
+        '200': { description: History }
+
+  /api/autonomy/metrics:
+    get:
+      tags: [Autonomy]
+      summary: Autonomy metrics
+      responses:
+        '200': { description: Metrics }
+
+  # ----- Progression ---------------------------------------------------
+  /api/progression:
+    get:
+      tags: [Progression]
+      summary: Current progression snapshot
+      responses:
+        '200': { description: Snapshot }
+
+  /api/progression/phase:
+    get:
+      tags: [Progression]
+      summary: Get current phase
+      responses:
+        '200': { description: Phase }
+    put:
+      tags: [Progression]
+      summary: Set current phase (1–6)
+      responses:
+        '200': { description: Updated }
+
+  /api/progression/metrics:
+    post:
+      tags: [Progression]
+      summary: Record a batch of progression metrics
+      responses:
+        '200': { description: Recorded }
+
+  /api/progression/metric/{name}:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Progression]
+      summary: Record a single named metric
+      responses:
+        '200': { description: Recorded }
+
+  /api/progression/reset:
+    post:
+      tags: [Progression]
+      summary: Reset progression tracking
+      responses:
+        '200': { description: Reset }
+
+  /api/progression/tasks:
+    get:
+      tags: [Progression]
+      summary: Tasks for the current phase
+      responses:
+        '200': { description: Tasks }
+
+  # ----- Cluster / dashboard -------------------------------------------
+  /api/cluster:
+    get:
+      tags: [Cluster]
+      summary: Cluster overview
+      security: []
+      responses:
+        '200': { description: Cluster state }
+
+  /api/metrics:
+    get:
+      tags: [Cluster]
+      summary: Dashboard metrics snapshot
+      responses:
+        '200': { description: Metrics }
+
+  /api/cluster/metrics:
+    get:
+      tags: [Cluster]
+      summary: Cluster metrics
+      responses:
+        '200': { description: Metrics }
+
+  /api/fusion:
+    get:
+      tags: [Cluster]
+      summary: Fusion knowledge snapshot
+      responses:
+        '200': { description: Data }
+
+  /api/stats:
+    get:
+      tags: [Cluster]
+      summary: Aggregate stats
+      responses:
+        '200': { description: Stats }
+
+  /api/logs:
+    get:
+      tags: [Cluster]
+      summary: Recent system logs
+      responses:
+        '200': { description: Logs }
+
+  /api/config:
+    get:
+      tags: [Cluster]
+      summary: Read runtime config
+      responses:
+        '200': { description: Config }
+    post:
+      tags: [Cluster]
+      summary: Update runtime config
+      responses:
+        '200': { description: Updated }
+
+  /api/policy:
+    post:
+      tags: [Cluster]
+      summary: Update policy config
+      responses:
+        '200': { description: Updated }
+
+  # ----- Server control ------------------------------------------------
+  /api/server/status:
+    get:
+      tags: [Server control]
+      summary: HTTP server status
+      responses:
+        '200': { description: Status }
+
+  /api/server/restart:
+    post:
+      tags: [Server control]
+      summary: Soft restart server services
+      responses:
+        '200': { description: Restarting }
+
+  /api/server/stop:
+    post:
+      tags: [Server control]
+      summary: Graceful shutdown
+      responses:
+        '200': { description: Stopping }

@@ -1,9 +1,47 @@
 import express from 'express';
-const router = express.Router();
+import { z } from 'zod';
 import { botCommandManager } from '../src/services/bot_command_manager.js';
+import { authenticate, authorize } from '../middleware/auth.js';
+import { validate, validateParams } from '../src/middleware/validate.js';
 
-// Mine command
-router.post('/:botId/mine', async (req, res) => {
+const router = express.Router();
+
+router.use(authenticate, authorize('write'));
+
+const botIdParam = z.object({
+    botId: z.string().min(1).max(64).regex(/^[a-zA-Z0-9_-]+$/),
+});
+
+const mineSchema = z.object({
+    block: z.string().min(1).max(64),
+    count: z.number().int().min(1).max(1000).optional(),
+});
+
+const craftSchema = z.object({
+    recipe: z.string().min(1).max(64),
+    count: z.number().int().min(1).max(1000).optional(),
+});
+
+const attackSchema = z.object({
+    targetId: z.string().min(1).max(64),
+});
+
+const exploreSchema = z.object({
+    radius: z.number().int().min(1).max(256).optional(),
+});
+
+const placementSchema = z.object({
+    x: z.number().int(),
+    y: z.number().int(),
+    z: z.number().int(),
+    block: z.string().min(1).max(64),
+});
+
+const buildSchema = z.object({
+    blueprint: z.array(placementSchema).min(1).max(1000),
+});
+
+router.post('/:botId/mine', validateParams(botIdParam), validate(mineSchema), async (req, res) => {
     const { botId } = req.params;
     const { block, count } = req.body;
     try {
@@ -14,8 +52,7 @@ router.post('/:botId/mine', async (req, res) => {
     }
 });
 
-// Craft command
-router.post('/:botId/craft', async (req, res) => {
+router.post('/:botId/craft', validateParams(botIdParam), validate(craftSchema), async (req, res) => {
     const { botId } = req.params;
     const { recipe, count } = req.body;
     try {
@@ -26,8 +63,7 @@ router.post('/:botId/craft', async (req, res) => {
     }
 });
 
-// Attack command
-router.post('/:botId/attack', async (req, res) => {
+router.post('/:botId/attack', validateParams(botIdParam), validate(attackSchema), async (req, res) => {
     const { botId } = req.params;
     const { targetId } = req.body;
     try {
@@ -38,8 +74,7 @@ router.post('/:botId/attack', async (req, res) => {
     }
 });
 
-// Explore command
-router.post('/:botId/explore', async (req, res) => {
+router.post('/:botId/explore', validateParams(botIdParam), validate(exploreSchema), async (req, res) => {
     const { botId } = req.params;
     const { radius } = req.body;
     try {
@@ -50,13 +85,12 @@ router.post('/:botId/explore', async (req, res) => {
     }
 });
 
-// Build command
-router.post('/:botId/build', async (req, res) => {
+router.post('/:botId/build', validateParams(botIdParam), validate(buildSchema), async (req, res) => {
     const { botId } = req.params;
-    const { blueprint } = req.body; // Expected array of placements
+    const { blueprint } = req.body;
     try {
         await botCommandManager.build(botId, blueprint);
-        res.json({ success: true, message: `Build executed with ${blueprint?.length || 0} steps` });
+        res.json({ success: true, message: `Build executed with ${blueprint.length} steps` });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

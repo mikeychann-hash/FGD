@@ -1,9 +1,12 @@
 import express from 'express';
 const router = express.Router();
 import { botControlManager } from '../src/services/bot_control_manager.js';
+import { authenticate, authorize } from '../middleware/auth.js';
+
+router.use(authenticate);
 
 // Start control session
-router.post('/:botId/session/start', (req, res) => {
+router.post('/:botId/session/start', authorize('write'), (req, res) => {
     const { botId } = req.params;
     try {
         const io = req.app.get('io');
@@ -20,7 +23,7 @@ router.post('/:botId/session/start', (req, res) => {
 });
 
 // Stop control session
-router.post('/:botId/session/stop', (req, res) => {
+router.post('/:botId/session/stop', authorize('write'), (req, res) => {
     const { botId } = req.params;
     try {
         botControlManager.stopControlSession(botId);
@@ -31,11 +34,11 @@ router.post('/:botId/session/stop', (req, res) => {
 });
 
 // Get state
-router.get('/:botId/state', (req, res) => {
+router.get('/:botId/state', authorize('read'), (req, res) => {
     const { botId } = req.params;
     try {
         const state = botControlManager.getState(botId);
-        res.json(state);
+        res.json({ success: true, state });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

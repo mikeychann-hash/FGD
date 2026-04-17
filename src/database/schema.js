@@ -101,16 +101,30 @@ export async function initializeSchema() {
       )
     `);
 
-    // Create indices for performance
+    // Create indices for performance.
+    //
+    // FK delete behaviour is intentionally split:
+    //   - working tables (task_queue, learning_profiles) use ON DELETE CASCADE
+    //     because their rows are meaningless without their parent NPC.
+    //   - audit/historical tables (metrics, system_events) use ON DELETE SET NULL
+    //     so the operational history survives an NPC deletion — orphaning is
+    //     preferable to losing an audit trail.
     await query(`
       CREATE INDEX IF NOT EXISTS idx_npcs_status ON npcs(status);
       CREATE INDEX IF NOT EXISTS idx_npcs_role ON npcs(role);
       CREATE INDEX IF NOT EXISTS idx_metrics_type ON metrics(metric_type);
       CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_metrics_npc_id ON metrics(npc_id);
       CREATE INDEX IF NOT EXISTS idx_task_queue_status ON task_queue(status);
       CREATE INDEX IF NOT EXISTS idx_task_queue_priority ON task_queue(priority DESC);
+      CREATE INDEX IF NOT EXISTS idx_task_queue_npc_id ON task_queue(npc_id);
+      CREATE INDEX IF NOT EXISTS idx_task_queue_status_priority
+        ON task_queue(status, priority DESC, created_at);
+      CREATE INDEX IF NOT EXISTS idx_learning_profiles_created_at
+        ON learning_profiles(created_at);
       CREATE INDEX IF NOT EXISTS idx_system_events_type ON system_events(event_type);
       CREATE INDEX IF NOT EXISTS idx_system_events_timestamp ON system_events(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_system_events_npc_id ON system_events(npc_id);
     `);
 
     logger.info('Database schema initialized successfully');

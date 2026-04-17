@@ -10,9 +10,65 @@ import { v4 as uuidv4 } from 'uuid';
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
 
-// Refresh token storage (use Redis in production)
+// Refresh token storage (still in-memory; move to Redis when refresh flow
+// is needed across restarts).
 const refreshTokens = new Map();
+
+// Token blacklist: prefer Redis for durability across restarts and multi-node
+// deployments, but keep an in-memory Set as a fallback so logouts still work
+// when Redis is not configured or temporarily unavailable.
 const tokenBlacklist = new Set();
+const BLACKLIST_KEY_PREFIX = 'auth:blacklist:';
+const DEFAULT_BLACKLIST_TTL_SEC = 60 * 60; // 1 hour, matches default JWT TTL
+let _redisClientPromise = null;
+
+async function getBlacklistRedisClient() {
+  if (_redisClientPromise) return _redisClientPromise;
+  const attempt = (async () => {
+    try {
+      const mod = await import('../src/database/redis.js');
+      return mod.getRedisClient();
+    } catch {
+      // Redis not initialised yet or unavailable. Caller falls back to the
+      // in-memory Set.
+      return null;
+    }
+  })();
+  _redisClientPromise = attempt;
+  const client = await attempt;
+  // Only memoize once we actually have a client. If the first call happened
+  // before Redis finished initialising, later calls should retry instead of
+  // being stuck in in-memory-only mode for the process lifetime.
+  if (!client) {
+    _redisClientPromise = null;
+  }
+  return client;
+}
+
+function tokenRemainingTtlSec(token) {
+  try {
+    const decoded = jwt.decode(token);
+    if (decoded && typeof decoded.exp === 'number') {
+      const remaining = decoded.exp - Math.floor(Date.now() / 1000);
+      if (remaining > 0) return remaining;
+    }
+  } catch {
+    /* fall through */
+  }
+  return DEFAULT_BLACKLIST_TTL_SEC;
+}
+
+async function isTokenBlacklisted(token) {
+  if (tokenBlacklist.has(token)) return true;
+  const client = await getBlacklistRedisClient();
+  if (!client) return false;
+  try {
+    const hit = await client.exists(`${BLACKLIST_KEY_PREFIX}${token}`);
+    return hit === 1;
+  } catch {
+    return false;
+  }
+}
 
 // Bcrypt configuration
 const SALT_ROUNDS = 12;
@@ -66,13 +122,20 @@ if (!LLM_API_KEY || LLM_API_KEY.trim() === '') {
   console.warn('WARNING: LLM_API_KEY not set. Authentication will be bypassed for LLM routes.');
 }
 
-// Hash passwords on initialization
-// Default admin password: AdminPass123 (CHANGE IN PRODUCTION!)
+// Require ADMIN_PASSWORD in production; fall back to a dev-only default otherwise
+// and emit a prominent warning so the fallback cannot ship unnoticed.
+const adminPassword = process.env.ADMIN_PASSWORD;
+if (!adminPassword) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('ADMIN_PASSWORD must be set in production');
+  }
+  console.warn('🚨 SECURITY WARNING: ADMIN_PASSWORD not set; using a dev-only default. Set ADMIN_PASSWORD before deploying.');
+}
 const USERS = {
   admin: {
     id: 'admin',
     username: 'admin',
-    passwordHash: bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'AdminPass123', SALT_ROUNDS),
+    passwordHash: bcrypt.hashSync(adminPassword || 'dev-only-change-me', SALT_ROUNDS),
     role: ROLES.ADMIN,
     apiKey: ADMIN_API_KEY,
   },
@@ -164,17 +227,29 @@ export function refreshAccessToken(refreshToken) {
 }
 
 /**
- * Logout user by blacklisting their access token
+ * Logout user by blacklisting their access token. Writes to Redis when
+ * available so the revocation survives restarts and is visible across nodes;
+ * always mirrors into the in-memory Set so checks keep working if Redis is
+ * temporarily unreachable.
  * @param {string} token - Access token to blacklist
+ * @returns {Promise<void>}
  */
-export function logout(token) {
-  if (token) {
-    tokenBlacklist.add(token);
+export async function logout(token) {
+  if (!token) return;
+  const ttlSec = tokenRemainingTtlSec(token);
 
-    // Set a timeout to remove from blacklist after token would expire anyway (1 hour)
-    setTimeout(() => {
-      tokenBlacklist.delete(token);
-    }, 60 * 60 * 1000);
+  tokenBlacklist.add(token);
+  const inMemoryTimer = setTimeout(() => {
+    tokenBlacklist.delete(token);
+  }, ttlSec * 1000);
+  if (typeof inMemoryTimer.unref === 'function') inMemoryTimer.unref();
+
+  const client = await getBlacklistRedisClient();
+  if (!client) return;
+  try {
+    await client.setEx(`${BLACKLIST_KEY_PREFIX}${token}`, ttlSec, '1');
+  } catch (err) {
+    console.warn('Token blacklist Redis write failed, relying on in-memory fallback:', err.message);
   }
 }
 
@@ -215,7 +290,7 @@ export function hasPermission(role, permission) {
 /**
  * Express middleware for JWT authentication
  */
-export function authenticateJWT(req, res, next) {
+export async function authenticateJWT(req, res, next) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
@@ -236,8 +311,8 @@ export function authenticateJWT(req, res, next) {
 
   const token = parts[1];
 
-  // Check if token is blacklisted
-  if (tokenBlacklist.has(token)) {
+  // Check if token is blacklisted (Redis-backed when available, in-memory fallback)
+  if (await isTokenBlacklisted(token)) {
     return res.status(401).json({
       error: 'Unauthorized',
       message: 'Token has been revoked',

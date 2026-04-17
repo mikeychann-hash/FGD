@@ -264,9 +264,15 @@ class LLMCommandParser {
       lastKnownPosition: position,
     });
 
-    // If bot is active, spawn at new position
+    // If bot is active, re-spawn at new position via the Golden Path so budget,
+    // validation, and dead-letter queueing are enforced.
     if (this.engine.bridge && this.engine.npcs.has(botId)) {
-      await this.engine.spawnNPC(botId, { position });
+      await spawnBot(this.npcSystem, this.io, {
+        botId,
+        position,
+        user,
+        source: 'llm_teleport',
+      });
     }
 
     return {

@@ -143,17 +143,15 @@ export class NPCSystem {
             io.emit("bot:spawned", payload);
           }
           if (event === "system:log" && payload) {
-            try {
-              stateManager.appendSystemLog({
-                level: payload.level || "info",
-                source: payload.source || "minecraft_bridge",
-                message: payload.message || "system log",
-                timestamp: payload.timestamp || Date.now(),
-                meta: payload,
-              });
-            } catch (err) {
-              logger.warn("Failed to append system log from telemetry", { error: err.message });
-            }
+            // Telemetry handler runs outside a stateManager scope, so the
+            // previous appendSystemLog call here always threw ReferenceError.
+            // The io.emit above already distributes the event to clients;
+            // mirror the event into the logger so it lands in server logs too.
+            logger.info("minecraft_bridge telemetry log", {
+              source: payload.source || "minecraft_bridge",
+              level: payload.level || "info",
+              message: payload.message || "system log",
+            });
           }
         });
       }
@@ -168,6 +166,11 @@ export class NPCSystem {
 
       await this.npcEngine.registryReady;
       await this.npcEngine.learningReady;
+      // Ensure auto-registration of registry entries has completed before
+      // route handlers start calling methods like getIdleNPCs().
+      if (this.npcEngine.ready) {
+        await this.npcEngine.ready;
+      }
 
       logger.info('NPC Engine initialized');
       console.log('✅ NPC Engine initialized');

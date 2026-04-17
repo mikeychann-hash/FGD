@@ -1,8 +1,10 @@
 import commandRouter from "./routes/command.js";
+import { initMineflayerRoutes } from "./routes/mineflayer.js";
 import { initMineflayerRoutesV2 } from "./routes/mineflayer_v2.js";
 import { MineflayerPolicyService } from "./src/services/mineflayer_policy_service.js";
 import { initLLMRoutes } from "./routes/llm.js";
 import { initActionRoutes } from "./routes/action.js";
+import { initBotRoutes } from "./routes/bot.js";
 import { logSecretWarnings } from "./security/secrets.js";
 import { runStartupValidation } from "./src/services/startup.js";
 import { initDatabase, closeDatabase } from "./src/database/connection.js";
@@ -13,6 +15,35 @@ import { initializeClusterServices } from "./src/services/init_cluster.js";
 import { getServiceContainer } from "./src/services/service_container.js";
 import { initMinecraftStatusRoutes } from "./routes/minecraft_status.js";
 import { initAutonomyRoutes } from "./src/api/autonomy.js";
+import { initClusterRoutes } from "./src/api/cluster.js";
+import { initHealthRoutes } from "./src/api/health.js";
+import { initNPCRoutes } from "./src/api/npcs.js";
+import { initProgressionRoutes } from "./src/api/progression.js";
+import { NPCSystem } from "./src/services/npc_initializer.js";
+import { SystemStateManager } from "./src/services/state.js";
+import {
+  startTelemetryPipeline,
+  attachNpcEngineTelemetry,
+  cleanupTelemetry
+} from "./src/services/telemetry.js";
+import {
+  ensureDataDirectory,
+  loadSystemData,
+  setupFileWatcher
+} from "./src/services/data.js";
+import { createAppServer } from "./src/config/server.js";
+import { DEFAULT_PORT } from "./src/config/constants.js";
+import { initializeWebSocketHandlers } from "./src/websocket/handlers.js";
+import { notFoundHandler, globalErrorHandler } from "./src/middleware/errorHandlers.js";
+import { apiLimiter, authLimiter } from "./src/middleware/rateLimiter.js";
+import {
+  authenticate,
+  handleLogin,
+  getCurrentUser,
+  refreshAccessToken,
+  logout
+} from "./middleware/auth.js";
+import { logger } from "./logger.js";
 import express from "express";
 import path from "path";
 import controlRouter from "./routes/control.js";
@@ -76,9 +107,13 @@ async function initializeAPIRoutes() {
   });
 
   // Logout endpoint
-  app.post("/api/auth/logout", authenticate, (req, res) => {
+  app.post("/api/auth/logout", authenticate, async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
-    logout(token);
+    try {
+      await logout(token);
+    } catch (err) {
+      logger.warn('Logout blacklist write failed', { error: err.message });
+    }
     res.json({ success: true, message: 'Logged out successfully' });
   });
 
@@ -112,10 +147,10 @@ async function initializeAPIRoutes() {
 
     // Initialize Mineflayer routes if bridge available
     if (npcSystem.mineflayerBridge) {
-      // v1: Direct bot control without policy approval
+      // v1: Direct bot control without policy approval. DEPRECATED — use v2.
       mineflayerRouterV1 = initMineflayerRoutes(npcSystem, io);
-      logger.info('Mineflayer v1 routes initialized (direct control)');
-      console.log('✅ Mineflayer v1 routes initialized (direct control)');
+      logger.warn('Mineflayer v1 routes initialized (DEPRECATED — prefer /api/v2/mineflayer)');
+      console.warn('⚠️  Mineflayer v1 routes initialized — DEPRECATED. Migrate clients to /api/v2/mineflayer for policy-gated actions.');
 
       // v2: Policy-based approval flow for bot actions
       policyService = new MineflayerPolicyService(npcSystem);
@@ -125,8 +160,8 @@ async function initializeAPIRoutes() {
         logger.info('Mineflayer v2 routes initialized (with policy enforcement)');
         console.log('✅ Mineflayer v2 routes initialized (with policy enforcement)');
       } else {
-        logger.warn('Policy service failed to initialize, v2 routes unavailable');
-        console.warn('⚠️  Policy service initialization failed');
+        logger.error('Policy service failed to initialize; v2 routes unavailable — v1 WILL NOT silently back-fill /api/mineflayer');
+        console.error('❌ Policy service initialization failed. /api/mineflayer will return 503 until the policy service recovers.');
       }
     }
   } else {
@@ -150,7 +185,7 @@ async function initializeAPIRoutes() {
       router.use("/action", actionRouter);
     }
     if (mineflayerRouterV1) {
-      router.use("/mineflayer", mineflayerRouterV1);
+      router.use("/mineflayer", mineflayerV1Deprecation, mineflayerRouterV1);
     }
     if (llmRouter) {
       router.use("/llm", llmRouter);
@@ -221,18 +256,47 @@ async function initializeAPIRoutes() {
     }
   }
 
-  // Backward compatibility: default to v2 routes for critical endpoints
-  // This allows old clients to work with policy enforcement
+  // Unversioned /api/mineflayer always resolves to the policy-gated v2 surface.
+  // If v2 is unavailable we return 503 rather than silently falling back to v1,
+  // because v1 bypasses policy approval and that is never the right default.
   if (mineflayerRouterV2) {
     app.use("/api/mineflayer", mineflayerRouterV2);
-  } else if (mineflayerRouterV1) {
-    // Fallback to v1 if v2 policy service failed to initialize
-    app.use("/api/mineflayer", mineflayerRouterV1);
+  } else {
+    app.use("/api/mineflayer", (_req, res) => {
+      res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Mineflayer v2 (policy-gated) routes are not initialized. Use /api/v1/mineflayer for the deprecated direct-control surface.',
+      });
+    });
   }
 
   // Error handlers
   app.use('/data', notFoundHandler);
   app.use(globalErrorHandler);
+}
+
+/**
+ * Express middleware that marks every response from the Mineflayer v1 surface
+ * with deprecation headers and emits a one-time log per (method, path, client)
+ * combination so operators can track migration progress.
+ */
+const _v1WarnedKeys = new Set();
+const V1_SUNSET_DATE = 'Wed, 01 Jul 2026 00:00:00 GMT';
+function mineflayerV1Deprecation(req, res, next) {
+  res.setHeader('Deprecation', 'true');
+  res.setHeader('Sunset', V1_SUNSET_DATE);
+  res.setHeader('Link', '</api/v2/mineflayer>; rel="successor-version"');
+  const warnKey = `${req.method} ${req.baseUrl}${req.path} from ${req.ip}`;
+  if (!_v1WarnedKeys.has(warnKey)) {
+    _v1WarnedKeys.add(warnKey);
+    logger.warn('Mineflayer v1 endpoint used (deprecated)', {
+      method: req.method,
+      path: `${req.baseUrl}${req.path}`,
+      client: req.ip,
+      sunset: V1_SUNSET_DATE,
+    });
+  }
+  next();
 }
 
 /**
@@ -264,6 +328,25 @@ async function gracefulShutdown(signal, isRestart = false) {
   try {
     // Cleanup telemetry
     cleanupTelemetry();
+
+    // Release engine-owned resources (bridge listeners, monitor intervals,
+    // pending task timeouts) so no handles outlive the process shutdown.
+    if (npcSystem?.npcEngine?.shutdown) {
+      try {
+        npcSystem.npcEngine.shutdown();
+      } catch (err) {
+        logger.error('Error shutting down NPC engine', { error: err.message });
+      }
+    }
+
+    // Stop Socket.IO dashboard interval set up in initializeWebSocketHandlers.
+    if (io?.__dashboardCleanup) {
+      try {
+        io.__dashboardCleanup();
+      } catch (err) {
+        logger.error('Error cleaning up websocket intervals', { error: err.message });
+      }
+    }
 
     await closeDatabase().catch(err => {
       logger.error('Error closing database during shutdown', { error: err.message });
@@ -421,6 +504,12 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('uncaughtException', (err) => {
   console.error('❌ Uncaught Exception:', err);
   gracefulShutdown('UNCAUGHT_EXCEPTION');
+});
+
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.stack || reason.message : String(reason);
+  console.error('❌ Unhandled Rejection:', message);
+  gracefulShutdown('UNHANDLED_REJECTION');
 });
 
 // Start the server

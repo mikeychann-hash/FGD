@@ -383,14 +383,28 @@ export class NPCRegistry {
     this.loaded = true;
     const run = async () => {
       const payload = this._serialize();
-      await fs.mkdir(path.dirname(this.registryPath), { recursive: true });
+      const dir = path.dirname(this.registryPath);
+      await fs.mkdir(dir, { recursive: true });
       const serialized = JSON.stringify(payload, null, 2);
-      await fs.writeFile(this.registryPath, serialized, "utf8");
+      // Atomic write: write to a temp file in the same directory, then rename.
+      // This prevents a partial registry file on crash or concurrent writer.
+      const tmpPath = `${this.registryPath}.${process.pid}.${Date.now()}.tmp`;
+      try {
+        await fs.writeFile(tmpPath, serialized, "utf8");
+        await fs.rename(tmpPath, this.registryPath);
+      } catch (err) {
+        await fs.unlink(tmpPath).catch(() => {});
+        throw err;
+      }
       return payload;
     };
 
     const scheduled = this.saveQueue.then(run);
-    this.saveQueue = scheduled.catch(() => { });
+    // Keep the chain alive even if a save fails, but preserve the rejection
+    // on the returned promise so callers learn about failures.
+    this.saveQueue = scheduled.catch((err) => {
+      console.error('NPCRegistry save failed:', err?.message || err);
+    });
     return scheduled;
   }
 

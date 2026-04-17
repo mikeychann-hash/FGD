@@ -92,7 +92,7 @@ export class BotControlManager extends EventEmitter {
     const interval = setInterval(() => {
       const state = this.getState(botId);
       emitFn('bot:state_update', { botId, controls: state, timestamp: Date.now() });
-    }, 100); // ~10 Hz
+    }, 100); // ~10 Hz
     this.streamingIntervals.set(botId, { interval, emitFn });
     this.emit('session:start', { botId });
   }

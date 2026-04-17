@@ -97,7 +97,6 @@
       "desktop/preload.cjs",
       "desktop/dist/**/*",
       "server.js",
-      "core_runtime.js",
       "npc_engine.js",
       "minecraft_bridge.js",
       "minecraft_bridge_mineflayer.js",

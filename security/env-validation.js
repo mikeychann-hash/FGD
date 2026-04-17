@@ -81,50 +81,51 @@ export function validateCriticalEnvVars() {
 
   const errors = [];
   const validated = {};
+  const isProduction = process.env.NODE_ENV === 'production';
 
-  // Validate database password (Optional for local dev)
+  // Validate database password. Required in production, optional otherwise.
   try {
     validated.DB_PASSWORD = validateEnvVar('DB_PASSWORD', {
-      required: false, // Changed to false for local dev
-      checkWeak: false,
+      required: isProduction,
+      checkWeak: isProduction,
       label: 'Database Password'
     });
     if (validated.DB_PASSWORD) {
       console.log('✅ DB_PASSWORD: Valid and secure');
     } else {
-      console.log('⚠️  DB_PASSWORD: Not set (using default/local mode)');
+      console.log('⚠️  DB_PASSWORD: Not set (allowed in non-production only)');
     }
   } catch (error) {
     errors.push(error.message);
   }
 
-  // Validate admin API key (Optional for local dev)
+  // Validate admin API key. Required in production.
   try {
     validated.ADMIN_API_KEY = validateEnvVar('ADMIN_API_KEY', {
-      required: false, // Changed to false for local dev
-      checkWeak: false,
+      required: isProduction,
+      checkWeak: isProduction,
       label: 'Admin API Key'
     });
     if (validated.ADMIN_API_KEY) {
       console.log('✅ ADMIN_API_KEY: Valid and secure');
     } else {
-      console.log('⚠️  ADMIN_API_KEY: Not set (Authentication bypassed for Admin)');
+      console.error('🚨 SECURITY WARNING: ADMIN_API_KEY not set — admin authentication is BYPASSED. Set ADMIN_API_KEY before exposing this server.');
     }
   } catch (error) {
     errors.push(error.message);
   }
 
-  // Validate LLM API key (Optional for local dev with CLI)
+  // Validate LLM API key. Required in production.
   try {
     validated.LLM_API_KEY = validateEnvVar('LLM_API_KEY', {
-      required: false, // Changed to false for local dev
-      checkWeak: false,
+      required: isProduction,
+      checkWeak: isProduction,
       label: 'LLM API Key'
     });
     if (validated.LLM_API_KEY) {
       console.log('✅ LLM_API_KEY: Valid and secure');
     } else {
-      console.log('⚠️  LLM_API_KEY: Not set (Authentication bypassed for LLM or using CLI)');
+      console.error('🚨 SECURITY WARNING: LLM_API_KEY not set — LLM endpoints are unauthenticated. Set LLM_API_KEY before exposing this server.');
     }
   } catch (error) {
     errors.push(error.message);

@@ -64,7 +64,10 @@ export function initNPCRoutes(npcSystem) {
         }
       }
 
-      return ok(res, { npc: enriched });
+      // Keep the legacy shape: fields like `role`, `status`, `position`
+      // stay at the top level so existing clients do not break. `success`
+      // is an additive field.
+      return ok(res, enriched);
     } catch (err) {
       logger.error('Failed to get NPC', { npcId: req.params.id, error: err.message });
       return fail(res, 500, 'Failed to retrieve NPC', err.message);
@@ -98,7 +101,8 @@ export function initNPCRoutes(npcSystem) {
       });
 
       logger.info('NPC created via API', { npcId: result.id });
-      return ok(res, { npc: result }, 201);
+      // Preserve legacy top-level shape.
+      return ok(res, result, 201);
     } catch (err) {
       logger.error('Failed to create NPC', { error: err.message });
       return fail(res, 500, 'Failed to create NPC', err.message);
@@ -131,7 +135,7 @@ export function initNPCRoutes(npcSystem) {
       });
 
       logger.info('NPC updated via API', { npcId: req.params.id });
-      return ok(res, { npc: updated });
+      return ok(res, updated);
     } catch (err) {
       logger.error('Failed to update NPC', { npcId: req.params.id, error: err.message });
       return fail(res, 500, 'Failed to update NPC', err.message);
@@ -156,7 +160,7 @@ export function initNPCRoutes(npcSystem) {
       });
 
       logger.info('NPC finalized via API', { npcId: req.params.id });
-      return ok(res, { result });
+      return ok(res, result);
     } catch (err) {
       logger.error('Failed to finalize NPC', { npcId: req.params.id, error: err.message });
       return fail(res, 500, 'Failed to finalize NPC', err.message);

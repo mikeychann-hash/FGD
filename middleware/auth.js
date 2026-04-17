@@ -24,7 +24,7 @@ let _redisClientPromise = null;
 
 async function getBlacklistRedisClient() {
   if (_redisClientPromise) return _redisClientPromise;
-  _redisClientPromise = (async () => {
+  const attempt = (async () => {
     try {
       const mod = await import('../src/database/redis.js');
       return mod.getRedisClient();
@@ -34,7 +34,15 @@ async function getBlacklistRedisClient() {
       return null;
     }
   })();
-  return _redisClientPromise;
+  _redisClientPromise = attempt;
+  const client = await attempt;
+  // Only memoize once we actually have a client. If the first call happened
+  // before Redis finished initialising, later calls should retry instead of
+  // being stuck in in-memory-only mode for the process lifetime.
+  if (!client) {
+    _redisClientPromise = null;
+  }
+  return client;
 }
 
 function tokenRemainingTtlSec(token) {

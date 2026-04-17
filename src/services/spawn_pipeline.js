@@ -75,14 +75,21 @@ export async function spawnBot(npcSystem, io, { botId, position, user, source = 
   const { npcSpawner, npcEngine } = npcSystem;
   const registry = npcEngine.registry;
 
-  const budget = enforceSpawnBudget(npcSystem, 1);
-  if (!budget.ok) {
-    throw new SpawnError(budget.message, 400, budget);
-  }
-
   const bot = registry.get(botId);
   if (!bot) {
     throw new SpawnError(`Bot ${botId} not found`, 404);
+  }
+
+  // Budget check only applies to bots that are not already active. A
+  // teleport or re-spawn of an already-active bot is not adding a new
+  // participant to the cluster, so enforcing `active + 1 <= MAX_BOTS`
+  // here would regress teleport at capacity.
+  const isRespawn = bot.status === 'active';
+  if (!isRespawn) {
+    const budget = enforceSpawnBudget(npcSystem, 1);
+    if (!budget.ok) {
+      throw new SpawnError(budget.message, 400, budget);
+    }
   }
 
   const spawnPosition = resolvePosition(bot, npcSpawner, position);

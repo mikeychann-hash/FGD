@@ -160,6 +160,28 @@ describe('spawn_pipeline', () => {
       expect(system.npcSpawner.spawn).not.toHaveBeenCalled();
     });
 
+    it('allows respawning an already-active bot at capacity (teleport)', async () => {
+      // Cluster is full. The bot being respawned is one of the active ones,
+      // so this is a move, not a new participant — the budget check must not
+      // refuse it.
+      const activeBots = Array.from({ length: MAX_BOTS }, (_, i) => ({
+        id: `active_${i}`,
+        status: 'active',
+      }));
+      const system = makeNpcSystem({ knownBots: activeBots });
+
+      const result = await spawnBot(system, null, {
+        botId: 'active_0',
+        position: { x: 9, y: 64, z: 9 },
+        source: 'teleport',
+      });
+
+      expect(result.success).toBe(true);
+      expect(system.npcSpawner.spawn).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'active_0', position: { x: 9, y: 64, z: 9 } })
+      );
+    });
+
     it('throws 503 SpawnError when no bridge is configured', async () => {
       const system = makeNpcSystem();
       system.npcEngine.mineflayerBridge = null;

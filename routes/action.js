@@ -1,6 +1,7 @@
 import express from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { createActionPipeline } from '../src/services/action_pipeline/index.js';
+import { fail } from '../src/middleware/response.js';
 
 export function initActionRoutes(npcSystem, io) {
   const router = express.Router();
@@ -19,7 +20,8 @@ export function initActionRoutes(npcSystem, io) {
         result: result.result || null,
       });
     } catch (err) {
-      res.status(400).json({ error: err.message || 'Action failed' });
+      const status = err?.status && err.status >= 400 && err.status < 600 ? err.status : 400;
+      return fail(res, status, err.message || 'Action failed');
     }
   });
 

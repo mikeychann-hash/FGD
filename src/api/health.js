@@ -2,6 +2,7 @@ import express from 'express';
 import { logger } from '../../logger.js';
 import { getServiceContainer, getServiceStatus } from '../services/service_container.js';
 import { getPool } from '../database/connection.js';
+import { fail } from '../middleware/response.js';
 
 /**
  * Initialize health check and metrics routes
@@ -122,7 +123,7 @@ export function initHealthRoutes(npcSystem, stateManager) {
       res.json(metrics);
     } catch (err) {
       logger.error('Failed to get system metrics', { error: err.message });
-      res.status(500).json({ error: 'Failed to retrieve metrics' });
+      return fail(res, 500, 'Failed to retrieve metrics', err.message);
     }
   });
 
@@ -132,14 +133,14 @@ export function initHealthRoutes(npcSystem, stateManager) {
   router.get('/autonomic', (req, res) => {
     try {
       if (!npcSystem.autonomicCore) {
-        return res.status(503).json({ error: 'Autonomic core not initialized' });
+        return fail(res, 503, 'Autonomic core not initialized');
       }
 
       const status = npcSystem.autonomicCore.getStatus();
       res.json(status);
     } catch (err) {
       logger.error('Failed to get autonomic status', { error: err.message });
-      res.status(500).json({ error: 'Failed to get autonomic status' });
+      return fail(res, 500, 'Failed to get autonomic status', err.message);
     }
   });
 

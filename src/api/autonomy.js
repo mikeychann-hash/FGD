@@ -3,6 +3,7 @@
 
 import express from 'express';
 import { getLLMController } from '../autonomy/llm_controller.js';
+import { fail } from '../middleware/response.js';
 import {
     getBotTokenStats,
     getAggregateTokenStats,
@@ -26,17 +27,17 @@ export function initAutonomyRoutes(npcEngine, bridge) {
             const { botId, goal, options } = req.body;
 
             if (!botId || typeof botId !== 'string') {
-                return res.status(400).json({ error: 'botId is required' });
+                return fail(res, 400, 'botId is required');
             }
 
             if (!goal || typeof goal !== 'string') {
-                return res.status(400).json({ error: 'goal is required' });
+                return fail(res, 400, 'goal is required');
             }
 
             const result = await llmController.executeDecision(botId, goal, options || {});
 
             if (!result.success) {
-                return res.status(500).json({ error: result.error });
+                return fail(res, 500, result.error || 'LLM decision failed');
             }
 
             res.json({
@@ -50,7 +51,7 @@ export function initAutonomyRoutes(npcEngine, bridge) {
 
         } catch (err) {
             console.error('Autonomy goal error:', err);
-            res.status(500).json({ error: err.message });
+            return fail(res, 500, err.message);
         }
     });
 
@@ -63,7 +64,7 @@ export function initAutonomyRoutes(npcEngine, bridge) {
             const { botId, goal, interval, options } = req.body;
 
             if (!botId || typeof botId !== 'string') {
-                return res.status(400).json({ error: 'botId is required' });
+                return fail(res, 400, 'botId is required');
             }
 
             llmController.startAutonomousLoop(botId, {
@@ -81,7 +82,7 @@ export function initAutonomyRoutes(npcEngine, bridge) {
 
         } catch (err) {
             console.error('Start autonomy error:', err);
-            res.status(500).json({ error: err.message });
+            return fail(res, 500, err.message);
         }
     });
 
@@ -94,7 +95,7 @@ export function initAutonomyRoutes(npcEngine, bridge) {
             const { botId } = req.body;
 
             if (!botId || typeof botId !== 'string') {
-                return res.status(400).json({ error: 'botId is required' });
+                return fail(res, 400, 'botId is required');
             }
 
             llmController.stopAutonomousLoop(botId);
@@ -107,7 +108,7 @@ export function initAutonomyRoutes(npcEngine, bridge) {
 
         } catch (err) {
             console.error('Stop autonomy error:', err);
-            res.status(500).json({ error: err.message });
+            return fail(res, 500, err.message);
         }
     });
 
@@ -127,7 +128,7 @@ export function initAutonomyRoutes(npcEngine, bridge) {
 
         } catch (err) {
             console.error('Get stats error:', err);
-            res.status(500).json({ error: err.message });
+            return fail(res, 500, err.message);
         }
     });
 
@@ -141,7 +142,7 @@ export function initAutonomyRoutes(npcEngine, bridge) {
             const stats = getBotTokenStats(botId);
 
             if (!stats) {
-                return res.status(404).json({ error: `No statistics found for bot ${botId}` });
+                return fail(res, 404, `No statistics found for bot ${botId}`);
             }
 
             res.json({
@@ -151,7 +152,7 @@ export function initAutonomyRoutes(npcEngine, bridge) {
 
         } catch (err) {
             console.error('Get bot stats error:', err);
-            res.status(500).json({ error: err.message });
+            return fail(res, 500, err.message);
         }
     });
 
@@ -176,7 +177,7 @@ export function initAutonomyRoutes(npcEngine, bridge) {
 
         } catch (err) {
             console.error('Get history error:', err);
-            res.status(500).json({ error: err.message });
+            return fail(res, 500, err.message);
         }
     });
 
@@ -191,7 +192,7 @@ export function initAutonomyRoutes(npcEngine, bridge) {
 
         } catch (err) {
             console.error('Get metrics error:', err);
-            res.status(500).json({ error: err.message });
+            return fail(res, 500, err.message);
         }
     });
 
@@ -211,7 +212,7 @@ export function initAutonomyRoutes(npcEngine, bridge) {
 
         } catch (err) {
             console.error('Reset stats error:', err);
-            res.status(500).json({ error: err.message });
+            return fail(res, 500, err.message);
         }
     });
 

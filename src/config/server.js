@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import compression from 'compression';
+import { HTTP_LIMITS } from './limits.js';
 
 /**
  * Creates and configures the Express app, HTTP server, and Socket.IO server
@@ -74,7 +75,7 @@ export function createAppServer() {
   );
 
   // Parse JSON bodies with an explicit size cap to mitigate large-payload DoS.
-  const bodyLimit = process.env.HTTP_BODY_LIMIT || '1mb';
+  const bodyLimit = HTTP_LIMITS.BODY_LIMIT;
   app.use(express.json({ limit: bodyLimit }));
   app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
 

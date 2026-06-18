@@ -5,6 +5,8 @@
  * Can be overridden via environment variables.
  */
 
+import { MINEFLAYER_LIMITS } from './limits.js';
+
 export const mineflayerConfig = {
   // Server connection
   host: process.env.MINECRAFT_HOST || 'localhost',
@@ -20,36 +22,36 @@ export const mineflayerConfig = {
 
   // Pathfinding
   pathfinding: {
-    timeout: 30000, // 30 seconds
+    timeout: MINEFLAYER_LIMITS.PATHFINDING_TIMEOUT_MS,
     range: 1, // Stop within 1 block of target
     maxDistance: 128, // Don't search more than 128 blocks away
   },
 
   // Mining
   mining: {
-    timeout: 30000, // 30 seconds per block
+    timeout: MINEFLAYER_LIMITS.MINING_TIMEOUT_MS,
     equipTool: true, // Auto-select best tool
     maxDistance: 32, // Search radius for blocks
   },
 
   // Movement
   movement: {
-    timeout: 60000, // 60 seconds
+    timeout: MINEFLAYER_LIMITS.MOVEMENT_TIMEOUT_MS,
     range: 1, // Stop within 1 block
   },
 
   // Inventory
   inventory: {
     maxSlots: 36,
-    timeout: 5000,
+    timeout: MINEFLAYER_LIMITS.INVENTORY_TIMEOUT_MS,
   },
 
   // Timeouts and limits
   limits: {
     maxBots: 50, // Maximum concurrent bots
-    connectionTimeout: 30000, // 30 seconds to connect
-    reconnectDelay: 5000, // 5 seconds between reconnects
-    maxReconnectAttempts: 3,
+    connectionTimeout: MINEFLAYER_LIMITS.CONNECTION_TIMEOUT_MS,
+    reconnectDelay: MINEFLAYER_LIMITS.RECONNECT_DELAY_MS,
+    maxReconnectAttempts: MINEFLAYER_LIMITS.MAX_RECONNECT_ATTEMPTS,
   },
 
   // Events and logging
